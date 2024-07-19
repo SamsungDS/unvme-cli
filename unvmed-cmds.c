@@ -825,7 +825,12 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 	if (ret)
 		unvmed_err_return(errno, "failed to reset %s controller", bdf);
 
-	nvme_close(&unvme->ctrl);
+	for (int i = 0; i < unvme->ctrl.opts.nsqr + 2; i++)
+		nvme_discard_sq(&unvme->ctrl, &unvme->ctrl.sq[i]);
+
+	for (int i = 0; i < unvme->ctrl.opts.ncqr + 2; i++)
+		nvme_discard_cq(&unvme->ctrl, &unvme->ctrl.cq[i]);
+
 	unvme->init = false;
 
 	opt_free_table();
