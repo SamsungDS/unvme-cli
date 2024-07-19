@@ -246,8 +246,6 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (!unvme)
 		unvmed_err_return(EPERM, "Do 'unvme add %s' first", bdf);
-	if (!unvme->init)
-		unvmed_err_return(EPERM, "'enable-ctrl' must be executed first");
 
 	unvmed_pr_show_regs(unvme->ctrl.regs);
 	return 0;
