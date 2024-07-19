@@ -738,10 +738,8 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 	if (!unvme_cmd_cmpl(cmd)) {
-		if (read) {
-			unvme_shmem_cp(vaddr, data_len);
-			unvme_msg_update_len(msg, data_len);
-		}
+		if (read)
+			unvme_cmd_pr_raw(msg, cmd);
 	} else
 		unvme_cmd_pr_cqe(cmd);
 out:
