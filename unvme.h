@@ -449,42 +449,6 @@ static inline void *unvme_stdout(void)
 	return __shmem(UNVME_SHMEM_STDOUT, UNVME_STDERR_SIZE);
 }
 
-static inline void __shmem_close(const char *name, bool destroy, void *vaddr, size_t size)
-{
-	munmap(vaddr, size);
-
-	if (destroy)
-		shm_unlink(name);
-}
-
-static inline int unvme_shmem_cp(void *data, size_t len)
-{
-	void *shmem = __shmem(UNVME_SHMEM_STDOUT, len);
-
-	if (!shmem)
-		return 1;
-
-	memcpy(shmem, data, len);
-	__shmem_close(UNVME_SHMEM_STDOUT, false, shmem, len);
-	return 0;
-}
-
-static inline int unvme_shmem_pr(void *data, int (*pr)(char **out, void *data))
-{
-	UNVME_FREE char *output = NULL;
-	void *shmem;
-	size_t len;
-
-	len = pr(&output, data);
-	shmem = __shmem(UNVME_SHMEM_STDOUT, len);
-	if (!shmem)
-		return 1;
-
-	memcpy(shmem, output, len);
-	__shmem_close(UNVME_SHMEM_STDOUT, false, shmem, len);
-	return 0;
-}
-
 /*
  * unvmed-print.c
  */
