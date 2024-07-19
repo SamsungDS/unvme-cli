@@ -283,6 +283,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		perror("nvme_enable");
 		ret = errno;
 	}
+	unvme->init = true;
 
 out:
 	opt_free_table();
