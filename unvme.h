@@ -227,6 +227,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_del(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_enable_ctrl(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_enable(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg);

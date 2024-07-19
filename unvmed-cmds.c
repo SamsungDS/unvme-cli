@@ -251,6 +251,44 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 	return 0;
 }
 
+int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *bdf = unvme_msg_bdf(msg);
+	struct unvme *unvme = unvmed_ctrl(bdf);
+	bool help = false;
+	const char *desc =
+		"Enable NVMe controller along with setting up admin queues.\n"
+		"It will wait for CSTS.RDY to be 1 after setting CC.EN to 1.";
+
+	struct opt_table opts[] = {
+		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
+		OPT_ENDTABLE
+	};
+
+	unsigned long sq_flags = 0;
+	int ret = 0;
+
+	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+
+	if (!unvme)
+		unvmed_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+
+	if (nvme_configure_adminq(&unvme->ctrl, sq_flags)) {
+		perror("nvme_configure_adminq");
+		ret = errno;
+		goto out;
+	}
+
+	if (nvme_enable(&unvme->ctrl)) {
+		perror("nvme_enable");
+		ret = errno;
+	}
+
+out:
+	opt_free_table();
+	return ret;
+}
+
 int unvme_enable_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *unvme = unvmed_ctrl(unvme_msg_bdf(msg));
