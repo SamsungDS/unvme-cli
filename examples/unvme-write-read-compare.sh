@@ -14,7 +14,7 @@ bdf="$1"
 
 unvme start
 unvme add $bdf
-unvme enable-ctrl $bdf
+unvme enable $bdf
 unvme create-iocq $bdf -q 1 -z 32 -v 0
 unvme create-iosq $bdf -q 1 -z 32 -c 1
 

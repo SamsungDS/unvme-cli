@@ -25,7 +25,6 @@ static struct command cmds[] = {
 	{"del",			"Delete NVMe PCI device from unvmed",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_del},
 	{"show-regs",		"Show NVMe controller properties",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_show_regs},
 	{"enable",		"Enable controller with adminq",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_enable},
-	{"enable-ctrl",		"Enable Controller (nvme_init())",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_enable_ctrl},
 	{"disable",		"Disable controller",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
 	{"create-iocq",		"Create I/O Completion Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iocq},
 	{"create-iosq",		"Create I/O Submission Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iosq},

@@ -290,37 +290,6 @@ out:
 	return ret;
 }
 
-int unvme_enable_ctrl(int argc, char *argv[], struct unvme_msg *msg)
-{
-	struct unvme *unvme = unvmed_ctrl(unvme_msg_bdf(msg));
-	bool help = false;
-	int ret;
-	const char *desc =
-		"Enable the target <device> by asserting CC.EN to 1 by libvfn.\n"
-		"libvfn will automatically configure admin submission queue and\n"
-		"completion queue without any I/O command queues.";
-
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
-	};
-
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
-
-	if (!unvme)
-		unvmed_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
-	if (unvme->init)
-		unvmed_err_return(EEXIST, "%s is already registered", unvme->bdf);
-
-	ret = nvme_init(&unvme->ctrl, unvme->bdf, NULL);
-	if (ret)
-		unvmed_err_return(ret, "failed to initialize NVMe controller\n");
-
-	unvme->init = true;
-	opt_free_table();
-	return 0;
-}
-
 int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *unvme = unvmed_ctrl(unvme_msg_bdf(msg));
@@ -349,7 +318,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		unvmed_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
 
 	if (!unvme->init)
-		unvmed_err_return(EPERM, "'enable-ctrl' must be executed first");
+		unvmed_err_return(EPERM, "'enable' must be executed first");
 
 	if (!qid)
 		unvmed_err_return(EINVAL, "-q|--qid required");
@@ -396,7 +365,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		unvmed_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
 
 	if (!unvme->init)
-		unvmed_err_return(EPERM, "'enable-ctrl' must be executed first");
+		unvmed_err_return(EPERM, "'enable' must be executed first");
 
 	if (!qid)
 		unvmed_err_return(EINVAL, "-q|--qid required");
@@ -451,7 +420,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (!nsid)
 		unvmed_err_return(EINVAL, "-n|--namespace-id required");
 	if (!unvme_sq(unvme, 0))
-		unvmed_err_return(EPERM, "'enable-ctrl' must be executed first");
+		unvmed_err_return(EPERM, "'enable' must be executed first");
 
 	cmd = unvme_cmd_alloc(unvme, 0, 4096);
 	if (!cmd)
@@ -839,7 +808,7 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 	const char *desc =
 		"Reset NVMe controller by setting CC.EN to 0 and wait for CSTS.RDY register\n"
 		"to be 0 which represents reset completed.  To re-enable the controller,\n"
-		"`enable-ctrl` should be executed again.";
+		"`enable` should be executed again.";
 
 	bool help = false;
 	struct opt_table opts[] = {

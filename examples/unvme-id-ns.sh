@@ -12,6 +12,6 @@ bdf="$1"
 
 unvme start
 unvme add $bdf
-unvme enable-ctrl $bdf
+unvme enable $bdf
 unvme id-ns $bdf -n 0x1
 unvme stop
