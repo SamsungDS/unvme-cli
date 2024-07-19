@@ -175,6 +175,7 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 {
 	char *bdf = unvme_msg_bdf(msg);
+	struct unvme *unvme;
 	bool help = false;
 
 	const char *desc =
@@ -188,10 +189,15 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
 
+	unvme = unvmed_alloc(bdf);
+	if (!unvme)
+		unvmed_err_return(ENOMEM, "failed to allocate unvmed");
+
 	__bind(bdf, "vfio-pci");
+	nvme_ctrl_init(&unvme->ctrl, bdf, NULL);
 
 	opt_free_table();
-	return unvmed_alloc(bdf);
+	return 0;
 }
 
 int unvme_del(int argc, char *argv[], struct unvme_msg *msg)

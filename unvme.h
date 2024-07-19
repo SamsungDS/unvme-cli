@@ -188,7 +188,7 @@ int unvme_recv_msg(struct unvme_msg *msg);
 #define UNVME_UNVMED_PID	"/var/run/unvmed.pid"
 int unvmed(void);
 struct unvme *unvmed_ctrl(const char *bdf);
-int unvmed_alloc(const char *bdf);
+struct unvme *unvmed_alloc(const char *bdf);
 int unvmed_free(const char *bdf);
 
 static inline int unvme_unvmed_pid(void)

@@ -29,7 +29,7 @@ struct unvme *unvmed_ctrl(const char *bdf)
 	return NULL;
 }
 
-int unvmed_alloc(const char *bdf)
+struct unvme *unvmed_alloc(const char *bdf)
 {
 	struct unvme *unvme;
 
@@ -38,13 +38,13 @@ int unvmed_alloc(const char *bdf)
 
 	unvme = (struct unvme *)malloc(sizeof(struct unvme));
 	if (!unvme)
-		return -ENOMEM;
+		return NULL;
 
 	strncpy(unvme->bdf, bdf, sizeof(unvme->bdf));
 
 	list_head_init(&unvme->cmd_list);
 	list_add(&ctrls, &unvme->list);
-	return 0;
+	return unvme;
 }
 
 int unvmed_free(const char *bdf)
