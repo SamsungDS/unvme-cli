@@ -21,7 +21,7 @@ Please refer examples test cases under examples/.
 ## How to build
 
 **Requirements**
-  - libvfn (>= 5.0.0)
+  - libvfn (>= 5.1.0)
 
 ```bash
 meson setup build

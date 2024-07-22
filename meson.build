@@ -5,7 +5,7 @@ project('unvme-cli', 'c',
 
 subdir('ccan')
 
-vfn_lib = dependency('libvfn', version: '>=5.0.0')
+vfn_lib = dependency('libvfn', version: '>=5.1.0')
 
 executable(
   'unvme',
