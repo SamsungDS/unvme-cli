@@ -408,7 +408,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	UNVME_FREE_CMD struct unvme_cmd *cmd;
+	UNVME_FREE_CMD struct unvme_cmd *cmd = NULL;
 	struct nvme_cmd_identify *sqe;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
@@ -480,7 +480,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	UNVME_FREE_CMD struct unvme_cmd *cmd;
+	UNVME_FREE_CMD struct unvme_cmd *cmd = NULL;
 	struct nvme_cmd_rw *sqe;
 	void *vaddr;
 	ssize_t len;
@@ -560,7 +560,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	UNVME_FREE_CMD struct unvme_cmd *cmd;
+	UNVME_FREE_CMD struct unvme_cmd *cmd = NULL;
 	struct nvme_cmd_rw *sqe;
 	void *vaddr;
 	ssize_t len;
@@ -664,7 +664,7 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	UNVME_FREE_CMD struct unvme_cmd *cmd;
+	UNVME_FREE_CMD struct unvme_cmd *cmd = NULL;
 	union nvme_cmd *sqe;
 	void *vaddr = NULL;
 	int ret = 0;
