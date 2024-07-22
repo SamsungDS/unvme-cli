@@ -712,10 +712,16 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	data_len = cmd->len;
 	sqe = (union nvme_cmd *)&cmd->sqe;
 
-	if (data_len && write) {
-		if (unvme_read_file(msg, input, vaddr, data_len)) {
-			ret = errno;
-			goto out;
+	if (data_len) {
+		if (nvme_rq_map_prp(&unvme->ctrl, cmd->rq, (union nvme_cmd *)sqe,
+					cmd->iova, cmd->len))
+			unvmed_err_return(ENODEV, "failed to map PRP buffer");
+
+		if (write) {
+			if (unvme_read_file(msg, input, vaddr, data_len)) {
+				ret = errno;
+				goto out;
+			}
 		}
 	}
 
