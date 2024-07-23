@@ -413,7 +413,11 @@ static inline int unvme_msgq_recv(int msg_id, struct unvme_msg *msg)
 	return 0;
 }
 
-#define UNVME_STDERR_SIZE	(1 * 1024 * 1024)
+/*
+ * XXX: It would be better if we can have stderr and stdout with dynamic size
+ * during the runtime.
+ */
+#define UNVME_STDERR_SIZE	(4 * 1024 * 1024)
 
 static inline void *__shmem(const char *name, size_t size)
 {
