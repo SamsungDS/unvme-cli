@@ -620,7 +620,10 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	const char *desc =
 		"Submit a I/O passthru command to the given submission queue of the\n"
 		"target <device>. To run this command, I/O queue MUST be created.\n"
-		"Passthru command SQE can be built with the options provided.";
+		"Passthru command SQE can be built with the options provided.\n"
+		"\n"
+		"User can inject specific values to PRP1 and PRP2 in DPTR with --prp1, --prp2\n"
+		"options, but it might cause system crash without protection by IOMMU.";
 
 	uint32_t sqid = 0;
 	uint32_t nsid = 0;
@@ -630,6 +633,9 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	uint32_t data_len = 0;
 	uint32_t cdw2 = 0;
 	uint32_t cdw3 = 0;
+	/* To figure out whether --prp1=, --prp2= are given or not */
+	char *prp1 = NULL;
+	char *prp2 = NULL;
 	uint32_t cdw10 = 0;
 	uint32_t cdw11 = 0;
 	uint32_t cdw12 = 0;
@@ -650,6 +656,8 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_WITH_ARG("-l|--data-len", opt_set_uintval_bi, opt_show_uintval_bi, &data_len, "[O] Data length in bytes"),
 		OPT_WITH_ARG("-2|--cdw2", opt_set_uintval, opt_show_uintval, &cdw2, "[O] Command dword 2"),
 		OPT_WITH_ARG("-3|--cdw3", opt_set_uintval, opt_show_uintval, &cdw3, "[O] Command dword 3"),
+		OPT_WITH_ARG("--prp1", opt_set_charp, opt_show_charp, &prp1, "[O] PRP1 in DPTR (for injection)"),
+		OPT_WITH_ARG("--prp2", opt_set_charp, opt_show_charp, &prp2, "[O] PRP2 in DPTR (for injection)"),
 		OPT_WITH_ARG("-4|--cdw10", opt_set_uintval, opt_show_uintval, &cdw10, "[O] Command dword 10"),
 		OPT_WITH_ARG("-5|--cdw11", opt_set_uintval, opt_show_uintval, &cdw11, "[O] Command dword 11"),
 		OPT_WITH_ARG("-6|--cdw12", opt_set_uintval, opt_show_uintval, &cdw12, "[O] Command dword 12"),
@@ -730,6 +738,15 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	sqe->nsid = cpu_to_le32(nsid);
 	sqe->cdw2 = cpu_to_le32(cdw2);
 	sqe->cdw3 = cpu_to_le32(cdw3);
+
+	/*
+	 * Override prp1 and prp2 if they are given to inject specific values
+	 */
+	if (prp1)
+		sqe->dptr.prp1 = strtoull(prp1, NULL, 0);
+	if (prp2)
+		sqe->dptr.prp2 = strtoull(prp2, NULL, 0);
+
 	sqe->cdw10 = cpu_to_le32(cdw10);
 	sqe->cdw11 = cpu_to_le32(cdw11);
 	sqe->cdw12 = cpu_to_le32(cdw12);
