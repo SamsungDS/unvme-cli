@@ -3,9 +3,15 @@ project('unvme-cli', 'c',
         license: 'GPL-2.0-or-later',
         )
 
+static = get_option('static')
+
+if static
+  add_project_link_arguments('-static', language: 'c')
+endif
+
 subdir('ccan')
 
-vfn_lib = dependency('libvfn', version: '>=5.1.0')
+vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
 
 executable(
   'unvme',
