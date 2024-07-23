@@ -25,7 +25,7 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 		perror("fork");
 		ret = errno;
 	} else if (!pid)
-		ret = unvmed();
+		ret = unvmed(argv);
 
 	return ret;
 }

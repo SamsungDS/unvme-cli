@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <sys/signal.h>
 #include <sys/prctl.h>
 #include <sys/types.h>
@@ -164,7 +165,22 @@ static void unvmed_std_init(void)
 	__stdout[0] = '\0';
 }
 
-int unvmed(void)
+static inline int unvmed_cmdline_strlen(void)
+{
+	char buf[16];
+	ssize_t len;
+	int fd;
+
+	fd = open("/proc/self/cmdline", O_RDONLY);
+	assert(fd > 0);
+
+	len = read(fd, buf, sizeof(buf));
+
+	close(fd);
+	return len;
+}
+
+int unvmed(char *argv[])
 {
 	struct unvme_msg msg;
 	int sqid;
@@ -177,6 +193,10 @@ int unvmed(void)
 		unvme_pr_return(-1, "ERROR: failed to create new session\n");
 
 	prctl(PR_SET_NAME, (unsigned long)"unvmed", 0, 0, 0);
+
+	memset(argv[0], 0, unvmed_cmdline_strlen());
+	strcpy(argv[0], "unvmed");
+	argv[0][strlen("unvmed")] = '\0';
 
 	umask(0);
 	chdir("/");
