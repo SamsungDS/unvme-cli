@@ -18,8 +18,20 @@ struct unvme {
 	char bdf[UNVME_BDF_STRLEN];
 	bool init;
 
+	struct list_head sq_list;
+	struct list_head cq_list;
 	struct list_head cmd_list;
 
+	struct list_node list;
+};
+
+struct unvme_sq {
+	struct nvme_sq *sq;
+	struct list_node list;
+};
+
+struct unvme_cq {
+	struct nvme_cq *cq;
 	struct list_node list;
 };
 

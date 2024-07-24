@@ -43,6 +43,8 @@ struct unvme *unvmed_alloc(const char *bdf)
 
 	strncpy(unvme->bdf, bdf, sizeof(unvme->bdf));
 
+	list_head_init(&unvme->sq_list);
+	list_head_init(&unvme->cq_list);
 	list_head_init(&unvme->cmd_list);
 	list_add(&ctrls, &unvme->list);
 	return unvme;

@@ -19,6 +19,32 @@
 		return err;						\
 	} while(0)
 
+/*
+ * `libvfn` manages the sq and cq instance itself, but `unvme` should also keep
+ * the sq/cq instance to free them in a proper time rather than letting
+ * `libvfn` does the clean-up via nvme_close() which might cause mismatch
+ * between `unvme` and `libvfn`.
+ */
+static void __free_nvme(struct unvme *unvme)
+{
+	struct unvme_sq *sq, *sq_next;
+	struct unvme_cq *cq, *cq_next;
+
+	list_for_each_safe(&unvme->sq_list, sq, sq_next, list) {
+		nvme_discard_sq(&unvme->ctrl, sq->sq);
+		free(sq->sq);
+		list_del(&sq->list);
+	}
+	free(unvme->ctrl.sq);
+
+	list_for_each_safe(&unvme->cq_list, cq, cq_next, list) {
+		nvme_discard_cq(&unvme->ctrl, cq->cq);
+		free(cq->cq);
+		list_del(&cq->list);
+	}
+	free(unvme->ctrl.cq);
+}
+
 static inline int unvme_sq_nr_pending(struct nvme_sq *sq)
 {
 	if (sq->tail >= sq->ptail)
@@ -224,6 +250,8 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvme)
 		unvmed_err_return(EPERM, "Do 'unvme add %s' first", bdf);
 
+	__free_nvme(unvme);
+
 	ret = unvmed_free(bdf);
 	if (ret < 0)
 		unvmed_err_return(-ret, "failed to free controller instance\n");
@@ -317,6 +345,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
+	struct unvme_cq *ucq;
 	int ret = 0;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
@@ -332,11 +361,18 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!qsize)
 		unvmed_err_return(EINVAL, "-z|--qsize required");
 
+	ucq = zmalloc(sizeof(*ucq));
+	if (!ucq)
+		unvmed_err_return(ENOMEM, "failed to allocate unvme_cq");
+
 	if (nvme_create_iocq(&unvme->ctrl, qid, qsize, vector)) {
 		perror("nvme_create_iocq");
 		ret = errno;
 		goto out;
 	}
+
+	ucq->cq = &unvme->ctrl.cq[qid];
+	list_add(&unvme->cq_list, &ucq->list);
 
 out:
 	opt_free_table();
@@ -364,6 +400,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
+	struct unvme_sq *usq;
 	int ret = 0;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
@@ -386,11 +423,18 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!cq->vaddr)
 		unvmed_err_return(ENOENT, "CQ (qid=%u) not exist", cqid);
 
+	usq = zmalloc(sizeof(*usq));
+	if (!usq)
+		unvmed_err_return(ENOMEM, "failed to allocate unvme_sq");
+
 	if (nvme_create_iosq(&unvme->ctrl, qid, qsize, cq, 0x0)) {
 		perror("nvme_create_iosq");
 		ret = errno;
 		goto out;
 	}
+
+	usq->sq = &unvme->ctrl.sq[qid];
+	list_add(&unvme->sq_list, &usq->list);
 
 out:
 	opt_free_table();
@@ -855,12 +899,7 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 	if (ret)
 		unvmed_err_return(errno, "failed to reset %s controller", bdf);
 
-	for (int i = 0; i < unvme->ctrl.opts.nsqr + 2; i++)
-		nvme_discard_sq(&unvme->ctrl, &unvme->ctrl.sq[i]);
-
-	for (int i = 0; i < unvme->ctrl.opts.ncqr + 2; i++)
-		nvme_discard_cq(&unvme->ctrl, &unvme->ctrl.cq[i]);
-
+	__free_nvme(unvme);
 	unvme->init = false;
 
 	opt_free_table();
