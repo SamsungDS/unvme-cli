@@ -175,7 +175,7 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 {
 	char *bdf = unvme_msg_bdf(msg);
-	struct unvme *unvme;
+	struct unvme *unvme = unvmed_ctrl(bdf);
 	bool help = false;
 
 	const char *desc =
@@ -188,6 +188,9 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+
+	if (unvme)
+		unvmed_err_return(EPERM, "Do 'unvme del %s' first", bdf);
 
 	unvme = unvmed_alloc(bdf);
 	if (!unvme)
@@ -203,6 +206,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 {
 	char *bdf = unvme_msg_bdf(msg);
+	struct unvme *unvme = unvmed_ctrl(bdf);
 	bool help = false;
 	int ret;
 
@@ -216,6 +220,9 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+
+	if (!unvme)
+		unvmed_err_return(EPERM, "Do 'unvme add %s' first", bdf);
 
 	ret = unvmed_free(bdf);
 	if (ret < 0)
