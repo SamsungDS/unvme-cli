@@ -56,6 +56,7 @@ int unvmed_free(const char *bdf)
 		return -EINVAL;
 
 	list_del(&unvme->list);
+	free(unvme);
 	return 0;
 }
 
