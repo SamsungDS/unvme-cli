@@ -37,7 +37,7 @@ struct unvme *unvmed_alloc(const char *bdf)
 	if (unvmed_ctrl(bdf))
 		return 0;
 
-	unvme = (struct unvme *)malloc(sizeof(struct unvme));
+	unvme = (struct unvme *)zmalloc(sizeof(struct unvme));
 	if (!unvme)
 		return NULL;
 
