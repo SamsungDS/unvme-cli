@@ -22,3 +22,13 @@ executable(
   install: true,
   install_dir: get_option('bindir'),
 )
+
+conf = configuration_data()
+
+# Set the unvme-cli version
+conf.set('UNVME_VERSION', '"' + meson.project_version() + '"')
+
+configure_file(
+    output: 'config.h',
+    configuration: conf
+)

@@ -14,10 +14,13 @@
 #include <ccan/array_size/array_size.h>
 
 #include "unvme.h"
+#include "config.h"
 
 static int unvme_help(int argc, char *argv[], struct unvme_msg *msg);
+static int unvme_version(int argc, char *argv[], struct unvme_msg *msg);
 static struct command cmds[] = {
 	{"help",		"Show usage help message",		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_help},
+	{"version", 		"Show unvme-cli version", 		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_version},
 	{"start",		"Start unvmed daemon process",		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_start},
 	{"stop",		"Stop unvmed daemon process",		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_stop},
 	{"list",		"Show NVMe PCIe devices",		UNVME_DAEMON_CMD | UNVME_NODEV_CMD,	unvme_list},
@@ -127,6 +130,13 @@ static int unvme_help(int argc, char *argv[], struct unvme_msg *msg)
 static int __unvme_help(void)
 {
 	return unvme_help(0, NULL, NULL);
+}
+
+static int unvme_version(int argc, char *argv[], struct unvme_msg *msg)
+{
+	unvme_pr("unvme version %s\n", UNVME_VERSION);
+
+	return 0;
 }
 
 static int unvme_parse_bdf(const char *input, char *bdf)
