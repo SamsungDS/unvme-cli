@@ -66,7 +66,7 @@ static inline int unvme_map_vaddr(struct unvme *unvme, void *buf, size_t len,
 	struct iommu_ctx *ctx = __iommu_ctx(ctrl);
 
 	if (!iommu_translate_vaddr(ctx, buf, iova)) {
-		if (iommu_map_vaddr(ctx, buf, len, iova, IOMMU_MAP_EPHEMERAL)) {
+		if (iommu_map_vaddr(ctx, buf, len, iova, 0)) {
 			return -1;
 		}
 		return 0;
