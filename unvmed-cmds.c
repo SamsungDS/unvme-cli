@@ -567,7 +567,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_cmd_post(cmd, !nodb);
 	if (nodb) {
-		unvme_pr_sqe(0, &cmd->sqe);
+		unvme_pr_sqe(sqid, &cmd->sqe);
 		cmd->should_free = false;
 		goto out;
 	}
@@ -653,7 +653,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_cmd_post(cmd, !nodb);
 	if (nodb) {
-		unvme_pr_sqe(0, &cmd->sqe);
+		unvme_pr_sqe(sqid, &cmd->sqe);
 		cmd->should_free = false;
 		goto out;
 	}
@@ -807,7 +807,7 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_cmd_post(cmd, !nodb);
 	if (nodb) {
-		unvme_pr_sqe(0, &cmd->sqe);
+		unvme_pr_sqe(sqid, &cmd->sqe);
 		cmd->should_free = false;
 		goto out;
 	}
