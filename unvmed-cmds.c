@@ -664,13 +664,13 @@ out:
 	return ret;
 }
 
-int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
+int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *unvme = unvmed_ctrl(unvme_msg_bdf(msg));
 	bool help = false;
 	const char *desc =
-		"Submit a I/O passthru command to the given submission queue of the\n"
-		"target <device>. To run this command, I/O queue MUST be created.\n"
+		"Submit a passthru command to the given submission queue of the\n"
+		"target <device>. To run this command, queue MUST be created.\n"
 		"Passthru command SQE can be built with the options provided.\n"
 		"\n"
 		"User can inject specific values to PRP1 and PRP2 in DPTR with --prp1, --prp2\n"
@@ -699,11 +699,11 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	bool nodb = false;
 
 	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--sqid", opt_set_uintval, opt_show_uintval, &sqid, "[M] Submission queue ID"),
+		OPT_WITH_ARG("-q|--sqid", opt_set_uintval, opt_show_uintval, &sqid, "[O] Submission queue ID, defaults to 0"),
 		OPT_WITH_ARG("-o|--opcode", opt_set_intval, opt_show_intval, &opcode, "[M] Operation code"),
 		OPT_WITH_ARG("-f|--flags", opt_set_uintval, opt_show_uintval, &flags, "[O] Command flags in CDW0[15:8]"),
 		OPT_WITH_ARG("-R|--rsvd", opt_set_uintval, opt_show_uintval, &rsvd, "[O] Reserved field"),
-		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[M] Namespace ID"),
+		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[O] Namespace ID, Mandatory if --sqid > 0"),
 		OPT_WITH_ARG("-l|--data-len", opt_set_uintval_bi, opt_show_uintval_bi, &data_len, "[O] Data length in bytes"),
 		OPT_WITH_ARG("-2|--cdw2", opt_set_uintval, opt_show_uintval, &cdw2, "[O] Command dword 2"),
 		OPT_WITH_ARG("-3|--cdw3", opt_set_uintval, opt_show_uintval, &cdw3, "[O] Command dword 3"),
@@ -732,16 +732,14 @@ int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (!unvme)
 		unvmed_err_return(EPERM, "do 'unvme add %s' first", unvme_msg_bdf(msg));
-	if (!sqid)
-		unvmed_err_return(EINVAL, "-q|--sqid must be specified");
 	if (opcode < 0)
 		unvmed_err_return(EINVAL, "-o|--opcode must be specified");
-	if (!nsid)
-		unvmed_err_return(EINVAL, "-n|--namespace-id must be specified");
+	if (sqid && !nsid)
+		unvmed_err_return(EINVAL, "-n|--namespace-id must be specified when io-passthru command (sqid=%d)", sqid);
 	if (read && write)
 		unvmed_err_return(EINVAL, "-r and -w option cannot be set at the same time");
 	if (!unvme_sq(unvme, sqid))
-		unvmed_err_return(ENOENT, "I/O queue not exists (sqid=%d)", sqid);
+		unvmed_err_return(ENOENT, "Submission queue not exists (sqid=%d)", sqid);
 
 	/*
 	 * If both -r and -w are not given, decide the data direction by the

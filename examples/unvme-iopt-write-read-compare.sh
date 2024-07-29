@@ -20,8 +20,8 @@ unvme create-iosq $bdf -q 1 -z 32 -c 1
 
 dd if=/dev/urandom of=/tmp/wdata.bin bs=4096 count=1 2> /dev/null
 
-unvme io-passthru $bdf -q 1 -n 1 -o 0x1 -l 4096 -i /tmp/wdata.bin -w
-unvme io-passthru $bdf -q 1 -o 0x2 -n 1 -l 4096 -r > /tmp/rdata.bin
+unvme passthru $bdf -q 1 -n 1 -o 0x1 -l 4096 -i /tmp/wdata.bin -w
+unvme passthru $bdf -q 1 -o 0x2 -n 1 -l 4096 -r > /tmp/rdata.bin
 
 unvme stop
 

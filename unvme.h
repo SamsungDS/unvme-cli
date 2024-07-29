@@ -246,7 +246,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_read(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_write(int argc, char *argv[], struct unvme_msg *msg);
-int unvme_io_passthru(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_reset(int argc, char *argv[], struct unvme_msg *msg);
 

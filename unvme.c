@@ -34,7 +34,7 @@ static struct command cmds[] = {
 	{"id-ns",		"Identify Namespace (CNS 0h)",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_ns},
 	{"read",		"NVM Read command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_read},
 	{"write",		"NVM Write command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_write},
-	{"io-passthru",		"I/O passthrough command",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_io_passthru},
+	{"passthru",		"Passthrough command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_passthru},
 	{"update-sqdb",		"Update SQ tail doorbell",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_update_sqdb},
 	{"reset",		"Reset NVMe controller",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
 	UNVME_CMDS_END
