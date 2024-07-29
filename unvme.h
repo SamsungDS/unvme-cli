@@ -60,15 +60,21 @@ static inline struct nvme_sq *unvme_sq(struct unvme *unvme, unsigned int qid)
 }
 
 static inline int unvme_map_vaddr(struct unvme *unvme, void *buf, size_t len,
-				  uint64_t *iova)
+				  uint64_t *iova, unsigned long flags)
 {
 	struct nvme_ctrl *ctrl = &unvme->ctrl;
 	struct iommu_ctx *ctx = __iommu_ctx(ctrl);
 
-	if (iommu_map_vaddr(ctx, buf, len, iova, 0))
+	if (iommu_map_vaddr(ctx, buf, len, iova, flags))
 		return -1;
 
 	return 0;
+}
+
+static inline int unvme_map_vaddr_to_iova(struct unvme *unvme, void *buf,
+					  size_t len, uint64_t *iova)
+{
+	return unvme_map_vaddr(unvme, buf, len, iova, IOMMU_MAP_FIXED_IOVA);
 }
 
 static inline int unvme_unmap_vaddr(struct unvme *unvme, void *buf)
@@ -107,7 +113,7 @@ static inline struct unvme_cmd *unvme_cmd_alloc(struct unvme *unvme, int sqid,
 			goto free_cmd;
 		cmd->len = data_len;
 
-		if (unvme_map_vaddr(unvme, cmd->vaddr, cmd->len, &iova))
+		if (unvme_map_vaddr(unvme, cmd->vaddr, cmd->len, &iova, 0x0))
 			goto free_buf;
 	}
 
