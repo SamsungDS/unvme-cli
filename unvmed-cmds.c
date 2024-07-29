@@ -453,7 +453,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 
 	struct opt_table opts[] = {
 		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[M] Namespace ID"),
-		OPT_WITH_ARG("-o|--output-format", opt_set_charp, opt_show_charp, &format, "[O] Output format: [normal|binary], defatuls to normal"),
+		OPT_WITH_ARG("-o|--output-format", opt_set_charp, opt_show_charp, &format, "[O] Output format: [normal|binary], defaults to normal"),
 		OPT_WITHOUT_ARG("-N|--nodb", opt_set_bool, &nodb, "[O] Don't update tail doorbell of the submission queue"),
 		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
 		OPT_ENDTABLE
