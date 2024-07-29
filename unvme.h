@@ -5,7 +5,7 @@
 #include <ccan/opt/opt.h>
 #include <ccan/list/list.h>
 
-#define UNVME_MAX_OPT		16
+#define UNVME_MAX_OPT		64
 #define UNVME_MAX_STR		32
 #define UNVME_BDF_STRLEN	13
 #define UNVME_PWD_STRLEN	256
