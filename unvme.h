@@ -65,14 +65,10 @@ static inline int unvme_map_vaddr(struct unvme *unvme, void *buf, size_t len,
 	struct nvme_ctrl *ctrl = &unvme->ctrl;
 	struct iommu_ctx *ctx = __iommu_ctx(ctrl);
 
-	if (!iommu_translate_vaddr(ctx, buf, iova)) {
-		if (iommu_map_vaddr(ctx, buf, len, iova, 0)) {
-			return -1;
-		}
-		return 0;
-	}
+	if (iommu_map_vaddr(ctx, buf, len, iova, 0))
+		return -1;
 
-	return -1;
+	return 0;
 }
 
 static inline int unvme_unmap_vaddr(struct unvme *unvme, void *buf)
