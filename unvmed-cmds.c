@@ -694,6 +694,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	uint32_t cdw14 = 0;
 	uint32_t cdw15 = 0;
 	char *input = NULL;
+	bool show_cmd = false;
+	bool dry_run = false;
 	bool read = false;
 	bool write = false;
 	bool nodb = false;
@@ -716,6 +718,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_WITH_ARG("-8|--cdw14", opt_set_uintval, opt_show_uintval, &cdw14, "[O] Command dword 14"),
 		OPT_WITH_ARG("-9|--cdw15", opt_set_uintval, opt_show_uintval, &cdw15, "[O] Command dword 15"),
 		OPT_WITH_ARG("-i|--input-file", opt_set_charp, opt_show_charp, &input, "[M] File to write (in write direction)"),
+		OPT_WITHOUT_ARG("-s|--show-command", opt_set_bool, &show_cmd, "[O] Show command before sending"),
+		OPT_WITHOUT_ARG("-d|--dry-run", opt_set_bool, &dry_run, "[O] Show command instead of sending"),
 		OPT_WITHOUT_ARG("-r|--read", opt_set_bool, &read, "[O] Set read data direction "),
 		OPT_WITHOUT_ARG("-w|--write", opt_set_bool, &write, "[O] Set write data direction "),
 		OPT_WITHOUT_ARG("-N|--nodb", opt_set_bool, &nodb, "[O] Don't update tail doorbell of the submission queue"),
@@ -802,6 +806,14 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	sqe->cdw13 = cpu_to_le32(cdw13);
 	sqe->cdw14 = cpu_to_le32(cdw14);
 	sqe->cdw15 = cpu_to_le32(cdw15);
+
+	if (show_cmd || dry_run) {
+		uint32_t *entry = (uint32_t *)sqe;
+		for (int dw = 0; dw < 16; dw++)
+			unvme_pr("cdw%d\t\t: %#08x\n", dw, *(entry + dw));
+	}
+	if (dry_run)
+		return 0;
 
 	unvme_cmd_post(cmd, !nodb);
 	if (nodb) {
