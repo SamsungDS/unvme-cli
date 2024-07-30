@@ -286,6 +286,32 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 	return 0;
 }
 
+int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
+{
+	char *bdf = unvme_msg_bdf(msg);
+	struct unvme *unvme = unvmed_ctrl(bdf);
+	bool help = false;
+
+	const char *desc =
+		"Show status of a given target <device> in unvmed.\n"
+		"The status includes CC, CSTS and Submission/Completion Queue.";
+
+	struct opt_table opts[] = {
+		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
+		OPT_ENDTABLE
+	};
+
+	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+
+	if (!unvme)
+		unvmed_err_return(EPERM, "Do 'unvme add %s' first", bdf);
+
+	unvmed_pr_status(unvme);
+
+	opt_free_table();
+	return 0;
+}
+
 int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 {
 	const char *bdf = unvme_msg_bdf(msg);

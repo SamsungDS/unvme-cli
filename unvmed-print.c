@@ -44,3 +44,34 @@ void unvmed_pr_show_regs(void *vaddr)
 	unvme_pr("pmrmscl : %x\n", le32_to_cpu(mmio_read32(vaddr + 0xe14)));
 	unvme_pr("pmrmscu : %x\n", le32_to_cpu(mmio_read32(vaddr + 0xe18)));
 }
+
+void unvmed_pr_status(struct unvme *unvme)
+{
+	int cc = le32_to_cpu(mmio_read32(unvme->ctrl.regs + 0x14));
+	int csts = le32_to_cpu(mmio_read32(unvme->ctrl.regs + 0x1c));
+	struct unvme_sq* usq;
+	struct unvme_cq* ucq;
+
+	unvme_pr("Controller				: %s\n", unvme->bdf);
+	unvme_pr("Controller Configuration	(CC)	: %#x\n", cc);
+	unvme_pr("Controller Status		(CSTS)	: %#x\n\n", csts);
+
+	unvme_pr("Submission Queue\n");
+	unvme_pr("qid  vaddr              iova               cqid tail ptail qsize\n");
+	unvme_pr("---- ------------------ ------------------ ---- ---- ----- -----\n");
+	list_for_each_rev(&unvme->sq_list, usq, list) {
+		unvme_pr("%4d %18p %#18lx %4d %4d %5d %5d\n",
+			 usq->sq->id, usq->sq->vaddr, usq->sq->iova,
+			 usq->sq->cq->id, usq->sq->tail, usq->sq->ptail, usq->sq->qsize);
+	}
+	unvme_pr("\n");
+	unvme_pr("Completion Queue\n");
+	unvme_pr("qid  vaddr              iova               head qsize phase vec \n");
+	unvme_pr("---- ------------------ ------------------ ---- ----- ----- ----\n");
+	list_for_each_rev(&unvme->cq_list, ucq, list) {
+		unvme_pr("%4d %18p %#18lx %4d %5d %5d %4d\n",
+			 ucq->cq->id, ucq->cq->vaddr, ucq->cq->iova,
+			 ucq->cq->head, ucq->cq->qsize, ucq->cq->phase, ucq->cq->vector);
+	}
+	unvme_pr("\n");
+}

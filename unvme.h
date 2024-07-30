@@ -240,6 +240,7 @@ int unvme_stop(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_add(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_del(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_status(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_enable(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg);
@@ -473,3 +474,4 @@ static inline void *unvme_stdout(void)
 void unvmed_pr_raw(void *vaddr, size_t len);
 void unvmed_pr_id_ns(void *vaddr);
 void unvmed_pr_show_regs(void *vaddr);
+void unvmed_pr_status(struct unvme *unvme);
