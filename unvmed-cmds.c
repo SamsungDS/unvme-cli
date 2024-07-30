@@ -861,7 +861,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (show_cmd || dry_run) {
 		uint32_t *entry = (uint32_t *)sqe;
 		for (int dw = 0; dw < 16; dw++)
-			unvme_pr("cdw%d\t\t: %#08x\n", dw, *(entry + dw));
+			unvme_pr("cdw%d\t\t: 0x%08x\n", dw, *(entry + dw));
 	}
 	if (dry_run)
 		return 0;
