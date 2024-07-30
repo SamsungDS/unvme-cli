@@ -225,6 +225,17 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	__bind(bdf, "vfio-pci");
 	nvme_ctrl_init(&unvme->ctrl, bdf, NULL);
 
+	/*
+	 * XXX: Since unvme-cli does not follow all the behaviors of the driver, it does
+	 * not set up nsqa and ncqa.
+	 * Originally, nsqa and ncqa are set through the set feature command, but
+	 * we cannot expect the user to send the set feature command.
+	 * Therefore, during the `unvme_add`, nsqa and ncqa are set respectively to
+	 * nsqr and ncqr.
+	 */
+	unvme->ctrl.config.nsqa = unvme->ctrl.opts.nsqr;
+	unvme->ctrl.config.ncqa = unvme->ctrl.opts.ncqr;
+
 	opt_free_table();
 	return 0;
 }
