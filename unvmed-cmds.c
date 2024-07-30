@@ -300,6 +300,8 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
+	struct unvme_cq *ucq;
+	struct unvme_sq *usq;
 	unsigned long sq_flags = 0;
 	int ret = 0;
 
@@ -313,6 +315,18 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		ret = errno;
 		goto out;
 	}
+
+	ucq = zmalloc(sizeof(*ucq));
+	usq = zmalloc(sizeof(*usq));
+	if (!ucq)
+		unvmed_err_return(ENOMEM, "failed to allocate unvme_cq");
+	if (!usq)
+		unvmed_err_return(ENOMEM, "failed to allocate unvme_sq");
+
+	ucq->cq = &unvme->ctrl.cq[0];
+	usq->sq = &unvme->ctrl.sq[0];
+	list_add(&unvme->cq_list, &ucq->list);
+	list_add(&unvme->sq_list, &usq->list);
 
 	if (nvme_enable(&unvme->ctrl)) {
 		perror("nvme_enable");
