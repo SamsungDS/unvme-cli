@@ -428,6 +428,19 @@ static inline int unvme_msgq_recv(int msg_id, struct unvme_msg *msg)
 	return 0;
 }
 
+#define UNVME_UNVMED_LOG	"/var/log/unvmed.log"
+int unvmed_get_log_fd(void);
+
+#define __log(type, fmt, ...)								\
+	do { 										\
+		char buf[550];								\
+		int len = snprintf(buf, sizeof(buf),					\
+				   "%-8s| " fmt "\n", type, ##__VA_ARGS__);		\
+		write(unvmed_get_log_fd(), buf, len);					\
+	} while(0)
+
+#define log(fmt, ...) __log("core", fmt, ##__VA_ARGS__)
+
 /*
  * XXX: It would be better if we can have stderr and stdout with dynamic size
  * during the runtime.

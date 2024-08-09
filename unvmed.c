@@ -14,6 +14,7 @@
 static char *__stderr;
 static char *__stdout;
 static struct list_head ctrls;
+static int __log_fd;
 
 struct unvme *unvmed_ctrl(const char *bdf)
 {
@@ -183,6 +184,22 @@ static inline int unvmed_cmdline_strlen(void)
 	return len;
 }
 
+static int unvmed_create_logfile(void)
+{
+	int fd;
+
+	fd = creat(UNVME_UNVMED_LOG, 0644);
+	if (fd < 0)
+		return -EINVAL;
+
+	return fd;
+}
+
+int unvmed_get_log_fd(void)
+{
+	return __log_fd;
+}
+
 int unvmed(char *argv[])
 {
 	struct unvme_msg msg;
@@ -203,6 +220,9 @@ int unvmed(char *argv[])
 
 	umask(0);
 	chdir("/");
+
+	__log_fd = unvmed_create_logfile();
+	assert(__log_fd >= 0);
 
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);
