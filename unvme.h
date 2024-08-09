@@ -133,16 +133,21 @@ free_rq:
 	return NULL;
 }
 
+void unvmed_log_cmd_post(struct unvme_cmd *cmd);
+void unvmed_log_cmd_cmpl(struct unvme_cmd *cmd);
+
 static inline void unvme_cmd_post(struct unvme_cmd *cmd, bool update_sqdb)
 {
 	nvme_rq_post(cmd->rq, (union nvme_cmd *)&cmd->sqe);
 	if (update_sqdb)
 		nvme_sq_update_tail(cmd->rq->sq);
+	unvmed_log_cmd_post(cmd);
 }
 
 static inline int unvme_cmd_cmpl(struct unvme_cmd *cmd)
 {
 	nvme_rq_spin(cmd->rq, &cmd->cqe);
+	unvmed_log_cmd_cmpl(cmd);
 
 	return nvme_cqe_ok(&cmd->cqe) ? 0 : 1;
 }
@@ -440,6 +445,7 @@ int unvmed_get_log_fd(void);
 	} while(0)
 
 #define log(fmt, ...) __log("core", fmt, ##__VA_ARGS__)
+#define log_nvme(fmt, ...) __log("nvme", fmt, ##__VA_ARGS__)
 
 /*
  * XXX: It would be better if we can have stderr and stdout with dynamic size

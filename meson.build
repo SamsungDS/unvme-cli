@@ -15,7 +15,8 @@ vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
 
 executable(
   'unvme',
-  ['unvmed.c', 'unvme.c', 'unvmed-cmds.c', 'unvmed-print.c', 'unvmed-file.c', 'unvme-cmds.c',],
+  ['unvmed.c', 'unvme.c', 'unvmed-cmds.c', 'unvmed-print.c', 'unvmed-file.c',
+   'unvmed-logs.c', 'unvme-cmds.c',],
   dependencies: [vfn_lib],
   link_with: ccan_lib,
   include_directories: [ccan_inc],
