@@ -23,6 +23,7 @@ static struct command cmds[] = {
 	{"version", 		"Show unvme-cli version", 		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_version},
 	{"start",		"Start unvmed daemon process",		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_start},
 	{"stop",		"Stop unvmed daemon process",		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_stop},
+	{"log",			"Show logs written by unvmed process",	UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_log},
 	{"list",		"Show NVMe PCIe devices",		UNVME_DAEMON_CMD | UNVME_NODEV_CMD,	unvme_list},
 	{"add",			"Add NVMe PCI device to unvmed",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_add},
 	{"del",			"Delete NVMe PCI device from unvmed",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_del},

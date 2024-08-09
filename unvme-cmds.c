@@ -51,3 +51,40 @@ int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 
 	return waitpid(pid, NULL, 0) > 0;
 }
+
+int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
+{
+	bool nvme = false;
+	bool help = false;
+	const char *desc = "Show logs written by unvmed process.";
+
+	struct opt_table opts[] = {
+		OPT_WITHOUT_ARG("-n|--nvme", opt_set_bool, &nvme, "Show NVMe command log only"),
+		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
+		OPT_ENDTABLE
+	};
+
+	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
+
+	int fd = open(UNVME_UNVMED_LOG, O_RDONLY);
+	char buffer[512];
+	ssize_t nread;
+
+	if (fd < 0)
+	        unvme_pr_return(fd, "failed to open unvme log file");
+
+	while ((nread = read(fd, buffer, sizeof(buffer))) > 0) {
+		if (nvme) {
+			if (strstr(buffer, "nvme    |"))
+				unvme_pr("%.*s", (int) nread, buffer);
+		}
+		else
+			unvme_pr("%.*s", (int) nread, buffer);
+	}
+
+	if (nread < 0)
+		perror("read");
+
+	close(fd);
+	return nread;
+}
