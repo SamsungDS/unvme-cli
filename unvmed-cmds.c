@@ -278,7 +278,7 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvme)
 		unvmed_err_return(EPERM, "Do 'unvme add %s' first", bdf);
 
-	__free_nvme(unvme);
+	nvme_close(&unvme->ctrl);
 
 	ret = unvmed_free(bdf);
 	if (ret < 0)
