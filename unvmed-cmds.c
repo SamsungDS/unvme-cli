@@ -202,6 +202,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 {
 	char *bdf = unvme_msg_bdf(msg);
 	struct unvme *unvme = unvmed_ctrl(bdf);
+	uint32_t nr_ioqs = 1;
 	bool help = false;
 
 	const char *desc =
@@ -209,21 +210,37 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		"it to 'vfio-pci' kernel driver to support user-space I/O.";
 
 	struct opt_table opts[] = {
+		OPT_WITH_ARG("-q|--nr-ioqs", opt_set_uintval, opt_show_uintval, &nr_ioqs,
+				"[O] Maxinum number of I/O queues to create (defaults to 1)"),
 		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
 		OPT_ENDTABLE
 	};
+	struct nvme_ctrl_opts nvme_opts = {0, };
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
 
 	if (unvme)
 		unvmed_err_return(EPERM, "Do 'unvme del %s' first", bdf);
 
+	if (nr_ioqs < 1)
+		unvmed_err_return(EINVAL, "'--nr-ioqs=' should be greater than 1");
+
 	unvme = unvmed_alloc(bdf);
 	if (!unvme)
 		unvmed_err_return(ENOMEM, "failed to allocate unvmed");
 
 	__bind(bdf, "vfio-pci");
-	nvme_ctrl_init(&unvme->ctrl, bdf, NULL);
+
+	/*
+	 * Zero-based values for I/O queues to pass to `libvfn` excluding the
+	 * admin submission/completion queues.
+	 */
+	nvme_opts.nsqr = nr_ioqs - 1;
+	nvme_opts.ncqr = nr_ioqs - 1;
+	nvme_ctrl_init(&unvme->ctrl, bdf, &nvme_opts);
+
+	assert(unvme->ctrl.opts.nsqr == nvme_opts.nsqr);
+	assert(unvme->ctrl.opts.ncqr == nvme_opts.ncqr);
 
 	/*
 	 * XXX: Since unvme-cli does not follow all the behaviors of the driver, it does
@@ -233,8 +250,8 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	 * Therefore, during the `unvme_add`, nsqa and ncqa are set respectively to
 	 * nsqr and ncqr.
 	 */
-	unvme->ctrl.config.nsqa = unvme->ctrl.opts.nsqr;
-	unvme->ctrl.config.ncqa = unvme->ctrl.opts.ncqr;
+	unvme->ctrl.config.nsqa = nvme_opts.nsqr;
+	unvme->ctrl.config.ncqa = nvme_opts.ncqr;
 
 	opt_free_table();
 	return 0;
