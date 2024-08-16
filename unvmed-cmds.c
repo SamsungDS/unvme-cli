@@ -15,7 +15,6 @@
 	do {								\
 		unvme_pr_err("ERROR: "fmt"\n\n", ##__VA_ARGS__);	\
 		unvme_cmd_help(argv[1], desc, opts);			\
-		opt_free_table();					\
 		return err;						\
 	} while(0)
 
@@ -194,7 +193,6 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 
 	closedir(dfd);
 
-	opt_free_table();
 	return 0;
 }
 
@@ -253,7 +251,6 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	unvme->ctrl.config.nsqa = nvme_opts.nsqr;
 	unvme->ctrl.config.ncqa = nvme_opts.ncqr;
 
-	opt_free_table();
 	return 0;
 }
 
@@ -288,7 +285,6 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 	if (ret)
 		unvmed_err_return(errno, "failed to unbind %s\n", bdf);
 
-	opt_free_table();
 	return 0;
 }
 
@@ -336,7 +332,6 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvmed_pr_status(unvme);
 
-	opt_free_table();
 	return 0;
 }
 
@@ -389,7 +384,6 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	unvme->init = true;
 
 out:
-	opt_free_table();
 	return ret;
 }
 
@@ -443,7 +437,6 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	list_add(&unvme->cq_list, &ucq->list);
 
 out:
-	opt_free_table();
 	return ret;
 }
 
@@ -505,7 +498,6 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	list_add(&unvme->sq_list, &usq->list);
 
 out:
-	opt_free_table();
 	return ret;
 }
 
@@ -566,7 +558,6 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_cmd_pr_cqe(cmd);
 
 out:
-	opt_free_table();
 	return 0;
 }
 
@@ -647,7 +638,6 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	} else
 		unvme_cmd_pr_cqe(cmd);
 out:
-	opt_free_table();
 	return ret;
 }
 
@@ -728,7 +718,6 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvme_cmd_cmpl(cmd))
 		unvme_cmd_pr_cqe(cmd);
 out:
-	opt_free_table();
 	return ret;
 }
 
@@ -895,7 +884,6 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	} else
 		unvme_cmd_pr_cqe(cmd);
 out:
-	opt_free_table();
 	return ret;
 }
 
@@ -947,7 +935,6 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_cqe(&cqes[i]);
 	}
 
-	opt_free_table();
 	return 0;
 }
 
@@ -980,6 +967,5 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 	__free_nvme(unvme);
 	unvme->init = false;
 
-	opt_free_table();
 	return 0;
 }

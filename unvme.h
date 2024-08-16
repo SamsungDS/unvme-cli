@@ -340,7 +340,7 @@ static inline void unvme_cmd_free(void *p)
 										\
 		if (argc < exp_argc)						\
 			unvme_help_return();					\
-										\
+		opt_free_table();						\
 	} while (0)
 
 #define UNVME_MSGQ_SQ		"/dev/mqueue/unvmed-sq"
