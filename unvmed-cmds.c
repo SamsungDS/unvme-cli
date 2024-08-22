@@ -344,7 +344,16 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		"Enable NVMe controller along with setting up admin queues.\n"
 		"It will wait for CSTS.RDY to be 1 after setting CC.EN to 1.";
 
+	uint32_t iosqes = 6;
+	uint32_t iocqes = 4;
+	uint32_t mps = 0;
+	uint32_t css = 0;
+
 	struct opt_table opts[] = {
+		OPT_WITH_ARG("-s|--iosqes", opt_set_uintval, opt_show_uintval, &iosqes, "[O] I/O Submission Queue entry Size (2^n) (default: 6)"),
+		OPT_WITH_ARG("-c|--iocqes", opt_set_uintval, opt_show_uintval, &iocqes, "[O] I/O Completion Queue entry Size (2^n) (default: 4)"),
+		OPT_WITH_ARG("-m|--mps", opt_set_uintval, opt_show_uintval, &mps, "[O] Memory Page Size (2^(12+n)) (default: 0)"),
+		OPT_WITH_ARG("-i|--css", opt_set_uintval, opt_show_uintval, &css, "[O] I/O Command Set Selected (default: 0)"),
 		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
 		OPT_ENDTABLE
 	};
@@ -352,12 +361,23 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme_cq *ucq;
 	struct unvme_sq *usq;
 	unsigned long sq_flags = 0;
+	uint32_t cc;
+	uint32_t csts;
 	int ret = 0;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
 
 	if (!unvme)
 		unvmed_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+
+	if (iosqes > 0xf)
+		unvmed_err_return(EINVAL, "invalid -s|--iosqes");
+	if (iocqes > 0xf)
+		unvmed_err_return(EINVAL, "invalid -c|--iocqes");
+	if (mps > 0xf)
+		unvmed_err_return(EINVAL, "invalid -m|--mps");
+	if (css > 0x7)
+		unvmed_err_return(EINVAL, "invalid -i|--css");
 
 	if (nvme_configure_adminq(&unvme->ctrl, sq_flags)) {
 		perror("nvme_configure_adminq");
@@ -377,10 +397,15 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	list_add(&unvme->cq_list, &ucq->list);
 	list_add(&unvme->sq_list, &usq->list);
 
-	if (nvme_enable(&unvme->ctrl)) {
-		perror("nvme_enable");
-		ret = errno;
+	cc = mps << 7 | iosqes << 16 | iocqes << 20 | 0x1;
+	mmio_write32(unvme->ctrl.regs + 0x14, cpu_to_le32(cc));
+
+	while (1) {
+		csts = le32_to_cpu(mmio_read32(unvme->ctrl.regs + 0x1c));
+		if (csts & 0x1)
+			break;
 	}
+
 	unvme->init = true;
 
 out:
