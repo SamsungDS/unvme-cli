@@ -188,6 +188,9 @@ static int unvmed_create_logfile(void)
 {
 	int fd;
 
+	if(mkdir("/var/log", 0755) < 0 && errno != EEXIST)
+		return -errno;
+
 	fd = creat(UNVME_UNVMED_LOG, 0644);
 	if (fd < 0)
 		return -EINVAL;
