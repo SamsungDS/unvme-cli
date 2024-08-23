@@ -59,6 +59,18 @@ static inline struct nvme_sq *unvme_sq(struct unvme *unvme, unsigned int qid)
 	return (struct nvme_sq *)&unvme->ctrl.sq[qid];
 }
 
+static inline bool unvme_sq_exists(struct unvme *unvme, unsigned int qid)
+{
+	struct unvme_sq* usq;
+
+	list_for_each(&unvme->sq_list, usq, list) {
+		if(usq->sq->id == qid)
+			return true;
+	}
+
+	return false;
+}
+
 static inline int unvme_map_vaddr(struct unvme *unvme, void *buf, size_t len,
 				  uint64_t *iova, unsigned long flags)
 {
@@ -93,9 +105,10 @@ static inline struct unvme_cmd *unvme_cmd_alloc(struct unvme *unvme, int sqid,
 	struct nvme_rq *rq;
 	uint64_t iova;
 
-	sq = unvme_sq(unvme, sqid);
-	if (!sq)
+	if (!unvme_sq_exists(unvme, sqid))
 		return NULL;
+
+	sq = unvme_sq(unvme, sqid);
 
 	rq = nvme_rq_acquire(sq);
 	if (!rq)

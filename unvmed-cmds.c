@@ -630,7 +630,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		unvmed_err_return(EINVAL, "-q|--sqid required");
 	if (!nsid)
 		unvmed_err_return(EINVAL, "-n|--namespace-id required");
-	if (!unvme_sq(unvme, sqid))
+	if (!unvme_sq_exists(unvme, sqid))
 		unvmed_err_return(ENOENT, "'create-iosq' must be executed first");
 
 	cmd = unvme_cmd_alloc(unvme, sqid, data_size);
@@ -711,7 +711,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		unvmed_err_return(EINVAL, "-n|--namespace-id required");
 	if (!data)
 		unvmed_err_return(EINVAL, "-d|--data required");
-	if (!unvme_sq(unvme, sqid))
+	if (!unvme_sq_exists(unvme, sqid))
 		unvmed_err_return(ENOENT, "'create-iosq' must be executed first");
 
 	cmd = unvme_cmd_alloc(unvme, sqid, data_size);
@@ -824,7 +824,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		unvmed_err_return(EINVAL, "-n|--namespace-id must be specified when io-passthru command (sqid=%d)", sqid);
 	if (read && write)
 		unvmed_err_return(EINVAL, "-r and -w option cannot be set at the same time");
-	if (!unvme_sq(unvme, sqid))
+	if (!unvme_sq_exists(unvme, sqid))
 		unvmed_err_return(ENOENT, "Submission queue not exists (sqid=%d)", sqid);
 
 	/*
@@ -940,9 +940,10 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (sqid == UINT64_MAX)
 		unvmed_err_return(EINVAL, "-q|--sqid required");
-	if (!(sq = unvme_sq(unvme, sqid)))
+	if (!unvme_sq_exists(unvme, sqid))
 		unvmed_err_return(ENOENT, "'create-iosq' must be executed first");
 
+	sq = unvme_sq(unvme, sqid);
 	nr_sqes = unvme_sq_nr_pending(sq);
 	if (!nr_sqes)
 		unvmed_err_return(ENODATA, "no pending sq entries to update");
