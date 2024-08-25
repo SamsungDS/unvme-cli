@@ -235,7 +235,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	 */
 	nvme_opts.nsqr = nr_ioqs - 1;
 	nvme_opts.ncqr = nr_ioqs - 1;
-	nvme_ctrl_init(&unvme->ctrl, bdf, &nvme_opts);
+	nvme_ctrl_init(&unvme->ctrl, unvme->bdf, &nvme_opts);
 
 	assert(unvme->ctrl.opts.nsqr == nvme_opts.nsqr);
 	assert(unvme->ctrl.opts.ncqr == nvme_opts.ncqr);
