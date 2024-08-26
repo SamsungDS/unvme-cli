@@ -141,6 +141,8 @@ static void unvmed_release(int signum)
 
 	remove(UNVME_UNVMED_PID);
 
+	log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
+			getpid(), signum, strsignal(signum));
 	exit(ECANCELED);
 }
 
