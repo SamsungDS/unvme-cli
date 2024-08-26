@@ -219,6 +219,7 @@ int unvme_recv_msg(struct unvme_msg *msg);
 
 #define UNVME_UNVMED_PID	"/var/run/unvmed.pid"
 int unvmed(char *argv[]);
+void unvmed_datetime(char *datetime, size_t str_len);
 struct unvme *unvmed_ctrl(const char *bdf);
 struct unvme *unvmed_alloc(const char *bdf);
 int unvmed_free(const char *bdf);
@@ -453,9 +454,12 @@ int unvmed_get_log_fd(void);
 #define __log(type, fmt, ...)								\
 	do { 										\
 		char buf[550];								\
+		char datetime[32];							\
+											\
+		unvmed_datetime(datetime, sizeof(datetime));				\
 		int len = snprintf(buf, sizeof(buf),					\
-				   "%-8s| %s: %d: " fmt "\n",				\
-				   type, __func__, __LINE__, ##__VA_ARGS__);		\
+				   "%-8s| %s | %s: %d: " fmt "\n",			\
+				   type, datetime, __func__, __LINE__, ##__VA_ARGS__);	\
 		write(unvmed_get_log_fd(), buf, len);					\
 	} while(0)
 

@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <sys/time.h>
 #include <sys/signal.h>
 #include <sys/prctl.h>
 #include <sys/types.h>
@@ -16,6 +18,23 @@ static char *__stdout;
 static int __msg_cq;
 static struct list_head ctrls;
 static int __log_fd;
+
+void unvmed_datetime(char *datetime, size_t str_len)
+{
+	struct timeval tv;
+	struct tm *tm;
+	char usec[16];
+
+	assert(datetime != NULL);
+
+	gettimeofday(&tv, NULL);
+	tm = localtime(&tv.tv_sec);
+
+	strftime(datetime, str_len, "%Y-%m-%d %H:%M:%S", tm);
+
+	sprintf(usec, ".%06ld", tv.tv_usec);
+	strcat(datetime, usec);
+}
 
 struct unvme *unvmed_ctrl(const char *bdf)
 {
