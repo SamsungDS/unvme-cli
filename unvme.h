@@ -454,7 +454,8 @@ int unvmed_get_log_fd(void);
 	do { 										\
 		char buf[550];								\
 		int len = snprintf(buf, sizeof(buf),					\
-				   "%-8s| " fmt "\n", type, ##__VA_ARGS__);		\
+				   "%-8s| %s: %d: " fmt "\n",				\
+				   type, __func__, __LINE__, ##__VA_ARGS__);		\
 		write(unvmed_get_log_fd(), buf, len);					\
 	} while(0)
 
