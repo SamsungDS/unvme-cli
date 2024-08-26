@@ -979,16 +979,22 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	int ret;
+	uint32_t cc;
+	uint32_t csts;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
 
 	if (!unvme)
 		unvmed_err_return(EPERM, "Do 'unvme add %s' first", bdf);
 
-	ret = nvme_reset(&unvme->ctrl);
-	if (ret)
-		unvmed_err_return(errno, "failed to reset %s controller", bdf);
+	cc = le32_to_cpu(mmio_read32(unvme->ctrl.regs + 0x14));
+	mmio_write32(unvme->ctrl.regs + 0x14, cpu_to_le32(cc & ~0x1));
+
+	while (1) {
+		csts = le32_to_cpu(mmio_read32(unvme->ctrl.regs + 0x1c));
+		if (!(csts & 0x1))
+			break;
+	}
 
 	__free_nvme(unvme);
 	unvme->init = false;
