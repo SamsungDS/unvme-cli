@@ -353,6 +353,9 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	if (css > 0x7)
 		unvmed_err_return(EINVAL, "invalid -i|--css");
 
+	if (unvme->init)
+		unvmed_err_return(EALREADY, "%s is already enabled", bdf);
+
 	if (nvme_configure_adminq(&unvme->ctrl, sq_flags)) {
 		perror("nvme_configure_adminq");
 		ret = errno;
