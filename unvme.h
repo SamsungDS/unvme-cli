@@ -459,8 +459,13 @@ int unvmed_get_log_fd(void);
 		write(unvmed_get_log_fd(), buf, len);					\
 	} while(0)
 
-#define log(fmt, ...) __log("core", fmt, ##__VA_ARGS__)
-#define log_nvme(fmt, ...) __log("nvme", fmt, ##__VA_ARGS__)
+#ifdef log_info
+#undef log_info
+#endif
+
+#define log_info(fmt, ...)	__log("INFO", fmt, ##__VA_ARGS__)
+#define log_err(fmt, ...)	__log("ERROR", fmt, ##__VA_ARGS__)
+#define log_nvme(fmt, ...)	__log("NVME", fmt, ##__VA_ARGS__)
 
 /*
  * XXX: It would be better if we can have stderr and stdout with dynamic size
