@@ -103,9 +103,11 @@ static int unvmed_set_pid(void)
 	return 0;
 }
 
+static char __argv[UNVME_MAX_OPT * UNVME_MAX_STR];
 static int unvmed_handler(struct unvme_msg *msg)
 {
 	const struct command *cmds = unvme_cmds();
+	char *oneline = __argv;
 	char **argv;
 	int argc = msg->msg.argc;
 	int ret;
@@ -120,8 +122,11 @@ static int unvmed_handler(struct unvme_msg *msg)
 		if (!argv[i])
 			unvme_pr_return(-ENOMEM, "ERROR: failed to allocate memory\n");
 		strcpy(argv[i], msg->msg.argv[i]);
+		oneline += sprintf(oneline, "%s%s", (i == 0) ? "":" ", argv[i]);
 	}
 	argv[i] = NULL;
+
+	log_info("msg: start: '%s'", __argv);
 
 	/*
 	 * If the message represents termination, simple return here.
@@ -145,6 +150,8 @@ out:
 		free(argv[i]);
 	free(argv);
 
+	log_info("msg: compl: '%s' (ret=%d, type='%s')",
+			__argv, ret, strerror(abs(ret)));
 	return ret;
 }
 
@@ -271,12 +278,18 @@ int unvmed(char *argv[])
 	sqid = unvme_msgq_create(UNVME_MSGQ_SQ);
 	__msg_cq = unvme_msgq_create(UNVME_MSGQ_CQ);
 
+	log_info("unvmed daemon process is sucessfully created "
+			"(pid=%d, msgq_sq=%d, msgq_cq=%d)",
+			getpid(), sqid, __msg_cq);
+
 	list_head_init(&ctrls);
 
 	signal(SIGTERM, unvmed_release);
 	signal(SIGSEGV, unvmed_error);
 	signal(SIGABRT, unvmed_error);
 	unvmed_set_pid();
+
+	log_info("ready to receive messages from client ...");
 
 	while (true) {
 		unvme_msgq_recv(sqid, &msg);
