@@ -18,32 +18,6 @@
 		return err;						\
 	} while(0)
 
-/*
- * `libvfn` manages the sq and cq instance itself, but `unvme` should also keep
- * the sq/cq instance to free them in a proper time rather than letting
- * `libvfn` does the clean-up via nvme_close() which might cause mismatch
- * between `unvme` and `libvfn`.
- */
-static void __free_nvme(struct unvme *unvme)
-{
-	struct unvme_sq *sq, *sq_next;
-	struct unvme_cq *cq, *cq_next;
-
-	list_for_each_safe(&unvme->sq_list, sq, sq_next, list) {
-		nvme_discard_sq(&unvme->ctrl, sq->sq);
-		free(sq->sq);
-		list_del(&sq->list);
-	}
-	free(unvme->ctrl.sq);
-
-	list_for_each_safe(&unvme->cq_list, cq, cq_next, list) {
-		nvme_discard_cq(&unvme->ctrl, cq->cq);
-		free(cq->cq);
-		list_del(&cq->list);
-	}
-	free(unvme->ctrl.cq);
-}
-
 static inline int unvme_sq_nr_pending(struct nvme_sq *sq)
 {
 	if (sq->tail >= sq->ptail)
@@ -979,6 +953,8 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
+	struct unvme_sq *usq, *usq_next;
+	struct unvme_cq *ucq, *ucq_next;
 	uint32_t cc;
 	uint32_t csts;
 
@@ -996,7 +972,18 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 			break;
 	}
 
-	__free_nvme(unvme);
+	list_for_each_safe(&unvme->sq_list, usq, usq_next, list) {
+		nvme_discard_sq(&unvme->ctrl, usq->sq);
+		list_del(&usq->list);
+		free(usq);
+	}
+
+	list_for_each_safe(&unvme->cq_list, ucq, ucq_next, list) {
+		nvme_discard_cq(&unvme->ctrl, ucq->cq);
+		list_del(&ucq->list);
+		free(ucq);
+	}
+
 	unvme->init = false;
 
 	return 0;
