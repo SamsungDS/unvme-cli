@@ -13,6 +13,7 @@
  */
 static char *__stderr;
 static char *__stdout;
+static int __msg_cq;
 static struct list_head ctrls;
 static int __log_fd;
 
@@ -145,6 +146,24 @@ static void unvmed_release(int signum)
 	exit(ECANCELED);
 }
 
+static void unvmed_error(int signum)
+{
+	struct unvme_msg msg = {
+		.type = UNVME_MSG,
+		.msg = {
+			.ret = -ENOTCONN,
+		},
+	};
+
+	log_err("signal trapped (signum=%d, type='%s')",
+			signum, strsignal(signum));
+
+	if (__msg_cq)
+		unvme_msgq_send(__msg_cq, &msg);
+
+	unvmed_release(signum);
+}
+
 static void unvmed_std_init(void)
 {
 	if (!__stderr) {
@@ -207,7 +226,6 @@ int unvmed(char *argv[])
 {
 	struct unvme_msg msg;
 	int sqid;
-	int cqid;
 
 	/*
 	 * Convert the current process to a daemon process
@@ -232,11 +250,13 @@ int unvmed(char *argv[])
 	close(STDERR_FILENO);
 
 	sqid = unvme_msgq_create(UNVME_MSGQ_SQ);
-	cqid = unvme_msgq_create(UNVME_MSGQ_CQ);
+	__msg_cq = unvme_msgq_create(UNVME_MSGQ_CQ);
 
 	list_head_init(&ctrls);
 
 	signal(SIGTERM, unvmed_release);
+	signal(SIGSEGV, unvmed_error);
+	signal(SIGABRT, unvmed_error);
 	unvmed_set_pid();
 
 	while (true) {
@@ -248,7 +268,7 @@ int unvmed(char *argv[])
 		 * the requester unvme-cli client process.
 		 */
 		msg.msg.ret = unvmed_handler(&msg);
-		unvme_msgq_send(cqid, &msg);
+		unvme_msgq_send(__msg_cq, &msg);
 	}
 
 	/*

@@ -298,5 +298,10 @@ int main(int argc, char *argv[])
 			fprintf(stdout, "%c", __stdout[i]);
 	}
 
+	if (msg.msg.ret == -ENOTCONN) {
+		unvme_pr_err("ERROR: unvmed has been terminated unexpectedly."
+				" See details in %s\n", UNVME_UNVMED_LOG);
+	}
+
 	return msg.msg.ret;
 }
