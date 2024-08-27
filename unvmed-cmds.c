@@ -226,6 +226,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	unvme->ctrl.config.nsqa = nvme_opts.nsqr;
 	unvme->ctrl.config.ncqa = nvme_opts.ncqr;
 
+	nvme_add_ctrl(&unvme->ctrl);
 	return 0;
 }
 
@@ -250,6 +251,7 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvme)
 		unvmed_err_return(EPERM, "Do 'unvme add %s' first", bdf);
 
+	nvme_del_ctrl(&unvme->ctrl);
 	nvme_close(&unvme->ctrl);
 
 	ret = unvmed_free(bdf);
