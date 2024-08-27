@@ -900,7 +900,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 
 	uint64_t sqid = UINT64_MAX;
 	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--sqid", opt_set_uintval, opt_show_uintval, &sqid, "[M] Submission queue ID"),
+		OPT_WITH_ARG("-q|--sqid", opt_set_ulongval, opt_show_ulongval, &sqid, "[M] Submission queue ID"),
 		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
 		OPT_ENDTABLE
 	};
