@@ -929,6 +929,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 
 	list_for_each_safe(&unvme->cmd_list, cmd, next, list) {
 		if (cmd->rq->sq->id == sqid) {
+			cmd->should_free = true;
 			unvme_cmd_free(&cmd);
 		}
 	}
