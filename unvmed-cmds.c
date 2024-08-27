@@ -37,6 +37,7 @@ static inline int unvme_sq_update_tail_and_wait(struct nvme_sq *sq,
 
 	nvme_sq_update_tail(sq);
 	nvme_cq_wait_cqes(sq->cq, *cqes, nr_sqes, NULL);
+	nvme_cq_update_head(sq->cq);
 
 	return nr_sqes;
 }
