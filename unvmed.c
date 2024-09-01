@@ -162,8 +162,12 @@ static void unvmed_release(int signum)
 	unvme_msgq_delete(UNVME_MSGQ_SQ);
 	unvme_msgq_delete(UNVME_MSGQ_CQ);
 
-	list_for_each_safe(&ctrls, ctrl, next, list)
+	list_for_each_safe(&ctrls, ctrl, next, list) {
+		nvme_del_ctrl(&ctrl->ctrl);
+		nvme_close(&ctrl->ctrl);
+
 		free(ctrl);
+	}
 
 	remove(UNVME_UNVMED_PID);
 
