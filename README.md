@@ -22,6 +22,7 @@ Please refer examples test cases under examples/.
 
 **Requirements**
   - libvfn (>= 5.1.0)
+  - libnvme (>= 1.8.0)
 
 ```bash
 meson setup build
@@ -35,7 +36,9 @@ cd build && meson install
 ```
 
 ## License
-`unvme-cli` is licensed under the GNU General Public License v2.0 or later.
+`unvme-cli` is licensed under the GNU General Public License v2.0 or later,
+except for `libunvmed` files in the lib/ directory, which are dual-licensed
+under the LGPL-2.1-or-later and the MIT License.
 
 `unvme-cli` uses `libvfn` library. And also please note that `unvme-cli` uses
 various libraries of Comprehensive C Archive Network (CCAN) which have separated

@@ -1,169 +1,27 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
 #include <sys/msg.h>
+#include <sys/mman.h>
 #include <sys/signal.h>
-#include <vfn/nvme.h>
-#include <ccan/str/str.h>
-#include <ccan/opt/opt.h>
 #include <ccan/list/list.h>
+
+#ifndef UNVME_H
+#define UNVME_H
+
+struct opt_table;
 
 #define UNVME_MAX_OPT		64
 #define UNVME_MAX_STR		32
 #define UNVME_BDF_STRLEN	13
 #define UNVME_PWD_STRLEN	256
 
-/*
- * unvme handle
- */
-struct unvme {
-	struct nvme_ctrl ctrl;
-	char bdf[UNVME_BDF_STRLEN];
-	bool init;
-
-	struct list_head sq_list;
-	struct list_head cq_list;
-	struct list_head cmd_list;
-
-	struct list_node list;
-};
-
-struct unvme_sq {
-	struct nvme_sq *sq;
-	struct list_node list;
-};
-
-struct unvme_cq {
-	struct nvme_cq *cq;
-	struct list_node list;
-};
-
-struct unvme_cmd {
-	struct unvme *unvme;
-
-	struct nvme_rq *rq;
-	union nvme_cmd sqe;
-	struct nvme_cqe cqe;
-
-	/* Data buffer for the corresponding NVMe command */
-	void *vaddr;
-	size_t len;
-	uint64_t iova;
-
-	bool should_free;
-	struct list_node list;
-};
-
-static inline struct nvme_sq *unvme_sq(struct unvme *unvme, unsigned int qid)
-{
-	if (!unvme->ctrl.sq)
-		return NULL;
-
-	return (struct nvme_sq *)&unvme->ctrl.sq[qid];
-}
-
-static inline bool unvme_sq_exists(struct unvme *unvme, unsigned int qid)
-{
-	struct unvme_sq* usq;
-
-	list_for_each(&unvme->sq_list, usq, list) {
-		if(usq->sq->id == qid)
-			return true;
-	}
-
-	return false;
-}
-
-static inline int unvme_map_vaddr(struct unvme *unvme, void *buf, size_t len,
-				  uint64_t *iova, unsigned long flags)
-{
-	struct nvme_ctrl *ctrl = &unvme->ctrl;
-	struct iommu_ctx *ctx = __iommu_ctx(ctrl);
-
-	if (iommu_map_vaddr(ctx, buf, len, iova, flags))
-		return -1;
-
-	return 0;
-}
-
-static inline int unvme_map_vaddr_to_iova(struct unvme *unvme, void *buf,
-					  size_t len, uint64_t *iova)
-{
-	return unvme_map_vaddr(unvme, buf, len, iova, IOMMU_MAP_FIXED_IOVA);
-}
-
-static inline int unvme_unmap_vaddr(struct unvme *unvme, void *buf)
-{
-	struct nvme_ctrl *ctrl = &unvme->ctrl;
-	struct iommu_ctx *ctx = __iommu_ctx(ctrl);
-
-	return iommu_unmap_vaddr(ctx, buf, NULL);
-}
-
-static inline struct unvme_cmd *unvme_cmd_alloc(struct unvme *unvme, int sqid,
-						size_t data_len)
-{
-	struct unvme_cmd *cmd;
-	struct nvme_sq *sq;
-	struct nvme_rq *rq;
-	uint64_t iova;
-
-	if (!unvme_sq_exists(unvme, sqid))
-		return NULL;
-
-	sq = unvme_sq(unvme, sqid);
-
-	rq = nvme_rq_acquire(sq);
-	if (!rq)
-		return NULL;
-
-	cmd = zmalloc(sizeof(*cmd));
-	if (!cmd)
-		goto free_rq;
-
-	cmd->unvme = unvme;
-	cmd->rq = rq;
-
-	if (data_len) {
-		if (pgmap(&cmd->vaddr, data_len) != data_len)
-			goto free_cmd;
-		cmd->len = data_len;
-
-		if (unvme_map_vaddr(unvme, cmd->vaddr, cmd->len, &iova, 0x0))
-			goto free_buf;
-	}
-
-	cmd->iova = iova;
-	cmd->should_free = true;
-
-	list_add(&unvme->cmd_list, &cmd->list);
-
-	return cmd;
-
-free_buf:
-	pgunmap(cmd->vaddr, cmd->len);
-free_cmd:
-	free(cmd);
-free_rq:
-	nvme_rq_release(rq);
-	return NULL;
-}
-
-void unvmed_log_cmd_post(struct unvme_cmd *cmd);
-void unvmed_log_cmd_cmpl(struct unvme_cmd *cmd);
-
-static inline void unvme_cmd_post(struct unvme_cmd *cmd, bool update_sqdb)
-{
-	nvme_rq_post(cmd->rq, (union nvme_cmd *)&cmd->sqe);
-	if (update_sqdb)
-		nvme_sq_update_tail(cmd->rq->sq);
-	unvmed_log_cmd_post(cmd);
-}
-
-static inline int unvme_cmd_cmpl(struct unvme_cmd *cmd)
-{
-	nvme_rq_spin(cmd->rq, &cmd->cqe);
-	unvmed_log_cmd_cmpl(cmd);
-
-	return nvme_cqe_ok(&cmd->cqe) ? 0 : 1;
-}
+struct nvme_ctrl;
+union nvme_cmd;
+struct nvme_cqe;
 
 enum unvme_msg_type {
 	UNVME_MSG = 1,
@@ -217,19 +75,16 @@ void unvme_cmd_help(const char *name, const char *desc, struct opt_table *opts);
 int unvme_send_msg(struct unvme_msg *msg);
 int unvme_recv_msg(struct unvme_msg *msg);
 
-#define UNVME_UNVMED_PID	"/var/run/unvmed.pid"
+#define UNVME_DAEMON_PID	"/var/run/unvmed.pid"
 int unvmed(char *argv[]);
-void unvmed_datetime(char *datetime, size_t str_len);
-struct unvme *unvmed_ctrl(const char *bdf);
-struct unvme *unvmed_alloc(const char *bdf);
-int unvmed_free(const char *bdf);
+void unvme_datetime(char *datetime, size_t str_len);
 
-static inline int unvme_unvmed_pid(void)
+static inline int unvme_get_daemon_pid(void)
 {
 	char pid[8] = {};
 	int fd;
 
-	fd = open(UNVME_UNVMED_PID, O_RDONLY);
+	fd = open(UNVME_DAEMON_PID, O_RDONLY);
 	if (fd < 0)
 		return -EINVAL;
 
@@ -237,9 +92,9 @@ static inline int unvme_unvmed_pid(void)
 	return atoi(pid);
 }
 
-static inline bool unvme_unvmed_running(void)
+static inline bool unvme_is_daemon_running(void)
 {
-	pid_t pid = unvme_unvmed_pid();
+	pid_t pid = unvme_get_daemon_pid();
 
 	if (pid < 0)
 		return false;
@@ -287,21 +142,6 @@ static inline void unvme_free(void *p)
 	}
 }
 #define UNVME_FREE __attribute__((cleanup(unvme_free)))
-
-static inline void unvme_cmd_free(void *p)
-{
-	struct unvme_cmd *cmd = *(struct unvme_cmd **)p;
-
-	if (cmd && cmd->should_free) {
-		if (cmd->len) {
-			unvme_unmap_vaddr(cmd->unvme, cmd->vaddr);
-			pgunmap(cmd->vaddr, cmd->len);
-		}
-		nvme_rq_release(cmd->rq);
-		list_del(&cmd->list);
-	}
-}
-#define UNVME_FREE_CMD __attribute__((cleanup(unvme_cmd_free)))
 
 #define unvme_pr(fmt, ...)				\
 	do {						\
@@ -448,19 +288,19 @@ static inline int unvme_msgq_recv(int msg_id, struct unvme_msg *msg)
 	return 0;
 }
 
-#define UNVME_UNVMED_LOG	"/var/log/unvmed.log"
-int unvmed_get_log_fd(void);
+#define UNVME_DAEMON_LOG	"/var/log/unvmed.log"
+int unvme_get_log_fd(void);
 
 #define __log(type, fmt, ...)								\
 	do { 										\
 		char buf[550];								\
 		char datetime[32];							\
 											\
-		unvmed_datetime(datetime, sizeof(datetime));				\
+		unvme_datetime(datetime, sizeof(datetime));				\
 		int len = snprintf(buf, sizeof(buf),					\
 				   "%-8s| %s | %s: %d: " fmt "\n",			\
 				   type, datetime, __func__, __LINE__, ##__VA_ARGS__);	\
-		write(unvmed_get_log_fd(), buf, len);					\
+		write(unvme_get_log_fd(), buf, len);					\
 	} while(0)
 
 #ifdef log_info
@@ -511,10 +351,20 @@ static inline void *unvme_stdout(void)
 	return __shmem(UNVME_SHMEM_STDOUT, UNVME_STDERR_SIZE);
 }
 
+struct unvme;
+
 /*
  * unvmed-print.c
  */
-void unvmed_pr_raw(void *vaddr, size_t len);
-void unvmed_pr_id_ns(void *vaddr);
-void unvmed_pr_show_regs(void *vaddr);
-void unvmed_pr_status(struct unvme *unvme);
+void unvme_pr_raw(void *vaddr, size_t len);
+void unvme_pr_id_ns(void *vaddr);
+void unvme_pr_show_regs(struct unvme *u);
+void unvme_pr_status(struct unvme *u);
+
+/*
+ * unvmed-logs.c
+ */
+void unvme_log_cmd_post(const char *bdf, uint32_t sqid, union nvme_cmd *sqe);
+void unvme_log_cmd_cmpl(const char *bdf, struct nvme_cqe *cqe);
+
+#endif

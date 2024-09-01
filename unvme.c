@@ -271,7 +271,7 @@ int main(int argc, char *argv[])
 			return cmds[i].func(argc, argv, &msg);
 	}
 
-	if (!unvme_unvmed_running())
+	if (!unvme_is_daemon_running())
 		unvme_pr_return(1, "ERROR: unvmed is not running, "
 				"please run 'unvme start' first\n");
 
@@ -300,7 +300,7 @@ int main(int argc, char *argv[])
 
 	if (msg.msg.ret == -ENOTCONN) {
 		unvme_pr_err("ERROR: unvmed has been terminated unexpectedly."
-				" See details in %s\n", UNVME_UNVMED_LOG);
+				" See details in %s\n", UNVME_DAEMON_LOG);
 	}
 
 	return msg.msg.ret;

@@ -1,5 +1,7 @@
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
+#include <errno.h>
 #include <time.h>
 #include <sys/time.h>
 #include <sys/signal.h>
@@ -7,6 +9,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <ccan/str/str.h>
+
+#include <vfn/nvme.h>
+#include <libunvmed.h>
 
 #include "unvme.h"
 
@@ -16,10 +21,9 @@
 static char *__stderr;
 static char *__stdout;
 static int __msg_cq;
-static struct list_head ctrls;
 static int __log_fd;
 
-void unvmed_datetime(char *datetime, size_t str_len)
+void unvme_datetime(char *datetime, size_t str_len)
 {
 	struct timeval tv;
 	struct tm *tm;
@@ -36,60 +40,13 @@ void unvmed_datetime(char *datetime, size_t str_len)
 	strcat(datetime, usec);
 }
 
-struct unvme *unvmed_ctrl(const char *bdf)
-{
-	struct unvme *ctrl;
-
-	if (!ctrls.n.next || !ctrls.n.prev)
-		return NULL;
-
-	list_for_each(&ctrls, ctrl, list) {
-		if (streq(ctrl->bdf, bdf))
-			return ctrl;
-	}
-
-	return NULL;
-}
-
-struct unvme *unvmed_alloc(const char *bdf)
-{
-	struct unvme *unvme;
-
-	if (unvmed_ctrl(bdf))
-		return 0;
-
-	unvme = (struct unvme *)zmalloc(sizeof(struct unvme));
-	if (!unvme)
-		return NULL;
-
-	strncpy(unvme->bdf, bdf, sizeof(unvme->bdf));
-
-	list_head_init(&unvme->sq_list);
-	list_head_init(&unvme->cq_list);
-	list_head_init(&unvme->cmd_list);
-	list_add(&ctrls, &unvme->list);
-	return unvme;
-}
-
-int unvmed_free(const char *bdf)
-{
-	struct unvme *unvme = unvmed_ctrl(bdf);
-
-	if (!unvme)
-		return -EINVAL;
-
-	list_del(&unvme->list);
-	free(unvme);
-	return 0;
-}
-
-static int unvmed_set_pid(void)
+static int unvme_set_pid(void)
 {
 	pid_t pid = getpid();
 	char spid[8] = {};
 	int fd;
 
-	fd = open(UNVME_UNVMED_PID, O_CREAT | O_WRONLY, S_IRUSR);
+	fd = open(UNVME_DAEMON_PID, O_CREAT | O_WRONLY, S_IRUSR);
 	if (fd < 0)
 		return -EINVAL;
 
@@ -104,7 +61,7 @@ static int unvmed_set_pid(void)
 }
 
 static char __argv[UNVME_MAX_OPT * UNVME_MAX_STR];
-static int unvmed_handler(struct unvme_msg *msg)
+static int unvme_handler(struct unvme_msg *msg)
 {
 	const struct command *cmds = unvme_cmds();
 	char *oneline = __argv;
@@ -155,28 +112,21 @@ out:
 	return ret;
 }
 
-static void unvmed_release(int signum)
+static void unvme_release(int signum)
 {
-	struct unvme *ctrl, *next;
-
 	unvme_msgq_delete(UNVME_MSGQ_SQ);
 	unvme_msgq_delete(UNVME_MSGQ_CQ);
 
-	list_for_each_safe(&ctrls, ctrl, next, list) {
-		nvme_del_ctrl(&ctrl->ctrl);
-		nvme_close(&ctrl->ctrl);
+	unvmed_free_ctrl_all();
 
-		free(ctrl);
-	}
-
-	remove(UNVME_UNVMED_PID);
+	remove(UNVME_DAEMON_PID);
 
 	log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
 			getpid(), signum, strsignal(signum));
 	exit(ECANCELED);
 }
 
-static void unvmed_error(int signum)
+static void unvme_error(int signum)
 {
 	struct unvme_msg msg = {
 		.type = UNVME_MSG,
@@ -191,10 +141,10 @@ static void unvmed_error(int signum)
 	if (__msg_cq)
 		unvme_msgq_send(__msg_cq, &msg);
 
-	unvmed_release(signum);
+	unvme_release(signum);
 }
 
-static void unvmed_std_init(void)
+static void unvme_std_init(void)
 {
 	if (!__stderr) {
 		__stderr = (char *)unvme_stderr();
@@ -218,7 +168,7 @@ static void unvmed_std_init(void)
 	__stdout[0] = '\0';
 }
 
-static inline int unvmed_cmdline_strlen(void)
+static inline int unvme_cmdline_strlen(void)
 {
 	char buf[16];
 	ssize_t len;
@@ -233,21 +183,21 @@ static inline int unvmed_cmdline_strlen(void)
 	return len;
 }
 
-static int unvmed_create_logfile(void)
+static int unvme_create_logfile(void)
 {
 	int fd;
 
 	if(mkdir("/var/log", 0755) < 0 && errno != EEXIST)
 		return -errno;
 
-	fd = creat(UNVME_UNVMED_LOG, 0644);
+	fd = creat(UNVME_DAEMON_LOG, 0644);
 	if (fd < 0)
 		return -EINVAL;
 
 	return fd;
 }
 
-int unvmed_get_log_fd(void)
+int unvme_get_log_fd(void)
 {
 	return __log_fd;
 }
@@ -265,14 +215,14 @@ int unvmed(char *argv[])
 
 	prctl(PR_SET_NAME, (unsigned long)"unvmed", 0, 0, 0);
 
-	memset(argv[0], 0, unvmed_cmdline_strlen());
+	memset(argv[0], 0, unvme_cmdline_strlen());
 	strcpy(argv[0], "unvmed");
 	argv[0][strlen("unvmed")] = '\0';
 
 	umask(0);
 	chdir("/");
 
-	__log_fd = unvmed_create_logfile();
+	__log_fd = unvme_create_logfile();
 	assert(__log_fd >= 0);
 
 	close(STDIN_FILENO);
@@ -286,24 +236,22 @@ int unvmed(char *argv[])
 			"(pid=%d, msgq_sq=%d, msgq_cq=%d)",
 			getpid(), sqid, __msg_cq);
 
-	list_head_init(&ctrls);
-
-	signal(SIGTERM, unvmed_release);
-	signal(SIGSEGV, unvmed_error);
-	signal(SIGABRT, unvmed_error);
-	unvmed_set_pid();
+	signal(SIGTERM, unvme_release);
+	signal(SIGSEGV, unvme_error);
+	signal(SIGABRT, unvme_error);
+	unvme_set_pid();
 
 	log_info("ready to receive messages from client ...");
 
 	while (true) {
 		unvme_msgq_recv(sqid, &msg);
-		unvmed_std_init();
+		unvme_std_init();
 
 		/*
 		 * Provide error return value from the current daemon process to
 		 * the requester unvme-cli client process.
 		 */
-		msg.msg.ret = unvmed_handler(&msg);
+		msg.msg.ret = unvme_handler(&msg);
 		unvme_msgq_send(__msg_cq, &msg);
 	}
 

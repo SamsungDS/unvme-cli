@@ -1,6 +1,8 @@
 #include <sys/signal.h>
 #include <sys/wait.h>
 
+#include <ccan/opt/opt.h>
+
 #include "unvme.h"
 
 int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
@@ -17,7 +19,7 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
 
-	if (unvme_unvmed_running())
+	if (unvme_is_daemon_running())
 		unvme_pr_return(1, "unvme: unvmed is already running\n");
 
 	pid = fork();
@@ -43,10 +45,10 @@ int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
 
-	if (!unvme_unvmed_running())
+	if (!unvme_is_daemon_running())
 		unvme_pr_return(1, "unvme: unvmed is not running\n");
 
-	pid = unvme_unvmed_pid();
+	pid = unvme_get_daemon_pid();
 	kill(pid, SIGTERM);
 
 	return waitpid(pid, NULL, 0) > 0;
@@ -66,7 +68,7 @@ int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
 
-	int fd = open(UNVME_UNVMED_LOG, O_RDONLY);
+	int fd = open(UNVME_DAEMON_LOG, O_RDONLY);
 	char buffer[512];
 	ssize_t nread;
 
