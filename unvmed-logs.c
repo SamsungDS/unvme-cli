@@ -152,7 +152,7 @@ void unvme_log_cmd_post(const char *bdf, uint32_t sqid, union nvme_cmd *sqe)
 
 	str = (admin) ? unvme_log_admin_cmd(sqe) : unvme_log_io_cmd(sqe);
 
-	log_nvme("unvme_cmd_post: %s: sqe (qid=%d, cid=%d, nsid=%d, "
+	unvme_log_nvme("unvme_cmd_post: %s: sqe (qid=%d, cid=%d, nsid=%d, "
 		 "fuse=0x%x, psdt=%d(%s), mptr=0x%lx, "
 		 "dptr0=0x%lx, dptr1=0x%lx, cmd=(%s))",
 		 bdf, sqid, sqe->cid, sqe->nsid,
@@ -164,7 +164,7 @@ void unvme_log_cmd_cmpl(const char *bdf, struct nvme_cqe *cqe)
 {
 	uint16_t sfp = cqe->sfp;
 
-	log_nvme("unvme_cmd_cmpl: %s: cqe (qid=%d, cid=%d, "
+	unvme_log_nvme("unvme_cmd_cmpl: %s: cqe (qid=%d, cid=%d, "
 		 "dw0=0x%x, dw1=0x%x, head=%d, phase=%d, sct=0x%x, sc=0x%x, "
 		 "crd=0x%x, more=%d, dnr=%d)",
 		 bdf, cqe->sqid, cqe->cid,

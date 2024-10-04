@@ -87,7 +87,7 @@ static int unvme_handler(struct unvme_msg *msg)
 	}
 	argv[i] = NULL;
 
-	log_info("msg: start: '%s'", __argv);
+	unvme_log_info("msg: start: '%s'", __argv);
 
 	/*
 	 * If the message represents termination, simple return here.
@@ -111,7 +111,7 @@ out:
 		free(argv[i]);
 	free(argv);
 
-	log_info("msg: compl: '%s' (ret=%d, type='%s')",
+	unvme_log_info("msg: compl: '%s' (ret=%d, type='%s')",
 			__argv, ret, strerror(abs(ret)));
 	return ret;
 }
@@ -179,7 +179,7 @@ static void unvme_release(int signum)
 
 	remove(UNVME_DAEMON_PID);
 
-	log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
+	unvme_log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
 			getpid(), signum, strsignal(signum));
 	exit(ECANCELED);
 }
@@ -193,7 +193,7 @@ static void unvme_error(int signum)
 		},
 	};
 
-	log_err("signal trapped (signum=%d, type='%s')",
+	unvme_log_err("signal trapped (signum=%d, type='%s')",
 			signum, strsignal(signum));
 
 	if (__msg_cq)
@@ -290,7 +290,7 @@ int unvmed(char *argv[])
 	sqid = unvme_msgq_create(UNVME_MSGQ_SQ);
 	__msg_cq = unvme_msgq_create(UNVME_MSGQ_CQ);
 
-	log_info("unvmed daemon process is sucessfully created "
+	unvme_log_info("unvmed daemon process is sucessfully created "
 			"(pid=%d, msgq_sq=%d, msgq_cq=%d)",
 			getpid(), sqid, __msg_cq);
 
@@ -299,7 +299,7 @@ int unvmed(char *argv[])
 	signal(SIGABRT, unvme_error);
 	unvme_set_pid();
 
-	log_info("ready to receive messages from client ...");
+	unvme_log_info("ready to receive messages from client ...");
 
 	while (true) {
 		unvme_msgq_recv(sqid, &msg);

@@ -5,7 +5,7 @@
 void unvme_datetime(char *datetime, size_t str_len);
 int unvme_get_log_fd(void);
 
-#define __log(type, fmt, ...)								\
+#define __unvme_log(type, fmt, ...)							\
 	do { 										\
 		char buf[550];								\
 		char datetime[32];							\
@@ -17,13 +17,9 @@ int unvme_get_log_fd(void);
 		write(unvme_get_log_fd(), buf, len);					\
 	} while(0)
 
-#ifdef log_info
-#undef log_info
-#endif
-
-#define log_info(fmt, ...)	__log("INFO", fmt, ##__VA_ARGS__)
-#define log_err(fmt, ...)	__log("ERROR", fmt, ##__VA_ARGS__)
-#define log_nvme(fmt, ...)	__log("NVME", fmt, ##__VA_ARGS__)
+#define unvme_log_info(fmt, ...)	__unvme_log("INFO", fmt, ##__VA_ARGS__)
+#define unvme_log_err(fmt, ...)		__unvme_log("ERROR", fmt, ##__VA_ARGS__)
+#define unvme_log_nvme(fmt, ...)	__unvme_log("NVME", fmt, ##__VA_ARGS__)
 
 static inline void unvme_free(void *p)
 {
