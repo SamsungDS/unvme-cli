@@ -6,8 +6,11 @@
 #include <signal.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <assert.h>
 #include <sys/types.h>
+#include <sys/mman.h>
+#include <sys/msg.h>
 #include <sys/ipc.h>
 
 #include <ccan/opt/opt.h>
@@ -43,32 +46,35 @@ static struct command cmds[] = {
 	UNVME_CMDS_END
 };
 
+static int unvme_help(int argc, char *argv[], struct unvme_msg *msg)
+{
+	unvme_pr("Usage: unvme <command> [<device>] [<args>]\n");
+	unvme_pr("\n");
+	unvme_pr("Submit or trigger a given command to <device>. <device> is a bus-device-func\n"
+		 "address of a PCI device (e.g., 0000:01:00.0).  <device> can be found from\n"
+		 "'unvme list' command result.\n");
+	unvme_pr("\n");
+	unvme_pr("Supported commands:\n");
+
+	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++)
+		unvme_pr("\t%-16s\t%s\n", cmds[i].name, cmds[i].summary);
+
+	return 0;
+}
+
+static int unvme_version(int argc, char *argv[], struct unvme_msg *msg)
+{
+	unvme_pr("unvme version %s\n", UNVME_VERSION);
+
+	return 0;
+}
+
 struct command *unvme_cmds(void)
 {
 	return cmds;
 }
 
-int unvme_send_msg(struct unvme_msg *msg)
-{
-	int sqid = unvme_msgq_get(UNVME_MSGQ_SQ);
-
-	if (sqid < 0)
-		unvme_pr_return(-1, "ERROR: failed to get SQ\n");
-
-	return unvme_msgq_send(sqid, msg);
-}
-
-int unvme_recv_msg(struct unvme_msg *msg)
-{
-	int cqid = unvme_msgq_get(UNVME_MSGQ_CQ);
-
-	if (cqid < 0)
-		unvme_pr_return(-1, "ERROR: failed to get CQ\n");
-
-	return unvme_msgq_recv(cqid, msg);
-}
-
-static inline struct command *unvme_cmd(const char *cmd)
+static struct command *unvme_cmd(const char *cmd)
 {
 	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
 		if (streq(cmd, cmds[i].name))
@@ -103,43 +109,90 @@ void unvme_cmd_help(const char *name, const char *desc, struct opt_table *opts)
 	}
 }
 
-static inline bool unvme_is_daemon_cmd(const char *name)
+static void *__shmem(const char *name, size_t size)
 {
-	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
-		if (streq(name, cmds[i].name) &&
-				cmds[i].ctype == UNVME_DAEMON_CMD)
-			return true;
+	void *vaddr;
+	int fd;
+
+	fd = shm_open(name, O_CREAT | O_RDWR, 0666);
+	if (fd < 0)
+		return NULL;
+
+	if (ftruncate(fd, size) < 0) {
+		close(fd);
+		return NULL;
 	}
 
-	return false;
+	vaddr = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (vaddr == MAP_FAILED) {
+		close(fd);
+		return NULL;
+	}
+
+	close(fd);
+	return vaddr;
 }
 
-static int unvme_help(int argc, char *argv[], struct unvme_msg *msg)
+void *unvme_stderr(void)
 {
-	unvme_pr("Usage: unvme <command> [<device>] [<args>]\n");
-	unvme_pr("\n");
-	unvme_pr("Submit or trigger a given command to <device>. <device> is a bus-device-func\n"
-		 "address of a PCI device (e.g., 0000:01:00.0).  <device> can be found from\n"
-		 "'unvme list' command result.\n");
-	unvme_pr("\n");
-	unvme_pr("Supported commands:\n");
+	return __shmem("/unvmed-stderr", UNVME_STDERR_SIZE);
+}
 
-	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++)
-		unvme_pr("\t%-16s\t%s\n", cmds[i].name, cmds[i].summary);
+void *unvme_stdout(void)
+{
+	return __shmem("/unvmed-stdout", UNVME_STDERR_SIZE);
+}
+
+int unvme_msgq_send(int msg_id, struct unvme_msg *msg)
+{
+	if (msgsnd(msg_id, msg, sizeof(msg->msg), 0) < 0)
+		unvme_pr_return(-1, "ERROR: failed to send a message\n");
 
 	return 0;
 }
 
-static int __unvme_help(void)
+int unvme_msgq_recv(int msg_id, struct unvme_msg *msg)
 {
-	return unvme_help(0, NULL, NULL);
-}
-
-static int unvme_version(int argc, char *argv[], struct unvme_msg *msg)
-{
-	unvme_pr("unvme version %s\n", UNVME_VERSION);
+	if (msgrcv(msg_id, msg, sizeof(msg->msg), 0, 0) < 0)
+		unvme_pr_return(-1, "ERROR: failed to receive a message\n");
 
 	return 0;
+}
+
+static int unvme_msgq_get(const char *keyfile)
+{
+	int msg_id;
+	key_t key;
+
+	key = ftok(keyfile, 0x0);
+	if (key < 0)
+		return -1;
+
+	msg_id = msgget(key, 0666);
+	if (msg_id < 0)
+		return -1;
+
+	return msg_id;
+}
+
+static int unvme_send_msg(struct unvme_msg *msg)
+{
+	int sqid = unvme_msgq_get(UNVME_MSGQ_SQ);
+
+	if (sqid < 0)
+		unvme_pr_return(-1, "ERROR: failed to get SQ\n");
+
+	return unvme_msgq_send(sqid, msg);
+}
+
+static int unvme_recv_msg(struct unvme_msg *msg)
+{
+	int cqid = unvme_msgq_get(UNVME_MSGQ_CQ);
+
+	if (cqid < 0)
+		unvme_pr_return(-1, "ERROR: failed to get CQ\n");
+
+	return unvme_msgq_recv(cqid, msg);
 }
 
 static int unvme_parse_bdf(const char *input, char *bdf)
@@ -204,7 +257,7 @@ static int unvme_check_args(int argc, char *argv[], char *bdf)
 	struct command *cmd;
 
 	if (argc == 1) {
-		__unvme_help();
+		unvme_help(0, NULL, NULL);
 		return 0;
 	}
 
@@ -242,10 +295,37 @@ static int unvme_check_args(int argc, char *argv[], char *bdf)
 	return argc;
 }
 
+int unvme_get_daemon_pid(void)
+{
+	char pid[8] = {};
+	int fd;
+
+	fd = open(UNVME_DAEMON_PID, O_RDONLY);
+	if (fd < 0)
+		return -EINVAL;
+
+	read(fd, pid, sizeof(pid));
+	return atoi(pid);
+}
+
+bool unvme_is_daemon_running(void)
+{
+	pid_t pid = unvme_get_daemon_pid();
+
+	if (pid < 0)
+		return false;
+
+	if (kill(pid, 0))
+		return false;
+
+	return true;
+}
+
 int main(int argc, char *argv[])
 {
 	struct unvme_msg msg = {0, };
 	const char *cmd = argv[1];
+	struct command *cmds = unvme_cmds();
 	char *__stderr;
 	char *__stdout;
 	char bdf[13];
@@ -254,7 +334,7 @@ int main(int argc, char *argv[])
 	ret = unvme_check_args(argc, argv, bdf);
 	if (ret <= 0) {
 		if (ret == -EINVAL)
-			__unvme_help();
+			unvme_help(0, NULL, NULL);
 
 		return abs(ret);
 	}
@@ -266,7 +346,7 @@ int main(int argc, char *argv[])
 	strncpy(msg.msg.bdf, bdf, UNVME_BDF_STRLEN);
 	getcwd(msg.msg.pwd, UNVME_PWD_STRLEN);
 
-	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
+	for (int i = 0; cmds[i].name != NULL; i++) {
 		if (streq(cmd, cmds[i].name) &&
 				cmds[i].ctype & UNVME_CLIENT_CMD)
 			return cmds[i].func(argc, argv, &msg);
@@ -301,7 +381,7 @@ int main(int argc, char *argv[])
 
 	if (msg.msg.ret == -ENOTCONN) {
 		unvme_pr_err("ERROR: unvmed has been terminated unexpectedly."
-				" See details in %s\n", UNVME_DAEMON_LOG);
+				" See details by `unvme log`\n");
 	}
 
 	return msg.msg.ret;

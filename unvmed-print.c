@@ -7,6 +7,7 @@
 #include <libunvmed.h>
 
 #include "unvme.h"
+#include "unvmed.h"
 
 void unvme_pr_raw(void *vaddr, size_t len)
 {

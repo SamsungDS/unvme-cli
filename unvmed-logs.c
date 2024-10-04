@@ -2,6 +2,7 @@
 #include <nvme/types.h>
 
 #include "unvme.h"
+#include "unvmed.h"
 
 static char __buf[256];
 #define LOG_MAX_LEN sizeof(__buf)

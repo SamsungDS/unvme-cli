@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include <stdio.h>
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+
 #include <sys/signal.h>
 #include <sys/wait.h>
 

@@ -9,10 +9,12 @@
 #include <errno.h>
 
 #include <ccan/opt/opt.h>
+#include <ccan/str/str.h>
 #include <vfn/nvme.h>
 #include <libunvmed.h>
 
 #include "unvme.h"
+#include "unvmed.h"
 
 #define unvme_err_return(err, fmt, ...)					\
 	do {								\

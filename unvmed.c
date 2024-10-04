@@ -8,6 +8,8 @@
 #include <sys/signal.h>
 #include <sys/prctl.h>
 #include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
 #include <sys/stat.h>
 #include <ccan/str/str.h>
 
@@ -15,6 +17,7 @@
 #include <libunvmed.h>
 
 #include "unvme.h"
+#include "unvmed.h"
 
 /*
  * Shared memory buffer pointer pointing
@@ -111,6 +114,60 @@ out:
 	log_info("msg: compl: '%s' (ret=%d, type='%s')",
 			__argv, ret, strerror(abs(ret)));
 	return ret;
+}
+
+static int unvme_msgq_delete(const char *keyfile)
+{
+	key_t key;
+	int msg_id;
+
+	key = ftok(keyfile, 0x0);
+	if (key < 0)
+		return -1;
+
+	msg_id = msgget(key, 0666);
+	if (msg_id < 0)
+		return -1;
+
+	if (msgctl(msg_id, IPC_RMID, NULL) < 0)
+		return -1;
+
+	if (remove(keyfile))
+		return -1;
+
+	return 0;
+}
+
+static int unvme_msgq_create(const char *keyfile)
+{
+	int msg_id;
+	key_t key;
+	int fd;
+
+	fd = open(keyfile, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+	if (fd < 0)
+		unvme_pr_return(-1, "failed to create msgq keyfile %s\n",
+				keyfile);
+	close(fd);
+
+	key = ftok(keyfile, 0x0);
+	if (key < 0)
+		unvme_pr_return(-1, "ERROR: failed to get a key\n");
+
+	/*
+	 * If the message queue already exists, remove it and re-create.
+	 */
+	msg_id = msgget(key, 0666);
+	if (msg_id >= 0) {
+		if (msgctl(msg_id, IPC_RMID, NULL) < 0)
+			unvme_pr_return(-1, "ERROR: failed to remove a msgq\n");
+	}
+
+	msg_id = msgget(key, IPC_CREAT | 0666);
+	if (msg_id < 0)
+		unvme_pr_return(-1, "ERROR: failed to get a msgq\n");
+
+	return msg_id;
 }
 
 static void unvme_release(int signum)

@@ -3,9 +3,13 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <assert.h>
+#include <stdlib.h>
 #include <nvme/types.h>
 
 #include "unvme.h"
+#include "unvmed.h"
 
 static inline bool __is_abspath(const char *path)
 {
