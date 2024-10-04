@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#define _GNU_SOURCE
+
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,6 +11,7 @@
 #include <errno.h>
 #include <assert.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/msg.h>
 #include <sys/ipc.h>
@@ -19,6 +22,9 @@
 
 #include "unvme.h"
 #include "config.h"
+
+static char *__stdout_fname;
+static char *__stderr_fname;
 
 static int unvme_help(int argc, char *argv[], struct unvme_msg *msg);
 static int unvme_version(int argc, char *argv[], struct unvme_msg *msg);
@@ -107,40 +113,6 @@ void unvme_cmd_help(const char *name, const char *desc, struct opt_table *opts)
 		unvme_pr("\t%-16s\t%s\n", opts->names, opts->desc);
 		opts++;
 	}
-}
-
-static void *__shmem(const char *name, size_t size)
-{
-	void *vaddr;
-	int fd;
-
-	fd = shm_open(name, O_CREAT | O_RDWR, 0666);
-	if (fd < 0)
-		return NULL;
-
-	if (ftruncate(fd, size) < 0) {
-		close(fd);
-		return NULL;
-	}
-
-	vaddr = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	if (vaddr == MAP_FAILED) {
-		close(fd);
-		return NULL;
-	}
-
-	close(fd);
-	return vaddr;
-}
-
-void *unvme_stderr(void)
-{
-	return __shmem("/unvmed-stderr", UNVME_STDERR_SIZE);
-}
-
-void *unvme_stdout(void)
-{
-	return __shmem("/unvmed-stdout", UNVME_STDERR_SIZE);
 }
 
 int unvme_msgq_send(int msg_id, struct unvme_msg *msg)
@@ -321,13 +293,82 @@ bool unvme_is_daemon_running(void)
 	return true;
 }
 
+static void unvme_exit(void)
+{
+	exit(EXIT_FAILURE);
+}
+
+static void __unvme_stdio_init(char **fname, char *filefmt)
+{
+	pid_t pid = getpid();
+	FILE *file;
+	int ret;
+
+	ret = asprintf(fname, filefmt, pid);
+	if (ret < 0) {
+		unvme_pr_err("failed to init stdio (ret=%d)\n", ret);
+		goto err;
+	}
+
+	if (mkdir("/var/log/unvmed", 0755) < 0 && errno != EEXIST) {
+		unvme_pr_err("failed to create /var/log/unvmed dir\n");
+		goto err;
+	}
+
+	file = fopen(*fname, "w");
+	if (!file) {
+		unvme_pr_err("failed to create %s\n", *fname);
+		goto err;
+	}
+
+	fclose(file);
+	return;
+err:
+	if (*fname)
+		free(*fname);
+	unvme_exit();
+}
+
+static void unvme_stdio_init(void)
+{
+	__unvme_stdio_init(&__stdout_fname, UNVME_STDOUT);
+	__unvme_stdio_init(&__stderr_fname, UNVME_STDERR);
+}
+
+static void unvme_stdio_pr(FILE *stdio)
+{
+	char *fname = (stdio == stderr) ? __stderr_fname : __stdout_fname;
+	FILE *file;
+	char buf[256];
+
+	file = fopen(fname, "r");
+	if (!file) {
+		unvme_pr_err("failed to open %s\n", fname);
+		unvme_exit();
+	}
+
+	while (fgets(buf, sizeof(buf), file))
+		fprintf(stdio, "%s", buf);
+
+	fclose(file);
+	remove(fname);
+}
+
+static void unvme_stderr_pr(void)
+{
+	unvme_stdio_pr(stderr);
+}
+
+static void unvme_stdout_pr(void)
+{
+	unvme_stdio_pr(stdout);
+}
+
 int main(int argc, char *argv[])
 {
 	struct unvme_msg msg = {0, };
 	const char *cmd = argv[1];
 	struct command *cmds = unvme_cmds();
-	char *__stderr;
-	char *__stdout;
 	char bdf[13];
 	int ret;
 
@@ -339,7 +380,8 @@ int main(int argc, char *argv[])
 		return abs(ret);
 	}
 
-	unvme_msg_set_pid(&msg, getpid());
+	unvme_msg_to_daemon(&msg);
+
 	msg.msg.argc = argc;
 	for (int i = 0; i < msg.msg.argc; i++)
 		strcpy(msg.msg.argv[i], argv[i]);
@@ -357,27 +399,18 @@ int main(int argc, char *argv[])
 				"please run 'unvme start' first\n");
 
 	/*
-	 * Prepare shared memory which will be used as stdout from the unvmed.
-	 * Reaching here means unvmed has already been running and shmem for
-	 * stdout has already been created, so we just can simply open the
-	 * shmem here.
+	 * Prepare stderr file for the current process to receive from the
+	 * daemon process.
 	 */
-	__stderr = unvme_stderr();
-	__stdout = unvme_stdout();
-	assert(__stderr != NULL && __stdout != NULL);
+	unvme_stdio_init();
 
 	if (unvme_send_msg(&msg))
 		unvme_pr_return(-1, "ERROR: failed to send msg request\n");
 	if (unvme_recv_msg(&msg))
 		unvme_pr_return(-1, "ERROR: failed to receive msg request\n");
 
-	fprintf(stderr, "%s", __stderr);
-	if (!unvme_msg_dsize(&msg))
-		fprintf(stdout, "%s", __stdout);
-	else {
-		for (int i = 0; i < unvme_msg_dsize(&msg); i++)
-			fprintf(stdout, "%c", __stdout[i]);
-	}
+	unvme_stderr_pr();
+	unvme_stdout_pr();
 
 	if (msg.msg.ret == -ENOTCONN) {
 		unvme_pr_err("ERROR: unvmed has been terminated unexpectedly."

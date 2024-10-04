@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/time.h>
 #include <sys/signal.h>
 #include <sys/prctl.h>
@@ -20,11 +23,12 @@
 #include "unvme.h"
 #include "unvmed.h"
 
+__thread FILE *__stdout = NULL;
+__thread FILE *__stderr = NULL;
+
 /*
  * Shared memory buffer pointer pointing
  */
-static char *__stderr;
-static char *__stdout;
 static int __log_fd;
 
 struct client {
@@ -112,7 +116,7 @@ static int unvme_set_pid(void)
 }
 
 static char __argv[UNVME_MAX_OPT * UNVME_MAX_STR];
-static int unvme_handler(struct unvme_msg *msg)
+static int __unvme_handler(struct unvme_msg *msg)
 {
 	const struct command *cmds = unvme_cmds();
 	char *oneline = __argv;
@@ -134,7 +138,7 @@ static int unvme_handler(struct unvme_msg *msg)
 	}
 	argv[i] = NULL;
 
-	unvme_log_info("msg (pid=%ld): start: '%s'", unvme_msg_pid(msg), __argv);
+	unvme_log_info("msg (pid=%d): start: '%s'", unvme_msg_pid(msg), __argv);
 
 	/*
 	 * If the message represents termination, simple return here.
@@ -158,7 +162,7 @@ out:
 		free(argv[i]);
 	free(argv);
 
-	unvme_log_info("msg (pid=%ld): compl: '%s' (ret=%d, type='%s')",
+	unvme_log_info("msg (pid=%d): compl: '%s' (ret=%d, type='%s')",
 			unvme_msg_pid(msg), __argv, ret, strerror(abs(ret)));
 	return ret;
 }
@@ -224,9 +228,7 @@ static void unvme_broadcast_msgs(int ret)
 	struct client *c;
 
 	while ((c = unvme_pop_client()) != NULL) {
-		unvme_msg_set_pid(&msg, c->pid);
-		unvme_msg_set_ret(&msg, ret);
-
+		unvme_msg_to_client(&msg, ret);
 		unvme_msgq_send(msgq, &msg);
 	}
 }
@@ -251,30 +253,6 @@ static void unvme_error(int signum)
 			signum, strsignal(signum));
 
 	unvme_release(signum);
-}
-
-static void unvme_std_init(void)
-{
-	if (!__stderr) {
-		__stderr = (char *)unvme_stderr();
-		assert(__stderr != NULL);
-	}
-
-	if (!__stdout) {
-		__stdout = (char *)unvme_stdout();
-		assert(__stdout!= NULL);
-	}
-
-	/*
-	 * Redirect stderr to the buffer in the message packet
-	 */
-	stderr = fmemopen((char *)__stderr, UNVME_STDERR_SIZE, "w");
-	setbuf(stderr, NULL);
-	stdout = fmemopen((char *)__stdout, UNVME_STDERR_SIZE, "w");
-	setbuf(stdout, NULL);
-
-	__stderr[0] = '\0';
-	__stdout[0] = '\0';
 }
 
 static inline int unvme_cmdline_strlen(void)
@@ -316,7 +294,7 @@ static int unvme_recv_msg(struct unvme_msg *msg)
 	int msgq = unvme_msgq_get(UNVME_MSGQ);
 	int ret;
 
-	ret = unvme_msgq_recv(msgq, msg, 0);
+	ret = unvme_msgq_recv(msgq, msg, getpid());
 	if (!ret)
 		unvme_add_client(unvme_msg_pid(msg));
 
@@ -335,10 +313,74 @@ static int unvme_send_msg(struct unvme_msg *msg)
 	return ret;
 }
 
+static void __unvme_get_stdio(pid_t pid, char *filefmt, FILE **stdio)
+{
+	char *filename = NULL;
+	FILE *file;
+	int ret;
+
+	ret = asprintf(&filename, filefmt, pid);
+	if (ret < 0) {
+		unvme_log_err("failed to init stdio (ret=%d)", ret);
+		goto err;
+	}
+
+	file = fopen(filename, "w");
+	if (!file) {
+		unvme_log_err("failed to open %s", filename);
+		goto err;
+	}
+
+	*stdio = file;
+	setbuf(*stdio, NULL);
+
+	free(filename);
+	return;
+err:
+	if (filename)
+		free(filename);
+
+	unvme_release(0);
+}
+
+static void unvme_get_stdio(pid_t pid)
+{
+	__unvme_get_stdio(pid, UNVME_STDOUT, &__stdout);
+	__unvme_get_stdio(pid, UNVME_STDERR, &__stderr);
+}
+
+static void *unvme_handler(void *opaque)
+{
+	struct unvme_msg *msg = (struct unvme_msg *)opaque;
+	pid_t pid = unvme_msg_pid(msg);
+	int ret;
+
+	unvme_get_stdio(pid);
+	ret = __unvme_handler(msg);
+
+	unvme_msg_to_client(msg, ret);
+	unvme_send_msg(msg);
+
+	free(msg);
+	pthread_exit(NULL);
+}
+
+static inline struct unvme_msg *unvme_alloc_msg(void)
+{
+	struct unvme_msg *msg = calloc(1, sizeof(struct unvme_msg));
+
+	if (!msg) {
+		unvme_log_err("failed to alloc unvme_msg");
+		unvme_release(0);
+	}
+
+	return msg;
+}
+
 int unvmed(char *argv[])
 {
-	struct unvme_msg msg;
-	int ret;
+	struct unvme_msg *msg;
+	pthread_t th;
 
 	/*
 	 * Convert the current process to a daemon process
@@ -360,7 +402,6 @@ int unvmed(char *argv[])
 
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
 
 	unvme_msgq_create(UNVME_MSGQ);
 
@@ -375,17 +416,10 @@ int unvmed(char *argv[])
 	unvme_log_info("ready to receive messages from client ...");
 
 	while (true) {
-		unvme_recv_msg(&msg);
-		unvme_std_init();
+		msg = unvme_alloc_msg();
 
-		/*
-		 * Provide error return value from the current daemon process to
-		 * the requester unvme-cli client process.
-		 */
-		ret = unvme_handler(&msg);
-
-		unvme_msg_set_ret(&msg, ret);
-		unvme_send_msg(&msg);
+		unvme_recv_msg(msg);
+		pthread_create(&th, NULL, unvme_handler, (void *)msg);
 	}
 
 	/*

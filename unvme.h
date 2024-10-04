@@ -30,6 +30,7 @@ struct unvme_msg {
 		char argv[UNVME_MAX_OPT][UNVME_MAX_STR];
 		char bdf[UNVME_BDF_STRLEN];
 		char pwd[UNVME_PWD_STRLEN];
+		int pid;  /* client pid */
 
 		/*
 		 * Response message from daemon to client
@@ -39,18 +40,28 @@ struct unvme_msg {
 	} msg;
 };
 
-#define unvme_msg_pid(p)	((p)->type)
+#define unvme_msg_pid(p)	((p)->msg.pid)
 #define unvme_msg_bdf(p)	((p)->msg.bdf)
 #define unvme_msg_pwd(p)	((p)->msg.pwd)
 #define unvme_msg_dsize(p)	((p)->msg.dsize)
 
-static inline void unvme_msg_set_pid(struct unvme_msg *msg, int pid)
+int unvme_get_daemon_pid(void);
+bool unvme_is_daemon_running(void);
+
+static inline void unvme_msg_to_daemon(struct unvme_msg *msg)
 {
-	msg->type = pid;
+	pid_t client_pid = getpid();
+	pid_t daemon_pid = unvme_get_daemon_pid();
+
+	assert(client_pid != daemon_pid);
+
+	msg->type = daemon_pid;
+	msg->msg.pid = client_pid;
 }
 
-static inline void unvme_msg_set_ret(struct unvme_msg *msg, int ret)
+static inline void unvme_msg_to_client(struct unvme_msg *msg, int ret)
 {
+	msg->type = msg->msg.pid;
 	msg->msg.ret = ret;
 }
 
@@ -76,21 +87,14 @@ struct command {
 struct command *unvme_cmds(void);
 
 #define UNVME_DAEMON_LOG	"/var/log/unvmed.log"
+#define UNVME_STDOUT		"/var/log/unvmed/stdout-%d"
+#define UNVME_STDERR		"/var/log/unvmed/stderr-%d"
 
 #define UNVME_MSGQ		"/dev/mqueue/unvmed"
 
 int unvme_msgq_get(const char *keyfile);
 int unvme_msgq_send(int msg_id, struct unvme_msg *msg);
 int unvme_msgq_recv(int msg_id, struct unvme_msg *msg, long type);
-
-/*
- * XXX: It would be better if we can have stderr and stdout with dynamic size
- * during the runtime.
- */
-#define UNVME_STDERR_SIZE	(4 * 1024 * 1024)
-
-void *unvme_stderr(void);
-void *unvme_stdout(void);
 
 #define UNVME_DAEMON_PID	"/var/run/unvmed.pid"
 
@@ -180,8 +184,5 @@ int unvmed(char *argv[]);
 		unvme_pr_err("Error: "fmt, ##__VA_ARGS__);	\
 		return ret;					\
 	} while(0)
-
-int unvme_get_daemon_pid(void);
-bool unvme_is_daemon_running(void);
 
 #endif

@@ -56,4 +56,28 @@ void unvme_log_cmd_cmpl(const char *bdf, struct nvme_cqe *cqe);
 int unvme_write_file(struct unvme_msg *msg, const char *filename, void *buf, size_t len);
 int unvme_read_file(struct unvme_msg *msg, const char *filename, void *buf, size_t len);
 
+/*
+ * per-thread stdio stream objects
+ */
+extern __thread FILE *__stdout;
+extern __thread FILE *__stderr;
+
+#ifdef unvme_pr
+#undef unvme_pr
+#endif
+
+#ifdef unvme_pr_err
+#undef unvme_pr_err
+#endif
+
+#define unvme_pr(fmt, ...)				\
+	do {						\
+		fprintf(__stdout, fmt, ##__VA_ARGS__);	\
+	} while(0)
+
+#define unvme_pr_err(fmt, ...)				\
+	do {						\
+		fprintf(__stderr, fmt, ##__VA_ARGS__);	\
+	} while(0)
+
 #endif
