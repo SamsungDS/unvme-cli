@@ -12,6 +12,7 @@
 #include <sys/msg.h>
 #include <sys/stat.h>
 #include <ccan/str/str.h>
+#include <ccan/list/list.h>
 
 #include <vfn/nvme.h>
 #include <libunvmed.h>
@@ -24,8 +25,54 @@
  */
 static char *__stderr;
 static char *__stdout;
-static int __msg_cq;
 static int __log_fd;
+
+struct client {
+	pid_t pid;
+	struct list_node list;
+};
+static LIST_HEAD(__clients);
+
+static inline struct client *unvme_get_client(pid_t pid, bool del)
+{
+	struct client *c, *next;
+
+	list_for_each_safe(&__clients, c, next, list) {
+		if (c->pid == pid) {
+			if (del)
+				list_del(&c->list);
+			return c;
+		}
+	}
+
+	return NULL;
+}
+
+static inline void unvme_add_client(pid_t pid)
+{
+	struct client *c;
+
+	c = unvme_get_client(pid, false);
+	assert(c == NULL);
+
+	c = calloc(1, sizeof(struct client));
+	assert(c != NULL);
+
+	c->pid = pid;
+	list_add_tail(&__clients, &c->list);
+}
+
+static inline void unvme_del_client(pid_t pid)
+{
+	struct client *c = unvme_get_client(pid, true);
+
+	assert(c != NULL);
+}
+
+static inline struct client *unvme_pop_client(void)
+{
+	return list_pop(&__clients, struct client, list);
+}
 
 void unvme_datetime(char *datetime, size_t str_len)
 {
@@ -87,7 +134,7 @@ static int unvme_handler(struct unvme_msg *msg)
 	}
 	argv[i] = NULL;
 
-	unvme_log_info("msg: start: '%s'", __argv);
+	unvme_log_info("msg (pid=%ld): start: '%s'", unvme_msg_pid(msg), __argv);
 
 	/*
 	 * If the message represents termination, simple return here.
@@ -111,8 +158,8 @@ out:
 		free(argv[i]);
 	free(argv);
 
-	unvme_log_info("msg: compl: '%s' (ret=%d, type='%s')",
-			__argv, ret, strerror(abs(ret)));
+	unvme_log_info("msg (pid=%ld): compl: '%s' (ret=%d, type='%s')",
+			unvme_msg_pid(msg), __argv, ret, strerror(abs(ret)));
 	return ret;
 }
 
@@ -170,10 +217,24 @@ static int unvme_msgq_create(const char *keyfile)
 	return msg_id;
 }
 
+static void unvme_broadcast_msgs(int ret)
+{
+	int msgq = unvme_msgq_get(UNVME_MSGQ);
+	struct unvme_msg msg = {0, };
+	struct client *c;
+
+	while ((c = unvme_pop_client()) != NULL) {
+		unvme_msg_set_pid(&msg, c->pid);
+		unvme_msg_set_ret(&msg, ret);
+
+		unvme_msgq_send(msgq, &msg);
+	}
+}
+
 static void unvme_release(int signum)
 {
-	unvme_msgq_delete(UNVME_MSGQ_SQ);
-	unvme_msgq_delete(UNVME_MSGQ_CQ);
+	unvme_broadcast_msgs(ECANCELED);
+	unvme_msgq_delete(UNVME_MSGQ);
 
 	unvmed_free_ctrl_all();
 
@@ -186,18 +247,8 @@ static void unvme_release(int signum)
 
 static void unvme_error(int signum)
 {
-	struct unvme_msg msg = {
-		.type = UNVME_MSG,
-		.msg = {
-			.ret = -ENOTCONN,
-		},
-	};
-
 	unvme_log_err("signal trapped (signum=%d, type='%s')",
 			signum, strsignal(signum));
-
-	if (__msg_cq)
-		unvme_msgq_send(__msg_cq, &msg);
 
 	unvme_release(signum);
 }
@@ -260,10 +311,34 @@ int unvme_get_log_fd(void)
 	return __log_fd;
 }
 
+static int unvme_recv_msg(struct unvme_msg *msg)
+{
+	int msgq = unvme_msgq_get(UNVME_MSGQ);
+	int ret;
+
+	ret = unvme_msgq_recv(msgq, msg, 0);
+	if (!ret)
+		unvme_add_client(unvme_msg_pid(msg));
+
+	return ret;
+}
+
+static int unvme_send_msg(struct unvme_msg *msg)
+{
+	int msgq = unvme_msgq_get(UNVME_MSGQ);
+	int ret;
+
+	ret = unvme_msgq_send(msgq, msg);
+	if (!ret)
+		unvme_del_client(unvme_msg_pid(msg));
+
+	return ret;
+}
+
 int unvmed(char *argv[])
 {
 	struct unvme_msg msg;
-	int sqid;
+	int ret;
 
 	/*
 	 * Convert the current process to a daemon process
@@ -287,12 +362,10 @@ int unvmed(char *argv[])
 	close(STDOUT_FILENO);
 	close(STDERR_FILENO);
 
-	sqid = unvme_msgq_create(UNVME_MSGQ_SQ);
-	__msg_cq = unvme_msgq_create(UNVME_MSGQ_CQ);
+	unvme_msgq_create(UNVME_MSGQ);
 
 	unvme_log_info("unvmed daemon process is sucessfully created "
-			"(pid=%d, msgq_sq=%d, msgq_cq=%d)",
-			getpid(), sqid, __msg_cq);
+			"(pid=%d)", getpid());
 
 	signal(SIGTERM, unvme_release);
 	signal(SIGSEGV, unvme_error);
@@ -302,15 +375,17 @@ int unvmed(char *argv[])
 	unvme_log_info("ready to receive messages from client ...");
 
 	while (true) {
-		unvme_msgq_recv(sqid, &msg);
+		unvme_recv_msg(&msg);
 		unvme_std_init();
 
 		/*
 		 * Provide error return value from the current daemon process to
 		 * the requester unvme-cli client process.
 		 */
-		msg.msg.ret = unvme_handler(&msg);
-		unvme_msgq_send(__msg_cq, &msg);
+		ret = unvme_handler(&msg);
+
+		unvme_msg_set_ret(&msg, ret);
+		unvme_send_msg(&msg);
 	}
 
 	/*

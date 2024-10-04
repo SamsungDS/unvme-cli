@@ -151,15 +151,15 @@ int unvme_msgq_send(int msg_id, struct unvme_msg *msg)
 	return 0;
 }
 
-int unvme_msgq_recv(int msg_id, struct unvme_msg *msg)
+int unvme_msgq_recv(int msg_id, struct unvme_msg *msg, long type)
 {
-	if (msgrcv(msg_id, msg, sizeof(msg->msg), 0, 0) < 0)
+	if (msgrcv(msg_id, msg, sizeof(msg->msg), type, 0) < 0)
 		unvme_pr_return(-1, "ERROR: failed to receive a message\n");
 
 	return 0;
 }
 
-static int unvme_msgq_get(const char *keyfile)
+int unvme_msgq_get(const char *keyfile)
 {
 	int msg_id;
 	key_t key;
@@ -177,22 +177,22 @@ static int unvme_msgq_get(const char *keyfile)
 
 static int unvme_send_msg(struct unvme_msg *msg)
 {
-	int sqid = unvme_msgq_get(UNVME_MSGQ_SQ);
+	int msgq = unvme_msgq_get(UNVME_MSGQ);
 
-	if (sqid < 0)
-		unvme_pr_return(-1, "ERROR: failed to get SQ\n");
+	if (msgq < 0)
+		unvme_pr_return(-1, "ERROR: failed to get msgq\n");
 
-	return unvme_msgq_send(sqid, msg);
+	return unvme_msgq_send(msgq, msg);
 }
 
 static int unvme_recv_msg(struct unvme_msg *msg)
 {
-	int cqid = unvme_msgq_get(UNVME_MSGQ_CQ);
+	int msgq = unvme_msgq_get(UNVME_MSGQ);
 
-	if (cqid < 0)
-		unvme_pr_return(-1, "ERROR: failed to get CQ\n");
+	if (msgq < 0)
+		unvme_pr_return(-1, "ERROR: failed to get msgq\n");
 
-	return unvme_msgq_recv(cqid, msg);
+	return unvme_msgq_recv(msgq, msg, unvme_msg_pid(msg));
 }
 
 static int unvme_parse_bdf(const char *input, char *bdf)
@@ -339,7 +339,7 @@ int main(int argc, char *argv[])
 		return abs(ret);
 	}
 
-	msg.type = UNVME_MSG;
+	unvme_msg_set_pid(&msg, getpid());
 	msg.msg.argc = argc;
 	for (int i = 0; i < msg.msg.argc; i++)
 		strcpy(msg.msg.argv[i], argv[i]);

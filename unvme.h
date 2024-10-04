@@ -19,6 +19,7 @@
 #define UNVME_PWD_STRLEN	256
 
 struct unvme_msg {
+	/* msgq message type used to represent client pid */
 	long type;
 
 	struct {
@@ -38,9 +39,20 @@ struct unvme_msg {
 	} msg;
 };
 
+#define unvme_msg_pid(p)	((p)->type)
 #define unvme_msg_bdf(p)	((p)->msg.bdf)
 #define unvme_msg_pwd(p)	((p)->msg.pwd)
 #define unvme_msg_dsize(p)	((p)->msg.dsize)
+
+static inline void unvme_msg_set_pid(struct unvme_msg *msg, int pid)
+{
+	msg->type = pid;
+}
+
+static inline void unvme_msg_set_ret(struct unvme_msg *msg, int ret)
+{
+	msg->msg.ret = ret;
+}
 
 static inline void unvme_msg_update_len(struct unvme_msg *msg, size_t len)
 {
@@ -65,15 +77,11 @@ struct command *unvme_cmds(void);
 
 #define UNVME_DAEMON_LOG	"/var/log/unvmed.log"
 
-enum unvme_msg_type {
-	UNVME_MSG = 1,
-};
+#define UNVME_MSGQ		"/dev/mqueue/unvmed"
 
-#define UNVME_MSGQ_SQ		"/dev/mqueue/unvmed-sq"
-#define UNVME_MSGQ_CQ		"/dev/mqueue/unvmed-cq"
-
+int unvme_msgq_get(const char *keyfile);
 int unvme_msgq_send(int msg_id, struct unvme_msg *msg);
-int unvme_msgq_recv(int msg_id, struct unvme_msg *msg);
+int unvme_msgq_recv(int msg_id, struct unvme_msg *msg, long type);
 
 /*
  * XXX: It would be better if we can have stderr and stdout with dynamic size
