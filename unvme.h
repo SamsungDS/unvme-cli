@@ -59,9 +59,9 @@ static inline void unvme_msg_to_daemon(struct unvme_msg *msg)
 	msg->msg.pid = client_pid;
 }
 
-static inline void unvme_msg_to_client(struct unvme_msg *msg, int ret)
+static inline void unvme_msg_to_client(struct unvme_msg *msg, pid_t pid, int ret)
 {
-	msg->type = msg->msg.pid;
+	msg->type = pid;
 	msg->msg.ret = ret;
 }
 

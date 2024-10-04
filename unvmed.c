@@ -228,7 +228,7 @@ static void unvme_broadcast_msgs(int ret)
 	struct client *c;
 
 	while ((c = unvme_pop_client()) != NULL) {
-		unvme_msg_to_client(&msg, ret);
+		unvme_msg_to_client(&msg, c->pid, ret);
 		unvme_msgq_send(msgq, &msg);
 	}
 }
@@ -358,7 +358,7 @@ static void *unvme_handler(void *opaque)
 	unvme_get_stdio(pid);
 	ret = __unvme_handler(msg);
 
-	unvme_msg_to_client(msg, ret);
+	unvme_msg_to_client(msg, unvme_msg_pid(msg), ret);
 	unvme_send_msg(msg);
 
 	free(msg);

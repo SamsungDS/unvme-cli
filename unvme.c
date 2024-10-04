@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <assert.h>
+#include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -23,8 +24,13 @@
 #include "unvme.h"
 #include "config.h"
 
+/*
+ * for async stdio print handlers
+ */
 static char *__stdout_fname;
 static char *__stderr_fname;
+static bool __stdio_stop;
+static pthread_t __stdio_th[2];
 
 static int unvme_help(int argc, char *argv[], struct unvme_msg *msg);
 static int unvme_version(int argc, char *argv[], struct unvme_msg *msg);
@@ -329,39 +335,57 @@ err:
 	unvme_exit();
 }
 
+static void __unvme_stdio_pr(const char *fname, int stdio)
+{
+	char buf[256];
+	int token = 1;
+	ssize_t bytes;
+	int fd;
+
+	fd = open(fname, O_RDONLY, 0);
+	if (fd < 0)
+		return;
+
+	while (token > 0) {
+		if (__stdio_stop)
+			token--;
+
+		while ((bytes = read(fd, buf, 256)) > 0)
+			write(stdio, buf, bytes);
+		usleep(1000);
+	}
+
+	close(fd);
+	remove(fname);
+}
+
+static void *unvme_stdout_handler(void *opaque)
+{
+	__unvme_stdio_pr(__stdout_fname, STDOUT_FILENO);
+	pthread_exit(NULL);
+}
+
+static void *unvme_stderr_handler(void *opaque)
+{
+	__unvme_stdio_pr(__stderr_fname, STDERR_FILENO);
+	pthread_exit(NULL);
+}
+
 static void unvme_stdio_init(void)
 {
 	__unvme_stdio_init(&__stdout_fname, UNVME_STDOUT);
 	__unvme_stdio_init(&__stderr_fname, UNVME_STDERR);
+
+	pthread_create(&__stdio_th[0], NULL, unvme_stdout_handler, NULL);
+	pthread_create(&__stdio_th[1], NULL, unvme_stderr_handler, NULL);
 }
 
-static void unvme_stdio_pr(FILE *stdio)
+static void unvme_stdio_finish(void)
 {
-	char *fname = (stdio == stderr) ? __stderr_fname : __stdout_fname;
-	FILE *file;
-	char buf[256];
+	__stdio_stop = true;
 
-	file = fopen(fname, "r");
-	if (!file) {
-		unvme_pr_err("failed to open %s\n", fname);
-		unvme_exit();
-	}
-
-	while (fgets(buf, sizeof(buf), file))
-		fprintf(stdio, "%s", buf);
-
-	fclose(file);
-	remove(fname);
-}
-
-static void unvme_stderr_pr(void)
-{
-	unvme_stdio_pr(stderr);
-}
-
-static void unvme_stdout_pr(void)
-{
-	unvme_stdio_pr(stdout);
+	pthread_join(__stdio_th[0], NULL);
+	pthread_join(__stdio_th[1], NULL);
 }
 
 int main(int argc, char *argv[])
@@ -409,8 +433,7 @@ int main(int argc, char *argv[])
 	if (unvme_recv_msg(&msg))
 		unvme_pr_return(-1, "ERROR: failed to receive msg request\n");
 
-	unvme_stderr_pr();
-	unvme_stdout_pr();
+	unvme_stdio_finish();
 
 	if (msg.msg.ret == -ENOTCONN) {
 		unvme_pr_err("ERROR: unvmed has been terminated unexpectedly."
