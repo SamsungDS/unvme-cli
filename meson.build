@@ -4,10 +4,22 @@ project('unvme-cli', 'c',
         )
 
 static = get_option('static')
+buildtype = get_option('buildtype')
+
+args = []
+link_args = []
 
 if static
-  add_project_link_arguments('-static', language: 'c')
+  link_args += ['-static']
 endif
+
+if buildtype == 'debug'
+  args += ['-pg']
+  link_args += ['-pg']
+endif
+
+add_project_arguments(args, language: 'c')
+add_project_link_arguments(link_args, language: 'c')
 
 vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
 nvme_lib = dependency('libnvme', version: '>=1.8.0', static: static)
