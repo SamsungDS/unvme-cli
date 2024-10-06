@@ -244,7 +244,10 @@ static void unvme_release(int signum)
 
 	unvme_log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
 			getpid(), signum, strsignal(signum));
-	exit(ECANCELED);
+
+	if (signum == SIGTERM)
+		exit(EXIT_SUCCESS);
+	exit(EXIT_FAILURE);
 }
 
 static void unvme_error(int signum)
