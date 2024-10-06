@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#define _GNU_SOURCE
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
@@ -10,6 +13,7 @@
 #include <sys/wait.h>
 
 #include <ccan/opt/opt.h>
+#include <ccan/str/str.h>
 
 #include "unvme.h"
 
@@ -76,25 +80,25 @@ int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
 
-	int fd = open(UNVME_DAEMON_LOG, O_RDONLY);
-	char buffer[512];
+	char *line = NULL;
 	ssize_t nread;
+	size_t len;
+	FILE *file;
 
-	if (fd < 0)
-	        unvme_pr_return(fd, "failed to open unvme log file");
+	file = fopen(UNVME_DAEMON_LOG, "r");
+	if (!file)
+	        unvme_pr_return(errno, "failed to open unvme log file");
 
-	while ((nread = read(fd, buffer, sizeof(buffer))) > 0) {
+	while ((nread = getline(&line, &len, file)) != -1) {
 		if (nvme) {
-			if (strstr(buffer, "nvme    |"))
-				unvme_pr("%.*s", (int) nread, buffer);
-		}
-		else
-			unvme_pr("%.*s", (int) nread, buffer);
+			if (strstarts(line, "NVME"))
+				unvme_pr("%s", line);
+		} else
+			unvme_pr("%s", line);
 	}
 
-	if (nread < 0)
-		perror("read");
-
-	close(fd);
+	fclose(file);
+	if (line)
+		free(line);
 	return nread;
 }
