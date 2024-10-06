@@ -108,7 +108,7 @@ static int __unvme_handler(struct unvme_msg *msg)
 		unvme_pr_return(-ENOMEM, "ERROR: failed to allocate memory\n");
 
 	for (i = 0; i < argc; i++) {
-		argv[i] = malloc(sizeof(char) * strlen(msg->msg.argv[i]));
+		argv[i] = malloc(sizeof(char) * strlen(msg->msg.argv[i]) + 1);
 		if (!argv[i])
 			unvme_pr_return(-ENOMEM, "ERROR: failed to allocate memory\n");
 		strcpy(argv[i], msg->msg.argv[i]);
