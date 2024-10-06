@@ -459,6 +459,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvmed_free_cmd struct unvme_cmd *cmd = NULL;
+	__unvme_free char *filepath = NULL;
 	struct nvme_cmd_rw *sqe;
 	struct nvme_cqe *cqe;
 	void *vaddr;
@@ -480,6 +481,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (!cmd)
 		unvme_err_return(ENOMEM, "failed to allocate unvme_cmd");
 
+	if (data)
+		filepath = unvme_get_filepath(unvme_msg_pwd(msg), data);
 
 	unvmed_cmd_get_buf(cmd, &vaddr, NULL);
 	sqe = (struct nvme_cmd_rw *)unvmed_cmd_get_sqe(cmd);
@@ -495,10 +498,10 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (!nodb) {
 		cqe = __unvme_cmd_cmpl(u, bdf, cmd);
 		if (nvme_cqe_ok(cqe)) {
-			if (!data)
+			if (!filepath)
 				unvme_cmd_pr_raw(cmd);
 			else
-				unvme_write_file(msg, data, vaddr, data_size);
+				unvme_write_file(filepath, vaddr, data_size);
 		} else
 			unvme_pr_cqe(cqe);
 	}
@@ -535,6 +538,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvmed_free_cmd struct unvme_cmd *cmd = NULL;
+	__unvme_free char *filepath = NULL;
 	struct nvme_cmd_rw *sqe;
 	struct nvme_cqe *cqe;
 	void *vaddr;
@@ -558,11 +562,14 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (!cmd)
 		unvme_err_return(ENOMEM, "failed to allocate unvme_cmd");
 
+	if (data)
+		filepath = unvme_get_filepath(unvme_msg_pwd(msg), data);
+
 	unvmed_cmd_get_buf(cmd, &vaddr, NULL);
 	sqe = (struct nvme_cmd_rw *)unvmed_cmd_get_sqe(cmd);
 
-	if (unvme_read_file(msg, data, vaddr, data_size))
-		unvme_err_return(ENOENT, "failed to read data from file %s", data);
+	if (unvme_read_file(filepath, vaddr, data_size))
+		unvme_err_return(ENOENT, "failed to read data from file %s", filepath);
 
 	sqe->opcode = 0x1;
 	sqe->nsid = cpu_to_le32(nsid);
@@ -647,6 +654,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvmed_free_cmd struct unvme_cmd *cmd = NULL;
+	__unvme_free char *filepath = NULL;
 	union nvme_cmd *sqe;
 	struct nvme_cqe *cqe;
 	void *vaddr = NULL;
@@ -689,6 +697,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (!cmd)
 		unvme_err_return(ENOMEM, "failed to allocate unvme_cmd");
 
+	if (input)
+		filepath = unvme_get_filepath(unvme_msg_pwd(msg), input);
+
 	unvmed_cmd_get_buf(cmd, &vaddr, NULL);
 	sqe = unvmed_cmd_get_sqe(cmd);
 
@@ -697,7 +708,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_err_return(errno, "failed to map PRP buffer");
 
 		if (write) {
-			if (unvme_read_file(msg, input, vaddr, data_len)) {
+			if (unvme_read_file(filepath, vaddr, data_len)) {
 				ret = errno;
 				goto out;
 			}

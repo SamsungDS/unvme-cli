@@ -53,8 +53,10 @@ void unvme_log_cmd_cmpl(const char *bdf, struct nvme_cqe *cqe);
 /*
  * unvmed-file.c
  */
-int unvme_write_file(struct unvme_msg *msg, const char *filename, void *buf, size_t len);
-int unvme_read_file(struct unvme_msg *msg, const char *filename, void *buf, size_t len);
+bool unvme_is_abspath(const char *path);
+char *unvme_get_filepath(char *pwd, const char *filename);
+int unvme_write_file(const char *abspath, void *buf, size_t len);
+int unvme_read_file(const char *abspath, void *buf, size_t len);
 
 /*
  * per-thread stdio stream objects

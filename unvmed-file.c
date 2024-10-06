@@ -8,24 +8,23 @@
 #include <stdlib.h>
 #include <nvme/types.h>
 
-#include "unvme.h"
 #include "unvmed.h"
 
-static inline bool __is_abspath(const char *path)
+bool unvme_is_abspath(const char *path)
 {
 	if (path[0] == '/' || path[0] == '~')
 		return true;
 	return false;
 }
 
-static inline char *__abspath(char *pwd, const char *filename)
+char *unvme_get_filepath(char *pwd, const char *filename)
 {
 	char *str;
 
-	if (__is_abspath(filename))
+	if (unvme_is_abspath(filename))
 		return strdup(filename);
 
-	str = malloc(UNVME_PWD_STRLEN);
+	str = malloc(256);
 	assert(str != NULL);
 
 	str[0] = '\0';
@@ -36,13 +35,10 @@ static inline char *__abspath(char *pwd, const char *filename)
 	return str;
 }
 
-int unvme_write_file(struct unvme_msg *msg, const char *filename, void *buf, size_t len)
+int unvme_write_file(const char *abspath, void *buf, size_t len)
 {
-	__unvme_free char *abspath;
 	int ret;
 	int fd;
-
-	abspath = __abspath(unvme_msg_pwd(msg), filename);
 
 	fd = open(abspath, O_CREAT | O_WRONLY | O_EXCL, 0644);
 	if (fd < 0) {
@@ -66,13 +62,10 @@ int unvme_write_file(struct unvme_msg *msg, const char *filename, void *buf, siz
 	return 0;
 }
 
-int unvme_read_file(struct unvme_msg *msg, const char *filename, void *buf, size_t len)
+int unvme_read_file(const char *abspath, void *buf, size_t len)
 {
-	__unvme_free char *abspath;
 	int ret;
 	int fd;
-
-	abspath = __abspath(unvme_msg_pwd(msg), filename);
 
 	fd = open(abspath, O_RDONLY);
 	if (fd < 0) {
