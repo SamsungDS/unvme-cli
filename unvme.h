@@ -36,14 +36,12 @@ struct unvme_msg {
 		 * Response message from daemon to client
 		 */
 		int ret;
-		size_t dsize; /* data size in bytes in case type is binary */
 	} msg;
 };
 
 #define unvme_msg_pid(p)	((p)->msg.pid)
 #define unvme_msg_bdf(p)	((p)->msg.bdf)
 #define unvme_msg_pwd(p)	((p)->msg.pwd)
-#define unvme_msg_dsize(p)	((p)->msg.dsize)
 
 int unvme_get_daemon_pid(void);
 bool unvme_is_daemon_running(void);
@@ -63,11 +61,6 @@ static inline void unvme_msg_to_client(struct unvme_msg *msg, pid_t pid, int ret
 {
 	msg->type = pid;
 	msg->msg.ret = ret;
-}
-
-static inline void unvme_msg_update_len(struct unvme_msg *msg, size_t len)
-{
-	msg->msg.dsize = len;
 }
 
 enum command_type {

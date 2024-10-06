@@ -59,26 +59,25 @@ static void unvme_pr_cqe(struct nvme_cqe *cqe)
 			cqe->sqid, cqe->cid, cqe->dw0, cqe->dw1, sct, sc);
 }
 
-static void unvme_cmd_pr(const char *format, struct unvme_msg *msg,
-			 struct unvme_cmd *cmd, void (*pr)(void *))
+static void unvme_cmd_pr(const char *format, struct unvme_cmd *cmd,
+			 void (*pr)(void *))
 {
 	void *vaddr;
 	size_t len;
 
 	unvmed_cmd_get_buf(cmd, &vaddr, &len);
 
-	if (streq(format, "binary")) {
+	if (streq(format, "binary"))
 		unvme_pr_raw(vaddr, len);
-		unvme_msg_update_len(msg, len);
-	} else if (streq(format, "normal"))
+	else if (streq(format, "normal"))
 		pr(vaddr);
 	else
 		assert(false);
 }
 
-static void unvme_cmd_pr_raw(struct unvme_msg *msg, struct unvme_cmd *cmd)
+static void unvme_cmd_pr_raw(struct unvme_cmd *cmd)
 {
-	unvme_cmd_pr("binary", msg, cmd, NULL);
+	unvme_cmd_pr("binary", cmd, NULL);
 }
 
 static bool __is_nvme_device(const char *bdf)
@@ -421,7 +420,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (!nodb) {
 		cqe = __unvme_cmd_cmpl(u, bdf, cmd);
 		if (nvme_cqe_ok(cqe))
-			unvme_cmd_pr(format, msg, cmd, unvme_pr_id_ns);
+			unvme_cmd_pr(format, cmd, unvme_pr_id_ns);
 		else
 			unvme_pr_cqe(cqe);
 	}
@@ -497,7 +496,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		cqe = __unvme_cmd_cmpl(u, bdf, cmd);
 		if (nvme_cqe_ok(cqe)) {
 			if (!data)
-				unvme_cmd_pr_raw(msg, cmd);
+				unvme_cmd_pr_raw(cmd);
 			else
 				unvme_write_file(msg, data, vaddr, data_size);
 		} else
@@ -739,7 +738,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		cqe = __unvme_cmd_cmpl(u, bdf, cmd);
 		if (nvme_cqe_ok(cqe)) {
 			if (read)
-				unvme_cmd_pr_raw(msg, cmd);
+				unvme_cmd_pr_raw(cmd);
 		} else
 			unvme_pr_cqe(cqe);
 	}
