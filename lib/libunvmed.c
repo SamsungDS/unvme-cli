@@ -417,6 +417,8 @@ void unvmed_cmd_free(void *p)
 		}
 		nvme_rq_release(cmd->rq);
 		list_del(&cmd->list);
+
+		free(cmd);
 	}
 }
 

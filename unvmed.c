@@ -66,6 +66,7 @@ static inline void unvme_del_client(pid_t pid)
 	struct client *c = unvme_get_client(pid, true);
 
 	assert(c != NULL);
+	free(c);
 }
 
 static inline struct client *unvme_pop_client(void)
