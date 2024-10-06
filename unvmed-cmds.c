@@ -10,6 +10,7 @@
 
 #include <ccan/opt/opt.h>
 #include <ccan/str/str.h>
+#include <nvme/types.h>
 #include <vfn/nvme.h>
 #include <libunvmed.h>
 
@@ -23,31 +24,6 @@
 		return err;						\
 	} while(0)
 
-static void __unvme_cmd_post(struct unvme* u, const char *bdf,
-			     struct unvme_cmd *cmd,
-			     uint32_t sqid, union nvme_cmd *sqe,
-			     bool update_sqdb)
-{
-	unvmed_cmd_post(cmd, sqe, update_sqdb);
-	unvme_log_cmd_post(bdf, sqid, sqe);
-
-	if (!update_sqdb) {
-		unvme_pr_err("SQ entry: sqid=%#x, cid=%#x, opcode=%#x\n",
-				sqid, sqe->cid, sqe->opcode);
-	}
-}
-
-static struct nvme_cqe *__unvme_cmd_cmpl(struct unvme* u, const char *bdf,
-					 struct unvme_cmd *cmd)
-{
-	struct nvme_cqe *cqe;
-
-	cqe = unvmed_cmd_cmpl(cmd);
-	unvme_log_cmd_cmpl(bdf, cqe);
-
-	return cqe;
-}
-
 static void unvme_pr_cqe(struct nvme_cqe *cqe)
 {
 	uint32_t sct, sc;
@@ -59,25 +35,28 @@ static void unvme_pr_cqe(struct nvme_cqe *cqe)
 			cqe->sqid, cqe->cid, cqe->dw0, cqe->dw1, sct, sc);
 }
 
-static void unvme_cmd_pr(const char *format, struct unvme_cmd *cmd,
-			 void (*pr)(void *))
+static void unvme_pr_cqe_status(int status)
 {
-	void *vaddr;
-	size_t len;
+	uint8_t type = (status >> 8) & 0x7;
+	uint8_t code = status & 0xff;
 
-	unvmed_cmd_get_buf(cmd, &vaddr, &len);
+	unvme_pr_err("CQE status: type=%#x, code=%#x\n", type, code);
+}
 
+static inline void __unvme_cmd_pr(const char *format, void *buf, size_t len,
+			   void (*pr)(void *))
+{
 	if (streq(format, "binary"))
-		unvme_pr_raw(vaddr, len);
+		unvme_pr_raw(buf, len);
 	else if (streq(format, "normal"))
-		pr(vaddr);
+		pr(buf);
 	else
 		assert(false);
 }
 
-static void unvme_cmd_pr_raw(struct unvme_cmd *cmd)
+static void unvme_cmd_pr_raw(void *buf, size_t len)
 {
-	unvme_cmd_pr("binary", cmd, NULL);
+	__unvme_cmd_pr("binary", buf, len, NULL);
 }
 
 static bool __is_nvme_device(const char *bdf)
@@ -389,9 +368,10 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	__unvmed_free_cmd struct unvme_cmd *cmd = NULL;
-	struct nvme_cmd_identify *sqe;
-	struct nvme_cqe *cqe;
+	const size_t size = NVME_IDENTIFY_DATA_SIZE;
+	__unvme_free void *buf;
+	unsigned long flags = 0;
+	int ret;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
 
@@ -404,28 +384,20 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvmed_get_sq(u, 0))
 		unvme_err_return(EPERM, "'enable' must be executed first");
 
-	cmd = unvmed_alloc_cmd(u, 0, 4096);
-	if (!cmd)
-		unvme_err_return(ENOMEM, "failed to allocate unvme_cmd");
+	buf = malloc(size);
+	if (!buf)
+		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
-	sqe = (struct nvme_cmd_identify *)unvmed_cmd_get_sqe(cmd);
-	sqe->opcode = 0x6;
-	sqe->nsid = cpu_to_le32(nsid);
-	sqe->cns = 0x0;
+	if (nodb)
+		flags |= UNVMED_CMD_F_NODB;
 
-	if (unvmed_map_prp(cmd))
-		unvme_err_return(errno, "failed to map PRP buffer");
+	ret = unvmed_id_ns(u, nsid, buf, flags);
+	if (!ret && !nodb)
+		__unvme_cmd_pr(format, buf, size, unvme_pr_id_ns);
+	else if (ret > 0)
+		unvme_pr_cqe_status(ret);
 
-	__unvme_cmd_post(u, bdf, cmd, 0, (union nvme_cmd *)sqe, !nodb);
-	if (!nodb) {
-		cqe = __unvme_cmd_cmpl(u, bdf, cmd);
-		if (nvme_cqe_ok(cqe))
-			unvme_cmd_pr(format, cmd, unvme_pr_id_ns);
-		else
-			unvme_pr_cqe(cqe);
-	}
-
-	return 0;
+	return ret;
 }
 
 int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
@@ -458,12 +430,10 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	__unvmed_free_cmd struct unvme_cmd *cmd = NULL;
 	__unvme_free char *filepath = NULL;
-	struct nvme_cmd_rw *sqe;
-	struct nvme_cqe *cqe;
-	void *vaddr;
-	int ret = 0;
+	__unvme_free void *buf;
+	unsigned long flags = 0;
+	int ret;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
 
@@ -477,34 +447,25 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvmed_get_sq(u, sqid))
 		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
 
-	cmd = unvmed_alloc_cmd(u, sqid, data_size);
-	if (!cmd)
-		unvme_err_return(ENOMEM, "failed to allocate unvme_cmd");
+	buf = malloc(data_size);
+	if (!buf)
+		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
+
+	if (nodb)
+		flags |= UNVMED_CMD_F_NODB;
 
 	if (data)
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), data);
 
-	unvmed_cmd_get_buf(cmd, &vaddr, NULL);
-	sqe = (struct nvme_cmd_rw *)unvmed_cmd_get_sqe(cmd);
+	ret = unvmed_read(u, sqid, nsid, slba, nlb, buf, data_size, flags);
+	if (!ret && !nodb) {
+		if (!filepath)
+			unvme_cmd_pr_raw(buf, data_size);
+		else
+			unvme_write_file(filepath, buf, data_size);
+	} else if (ret > 0)
+		unvme_pr_cqe_status(ret);
 
-	sqe->opcode = 0x2;
-	sqe->nsid = cpu_to_le32(nsid);
-	sqe->slba = cpu_to_le64(slba);
-	sqe->nlb = cpu_to_le16(nlb);
-	if (unvmed_map_prp(cmd))
-		unvme_err_return(errno, "failed to map PRP buffer");
-
-	__unvme_cmd_post(u, bdf, cmd, sqid, (union nvme_cmd *)sqe, !nodb);
-	if (!nodb) {
-		cqe = __unvme_cmd_cmpl(u, bdf, cmd);
-		if (nvme_cqe_ok(cqe)) {
-			if (!filepath)
-				unvme_cmd_pr_raw(cmd);
-			else
-				unvme_write_file(filepath, vaddr, data_size);
-		} else
-			unvme_pr_cqe(cqe);
-	}
 	return ret;
 }
 
@@ -537,12 +498,10 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	__unvmed_free_cmd struct unvme_cmd *cmd = NULL;
 	__unvme_free char *filepath = NULL;
-	struct nvme_cmd_rw *sqe;
-	struct nvme_cqe *cqe;
-	void *vaddr;
-	int ret = 0;
+	__unvme_free void *buf;
+	unsigned long flags = 0;
+	int ret;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
 
@@ -558,33 +517,22 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvmed_get_sq(u, sqid))
 		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
 
-	cmd = unvmed_alloc_cmd(u, sqid, data_size);
-	if (!cmd)
-		unvme_err_return(ENOMEM, "failed to allocate unvme_cmd");
+	buf = malloc(data_size);
+	if (!buf)
+		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
+
+	if (nodb)
+		flags |= UNVMED_CMD_F_NODB;
 
 	if (data)
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), data);
 
-	unvmed_cmd_get_buf(cmd, &vaddr, NULL);
-	sqe = (struct nvme_cmd_rw *)unvmed_cmd_get_sqe(cmd);
-
-	if (unvme_read_file(filepath, vaddr, data_size))
+	if (unvme_read_file(filepath, buf, data_size))
 		unvme_err_return(ENOENT, "failed to read data from file %s", filepath);
 
-	sqe->opcode = 0x1;
-	sqe->nsid = cpu_to_le32(nsid);
-	sqe->slba = cpu_to_le64(slba);
-	sqe->nlb = cpu_to_le16(nlb);
-
-	if (unvmed_map_prp(cmd))
-		unvme_err_return(errno, "failed to map PRP buffer");
-
-	__unvme_cmd_post(u, bdf, cmd, sqid, (union nvme_cmd *)sqe, !nodb);
-	if (!nodb) {
-		cqe = __unvme_cmd_cmpl(u, bdf, cmd);
-		if (!nvme_cqe_ok(cqe))
-			unvme_pr_cqe(cqe);
-	}
+	ret = unvmed_write(u, sqid, nsid, slba, nlb, buf, data_size, flags);
+	if (ret > 0)
+		unvme_pr_cqe_status(ret);
 
 	return ret;
 }
@@ -653,12 +601,11 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	__unvmed_free_cmd struct unvme_cmd *cmd = NULL;
 	__unvme_free char *filepath = NULL;
-	union nvme_cmd *sqe;
-	struct nvme_cqe *cqe;
-	void *vaddr = NULL;
-	int ret = 0;
+	__unvme_free void *buf;
+	unsigned long cmd_flags = 0;
+	union nvme_cmd sqe = {0, };
+	int ret;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
 
@@ -693,67 +640,55 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (write && !input)
 		unvme_err_return(EINVAL, "-i|--input-file must be specified");
 
-	cmd = unvmed_alloc_cmd(u, sqid, data_len);
-	if (!cmd)
-		unvme_err_return(ENOMEM, "failed to allocate unvme_cmd");
+	buf = malloc(data_len);
+	if (!buf)
+		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
-	if (input)
+	if (write) {
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), input);
-
-	unvmed_cmd_get_buf(cmd, &vaddr, NULL);
-	sqe = unvmed_cmd_get_sqe(cmd);
-
-	if (data_len) {
-		if (unvmed_map_prp(cmd))
-			unvme_err_return(errno, "failed to map PRP buffer");
-
-		if (write) {
-			if (unvme_read_file(filepath, vaddr, data_len)) {
-				ret = errno;
-				goto out;
-			}
-		}
+		if (unvme_read_file(filepath, buf, data_len))
+			unvme_err_return(ENOENT, "failed to read data from file %s", filepath);
 	}
 
-	sqe->opcode = (uint8_t)opcode;
-	sqe->flags = (uint8_t)flags;
-	sqe->nsid = cpu_to_le32(nsid);
-	sqe->cdw2 = cpu_to_le32(cdw2);
-	sqe->cdw3 = cpu_to_le32(cdw3);
+	sqe.opcode = (uint8_t)opcode;
+	sqe.flags = (uint8_t)flags;
+	sqe.nsid = cpu_to_le32(nsid);
+	sqe.cdw2 = cpu_to_le32(cdw2);
+	sqe.cdw3 = cpu_to_le32(cdw3);
 
 	/*
 	 * Override prp1 and prp2 if they are given to inject specific values
 	 */
 	if (prp1)
-		sqe->dptr.prp1 = strtoull(prp1, NULL, 0);
+		sqe.dptr.prp1 = strtoull(prp1, NULL, 0);
 	if (prp2)
-		sqe->dptr.prp2 = strtoull(prp2, NULL, 0);
+		sqe.dptr.prp2 = strtoull(prp2, NULL, 0);
 
-	sqe->cdw10 = cpu_to_le32(cdw10);
-	sqe->cdw11 = cpu_to_le32(cdw11);
-	sqe->cdw12 = cpu_to_le32(cdw12);
-	sqe->cdw13 = cpu_to_le32(cdw13);
-	sqe->cdw14 = cpu_to_le32(cdw14);
-	sqe->cdw15 = cpu_to_le32(cdw15);
+	sqe.cdw10 = cpu_to_le32(cdw10);
+	sqe.cdw11 = cpu_to_le32(cdw11);
+	sqe.cdw12 = cpu_to_le32(cdw12);
+	sqe.cdw13 = cpu_to_le32(cdw13);
+	sqe.cdw14 = cpu_to_le32(cdw14);
+	sqe.cdw15 = cpu_to_le32(cdw15);
 
 	if (show_cmd || dry_run) {
-		uint32_t *entry = (uint32_t *)sqe;
+		uint32_t *entry = (uint32_t *)&sqe;
 		for (int dw = 0; dw < 16; dw++)
 			unvme_pr("cdw%d\t\t: 0x%08x\n", dw, *(entry + dw));
 	}
 	if (dry_run)
 		return 0;
 
-	__unvme_cmd_post(u, bdf, cmd, sqid, (union nvme_cmd *)sqe, !nodb);
-	if (!nodb) {
-		cqe = __unvme_cmd_cmpl(u, bdf, cmd);
-		if (nvme_cqe_ok(cqe)) {
-			if (read)
-				unvme_cmd_pr_raw(cmd);
-		} else
-			unvme_pr_cqe(cqe);
-	}
-out:
+	if (nodb)
+		cmd_flags |= UNVMED_CMD_F_NODB;
+
+	ret = unvmed_passthru(u, sqid, buf, data_len, &sqe, read, cmd_flags);
+	if (!ret && !nodb) {
+		if (read)
+			unvme_cmd_pr_raw(buf, data_len);
+	} else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+
 	return ret;
 }
 
