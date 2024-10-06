@@ -83,7 +83,7 @@ static void unvme_cmd_pr_raw(struct unvme_cmd *cmd)
 static bool __is_nvme_device(const char *bdf)
 {
 	unsigned long long class;
-	UNVME_FREE char *path = NULL;
+	__unvme_free char *path = NULL;
 	char buf[32];
 	int ret;
 	int fd;
@@ -763,7 +763,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
-	UNVME_FREE struct nvme_cqe *cqes = NULL;
+	__unvme_free struct nvme_cqe *cqes = NULL;
 	int nr_sqes;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);

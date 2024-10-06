@@ -38,7 +38,7 @@ static inline char *__abspath(char *pwd, const char *filename)
 
 int unvme_write_file(struct unvme_msg *msg, const char *filename, void *buf, size_t len)
 {
-	UNVME_FREE char *abspath;
+	__unvme_free char *abspath;
 	int ret;
 	int fd;
 
@@ -68,7 +68,7 @@ int unvme_write_file(struct unvme_msg *msg, const char *filename, void *buf, siz
 
 int unvme_read_file(struct unvme_msg *msg, const char *filename, void *buf, size_t len)
 {
-	UNVME_FREE char *abspath;
+	__unvme_free char *abspath;
 	int ret;
 	int fd;
 

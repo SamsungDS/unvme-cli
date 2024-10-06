@@ -29,7 +29,7 @@ static inline void unvme_free(void *p)
 		*ptr = NULL;
 	}
 }
-#define UNVME_FREE __attribute__((cleanup(unvme_free)))
+#define __unvme_free __attribute__((cleanup(unvme_free)))
 
 struct unvme_msg;
 struct unvme;
