@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include <stdio.h>
+#include <sys/time.h>
+
 #include <ccan/str/str.h>
 
 #include <vfn/nvme.h>

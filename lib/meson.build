@@ -1,6 +1,7 @@
 libunvmed_inc = include_directories('.')
 libunvmed_src = [
   'libunvmed.c',
+  'libunvmed-logs.c',
 ]
 libunvmed_hdr = [
   'libunvmed.h',

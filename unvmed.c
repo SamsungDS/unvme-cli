@@ -26,11 +26,6 @@
 __thread FILE *__stdout = NULL;
 __thread FILE *__stderr = NULL;
 
-/*
- * Shared memory buffer pointer pointing
- */
-static int __log_fd;
-
 struct client {
 	pid_t pid;
 	struct list_node list;
@@ -78,23 +73,6 @@ static inline struct client *unvme_pop_client(void)
 	return list_pop(&__clients, struct client, list);
 }
 
-void unvme_datetime(char *datetime, size_t str_len)
-{
-	struct timeval tv;
-	struct tm *tm;
-	char usec[16];
-
-	assert(datetime != NULL);
-
-	gettimeofday(&tv, NULL);
-	tm = localtime(&tv.tv_sec);
-
-	strftime(datetime, str_len, "%Y-%m-%d %H:%M:%S", tm);
-
-	sprintf(usec, ".%06ld", tv.tv_usec);
-	strcat(datetime, usec);
-}
-
 static int unvme_set_pid(void)
 {
 	pid_t pid = getpid();
@@ -138,7 +116,7 @@ static int __unvme_handler(struct unvme_msg *msg)
 	}
 	argv[i] = NULL;
 
-	unvme_log_info("msg (pid=%d): start: '%s'", unvme_msg_pid(msg), __argv);
+	unvmed_log_info("msg (pid=%d): start: '%s'", unvme_msg_pid(msg), __argv);
 
 	/*
 	 * If the message represents termination, simple return here.
@@ -162,7 +140,7 @@ out:
 		free(argv[i]);
 	free(argv);
 
-	unvme_log_info("msg (pid=%d): compl: '%s' (ret=%d, type='%s')",
+	unvmed_log_info("msg (pid=%d): compl: '%s' (ret=%d, type='%s')",
 			unvme_msg_pid(msg), __argv, ret, strerror(abs(ret)));
 	return ret;
 }
@@ -242,7 +220,7 @@ static void unvme_release(int signum)
 
 	remove(UNVME_DAEMON_PID);
 
-	unvme_log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
+	unvmed_log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
 			getpid(), signum, strsignal(signum));
 
 	if (signum == SIGTERM)
@@ -252,7 +230,7 @@ static void unvme_release(int signum)
 
 static void unvme_error(int signum)
 {
-	unvme_log_err("signal trapped (signum=%d, type='%s')",
+	unvmed_log_err("signal trapped (signum=%d, type='%s')",
 			signum, strsignal(signum));
 
 	unvme_release(signum);
@@ -271,25 +249,6 @@ static inline int unvme_cmdline_strlen(void)
 
 	close(fd);
 	return len;
-}
-
-static int unvme_create_logfile(void)
-{
-	int fd;
-
-	if(mkdir("/var/log", 0755) < 0 && errno != EEXIST)
-		return -errno;
-
-	fd = creat(UNVME_DAEMON_LOG, 0644);
-	if (fd < 0)
-		return -EINVAL;
-
-	return fd;
-}
-
-int unvme_get_log_fd(void)
-{
-	return __log_fd;
 }
 
 static int unvme_recv_msg(struct unvme_msg *msg)
@@ -324,13 +283,13 @@ static void __unvme_get_stdio(pid_t pid, char *filefmt, FILE **stdio)
 
 	ret = asprintf(&filename, filefmt, pid);
 	if (ret < 0) {
-		unvme_log_err("failed to init stdio (ret=%d)", ret);
+		unvmed_log_err("failed to init stdio (ret=%d)", ret);
 		goto err;
 	}
 
 	file = fopen(filename, "w");
 	if (!file) {
-		unvme_log_err("failed to open %s", filename);
+		unvmed_log_err("failed to open %s", filename);
 		goto err;
 	}
 
@@ -373,7 +332,7 @@ static inline struct unvme_msg *unvme_alloc_msg(void)
 	struct unvme_msg *msg = calloc(1, sizeof(struct unvme_msg));
 
 	if (!msg) {
-		unvme_log_err("failed to alloc unvme_msg");
+		unvmed_log_err("failed to alloc unvme_msg");
 		unvme_release(0);
 	}
 
@@ -400,15 +359,14 @@ int unvmed(char *argv[])
 	umask(0);
 	chdir("/");
 
-	__log_fd = unvme_create_logfile();
-	assert(__log_fd >= 0);
+	unvmed_init(UNVME_DAEMON_LOG);
 
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);
 
 	unvme_msgq_create(UNVME_MSGQ);
 
-	unvme_log_info("unvmed daemon process is sucessfully created "
+	unvmed_log_info("unvmed daemon process is sucessfully created "
 			"(pid=%d)", getpid());
 
 	signal(SIGTERM, unvme_release);
@@ -416,7 +374,7 @@ int unvmed(char *argv[])
 	signal(SIGABRT, unvme_error);
 	unvme_set_pid();
 
-	unvme_log_info("ready to receive messages from client ...");
+	unvmed_log_info("ready to receive messages from client ...");
 
 	while (true) {
 		msg = unvme_alloc_msg();

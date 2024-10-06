@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <errno.h>
+#include <sys/time.h>
 
 #include <ccan/opt/opt.h>
 #include <ccan/str/str.h>

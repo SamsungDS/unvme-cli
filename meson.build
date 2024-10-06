@@ -30,7 +30,7 @@ subdir('lib')
 executable(
   'unvme',
   ['unvmed.c', 'unvme.c', 'unvmed-cmds.c', 'unvmed-print.c', 'unvmed-file.c',
-   'unvmed-logs.c', 'unvme-cmds.c',],
+   'unvme-cmds.c',],
   dependencies: [vfn_lib, nvme_lib, unvmed_dep],
   link_with: [ccan_lib],
   include_directories: [ccan_inc, libunvmed_inc],

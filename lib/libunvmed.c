@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later OR MIT
+#include <sys/stat.h>
+#include <sys/time.h>
 
 #include <vfn/pci.h>
 #include <vfn/nvme.h>
@@ -8,6 +10,9 @@
 #include <ccan/list/list.h>
 
 #include "libunvmed.h"
+#include "libunvmed-private.h"
+
+int __unvmed_logfd = 0;
 
 struct unvme {
 	/* `ctrl` member must be the first member of `struct unvme` */
@@ -45,6 +50,26 @@ struct unvme_cmd {
 };
 
 static LIST_HEAD(unvme_list);
+
+static int unvmed_create_logfile(const char *logfile)
+{
+	int fd;
+
+	if(mkdir("/var/log", 0755) < 0 && errno != EEXIST)
+		return -errno;
+
+	fd = creat(logfile, 0644);
+	if (fd < 0)
+		return -EINVAL;
+
+	return fd;
+}
+
+void unvmed_init(const char *logfile)
+{
+	if (logfile)
+		__unvmed_logfd = unvmed_create_logfile(logfile);
+}
 
 int unvmed_pci_bind(const char *bdf)
 {
@@ -415,6 +440,7 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags)
 {
 	nvme_rq_post(cmd->rq, (union nvme_cmd *)sqe);
+	unvmed_log_cmd_post(unvmed_bdf(cmd->u), cmd->rq->sq->id, sqe);
 
 	if (!(flags & UNVMED_CMD_F_NODB))
 		nvme_sq_update_tail(cmd->rq->sq);
@@ -425,6 +451,7 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd)
 {
 	nvme_rq_spin(cmd->rq, &cmd->cqe);
+	unvmed_log_cmd_cmpl(unvmed_bdf(cmd->u), &cmd->cqe);
 
 	return &cmd->cqe;
 }
