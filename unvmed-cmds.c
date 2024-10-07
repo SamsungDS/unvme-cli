@@ -314,6 +314,35 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	return unvmed_create_cq(u, qid, qsize, vector);
 }
 
+int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *bdf = unvme_msg_bdf(msg);
+	struct unvme *u = unvmed_get(bdf);
+	uint32_t qid = 0;
+	bool help = false;
+	const char *desc =
+		"Submit a Delete I/O Completion Queue admin command to the target <device>.";
+
+	struct opt_table opts[] = {
+		OPT_WITH_ARG("-q|--qid", opt_set_uintval, opt_show_uintval, &qid, "[M] Completion Queue ID to delete"),
+		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
+		OPT_ENDTABLE
+	};
+
+	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+
+	if (!u)
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+
+	if (!qid)
+		unvme_err_return(EINVAL, "-q|--qid required");
+
+	if (!unvmed_get_cq(u, qid))
+		unvme_pr_err("CQ (qid=%u) does not exist, but continuing..\n", qid);
+
+	return unvmed_delete_cq(u, qid);
+}
+
 int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 {
 	const char *bdf = unvme_msg_bdf(msg);
@@ -348,6 +377,36 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_err_return(EINVAL, "-c|--cqid required");
 
 	return unvmed_create_sq(u, qid, qsize, cqid);
+}
+
+int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *bdf = unvme_msg_bdf(msg);
+	struct unvme *u = unvmed_get(bdf);
+	uint32_t qid = 0;
+	bool help = false;
+	const char *desc =
+		"Submit a Delete I/O Submission Queue admin command\n"
+		"to the target <device>.";
+
+	struct opt_table opts[] = {
+		OPT_WITH_ARG("-q|--qid", opt_set_uintval, opt_show_uintval, &qid, "[M] Submission Queue ID to delete"),
+		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
+		OPT_ENDTABLE
+	};
+
+	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+
+	if (!u)
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+
+	if (!qid)
+		unvme_err_return(EINVAL, "-q|--qid required");
+
+	if (!unvmed_get_sq(u, qid))
+		unvme_pr_err("SQ (qid=%u) does not exist, but continuing..\n", qid);
+
+	return unvmed_delete_sq(u, qid);
 }
 
 int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
