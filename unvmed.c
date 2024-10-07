@@ -94,7 +94,7 @@ static int unvme_set_pid(void)
 	return 0;
 }
 
-static char __argv[UNVME_MAX_OPT * UNVME_MAX_STR];
+static __thread char __argv[UNVME_MAX_OPT * UNVME_MAX_STR];
 static int __unvme_handler(struct unvme_msg *msg)
 {
 	const struct command *cmds = unvme_cmds();
