@@ -318,6 +318,38 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	return nvme_create_iocq(&u->ctrl, qid, qsize, vector);
 }
 
+static void __unvmed_delete_cq(struct unvme *u, uint32_t qid)
+{
+	struct nvme_cq *cq;
+
+	cq = unvmed_get_cq(u, qid);
+	if (cq)
+		nvme_discard_cq(&u->ctrl, cq);
+}
+
+int unvmed_delete_cq(struct unvme *u, uint32_t qid)
+{
+	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct nvme_cmd_delete_q *sqe;
+	struct nvme_cqe *cqe;
+
+	cmd = unvmed_alloc_cmd(u, 0, 0);
+	if (!cmd)
+		return -1;
+
+	sqe = (struct nvme_cmd_delete_q *)&cmd->sqe;
+	sqe->opcode = nvme_admin_delete_cq;
+	sqe->qid = cpu_to_le16(qid);
+
+	unvmed_cmd_post(cmd, (union nvme_cmd *)sqe, 0);
+	cqe = unvmed_cmd_cmpl(cmd);
+
+	if (nvme_cqe_ok(cqe))
+		__unvmed_delete_cq(u, qid);
+
+	return unvmed_cqe_status(cqe);
+}
+
 int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		    uint32_t cqid)
 {
@@ -335,6 +367,38 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	}
 
 	return nvme_create_iosq(&u->ctrl, qid, qsize, cq, 0);
+}
+
+static void __unvmed_delete_sq(struct unvme *u, uint32_t qid)
+{
+	struct nvme_sq *sq;
+
+	sq = unvmed_get_sq(u, qid);
+	if (sq)
+		nvme_discard_sq(&u->ctrl, sq);
+}
+
+int unvmed_delete_sq(struct unvme *u, uint32_t qid)
+{
+	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct nvme_cmd_delete_q *sqe;
+	struct nvme_cqe *cqe;
+
+	cmd = unvmed_alloc_cmd(u, 0, 0);
+	if (!cmd)
+		return -1;
+
+	sqe = (struct nvme_cmd_delete_q *)&cmd->sqe;
+	sqe->opcode = nvme_admin_delete_sq;
+	sqe->qid = cpu_to_le16(qid);
+
+	unvmed_cmd_post(cmd, (union nvme_cmd *)sqe, 0);
+	cqe = unvmed_cmd_cmpl(cmd);
+
+	if (nvme_cqe_ok(cqe))
+		__unvmed_delete_sq(u, qid);
+
+	return unvmed_cqe_status(cqe);
 }
 
 int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len,
