@@ -2,6 +2,8 @@
 #ifndef UNVMED_H
 #define UNVMED_H
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 static inline void unvme_free(void *p)
 {
 	void **ptr = (void **)p;
@@ -10,6 +12,7 @@ static inline void unvme_free(void *p)
 		*ptr = NULL;
 	}
 }
+#pragma GCC diagnostic pop
 #define __unvme_free __attribute__((cleanup(unvme_free)))
 
 struct unvme_msg;

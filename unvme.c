@@ -278,13 +278,17 @@ static int unvme_check_args(int argc, char *argv[], char *bdf)
 int unvme_get_daemon_pid(void)
 {
 	char pid[8] = {};
+	ssize_t ret;
 	int fd;
 
 	fd = open(UNVME_DAEMON_PID, O_RDONLY);
 	if (fd < 0)
 		return -EINVAL;
 
-	read(fd, pid, sizeof(pid));
+	ret = read(fd, pid, sizeof(pid));
+	if (ret < 0)
+		return -1;
+
 	return atoi(pid);
 }
 
@@ -352,8 +356,12 @@ static void __unvme_stdio_pr(const char *fname, int stdio)
 		if (__stdio_stop)
 			token--;
 
-		while ((bytes = read(fd, buf, 256)) > 0)
-			write(stdio, buf, bytes);
+		while ((bytes = read(fd, buf, 256)) > 0) {
+			if (write(stdio, buf, bytes) < 0) {
+				close(fd);
+				return;
+			}
+		}
 		usleep(1000);
 	}
 
@@ -412,7 +420,8 @@ int main(int argc, char *argv[])
 	for (int i = 0; i < msg.msg.argc; i++)
 		strcpy(msg.msg.argv[i], argv[i]);
 	strncpy(msg.msg.bdf, bdf, UNVME_BDF_STRLEN);
-	getcwd(msg.msg.pwd, UNVME_PWD_STRLEN);
+	if (!getcwd(msg.msg.pwd, UNVME_PWD_STRLEN))
+		unvme_pr_return(1, "ERROR: failed to copy current working dir\n");
 
 	for (int i = 0; cmds[i].name != NULL; i++) {
 		if (streq(cmd, cmds[i].name) &&

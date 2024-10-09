@@ -68,7 +68,9 @@ static bool __is_nvme_device(const char *bdf)
 	int ret;
 	int fd;
 
-	asprintf(&path, "/sys/bus/pci/devices/%s/class", bdf);
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/class", bdf);
+	assert(ret > 0);
+
 	fd = open(path, O_RDONLY);
 	if (fd < 0)
 		return false;

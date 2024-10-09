@@ -89,7 +89,9 @@ static int unvme_set_pid(void)
 		return -EINVAL;
 	}
 
-	write(fd, spid, sizeof(spid));
+	if (write(fd, spid, sizeof(spid)) < 0)
+		return -1;
+
 	close(fd);
 	return 0;
 }
@@ -358,7 +360,8 @@ int unvmed(char *argv[])
 	argv[0][strlen("unvmed")] = '\0';
 
 	umask(0);
-	chdir("/");
+	if (chdir("/"))
+		unvme_pr_return(-1, "ERROR: failed to change directory\n");
 
 	unvmed_init(UNVME_DAEMON_LOG);
 
