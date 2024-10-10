@@ -12,6 +12,7 @@
 #include <ccan/opt/opt.h>
 #include <ccan/str/str.h>
 #include <nvme/types.h>
+#include <vfn/pci.h>
 #include <vfn/nvme.h>
 #include <libunvmed.h>
 
@@ -84,6 +85,38 @@ static bool __is_nvme_device(const char *bdf)
 
 	class = strtoull(buf, NULL, 16);
 	return ((class >> 8) & 0xffff) == 0x108;
+}
+
+static int unvmed_pci_bind(const char *bdf)
+{
+	const char *target = "vfio-pci";
+	unsigned long long vendor, device;
+
+	if (pci_device_info_get_ull(bdf, "vendor", &vendor)) {
+		perror("pci_device_info_get_ull");
+		return -1;
+	}
+
+	if (pci_device_info_get_ull(bdf, "device", &device)) {
+		perror("pci_device_info_get_ull");
+		return -1;
+	}
+
+	pci_unbind(bdf);
+
+	if (pci_driver_new_id(target, vendor, device)) {
+		if (pci_bind(bdf, target)) {
+			perror("pci_bind");
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static int unvmed_pci_unbind(const char *bdf)
+{
+	return pci_unbind(bdf);
 }
 
 int unvme_list(int argc, char *argv[], struct unvme_msg *msg)

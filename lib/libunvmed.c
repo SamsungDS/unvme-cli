@@ -2,7 +2,6 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
-#include <vfn/pci.h>
 #include <vfn/nvme.h>
 
 #include <nvme/types.h>
@@ -69,38 +68,6 @@ void unvmed_init(const char *logfile)
 {
 	if (logfile)
 		__unvmed_logfd = unvmed_create_logfile(logfile);
-}
-
-int unvmed_pci_bind(const char *bdf)
-{
-	const char *target = "vfio-pci";
-	unsigned long long vendor, device;
-
-	if (pci_device_info_get_ull(bdf, "vendor", &vendor)) {
-		perror("pci_device_info_get_ull");
-		return -1;
-	}
-
-	if (pci_device_info_get_ull(bdf, "device", &device)) {
-		perror("pci_device_info_get_ull");
-		return -1;
-	}
-
-	pci_unbind(bdf);
-
-	if (pci_driver_new_id(target, vendor, device)) {
-		if (pci_bind(bdf, target)) {
-			perror("pci_bind");
-			return -1;
-		}
-	}
-
-	return 0;
-}
-
-int unvmed_pci_unbind(const char *bdf)
-{
-	return pci_unbind(bdf);
 }
 
 struct unvme *unvmed_get(const char *bdf)

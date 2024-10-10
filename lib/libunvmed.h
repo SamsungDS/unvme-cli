@@ -29,9 +29,6 @@ struct nvme_cq;
 
 void unvmed_init(const char *logfile);
 
-int unvmed_pci_bind(const char *bdf);
-int unvmed_pci_unbind(const char *bdf);
-
 struct unvme *unvmed_get(const char *bdf);
 
 struct nvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid);
