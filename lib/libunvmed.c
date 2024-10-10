@@ -489,11 +489,59 @@ struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd)
 	return &cmd->cqe;
 }
 
+static inline struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
+							struct nvme_cqe *cqe)
+{
+	struct nvme_rq *rq;
+	struct nvme_sq *sq;
+
+	sq = unvmed_get_sq(u, cqe->sqid);
+	if (!sq)
+		return NULL;
+
+	rq = __nvme_rq_from_cqe(sq, cqe);
+	return (struct unvme_cmd *)rq->opaque;
+}
+
+int unvmed_cmd_cmpl_n(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes,
+		      int nr_cqes)
+{
+	struct nvme_cq *cq = unvmed_get_cq(u, cqid);
+	struct nvme_cqe *cqe;
+	struct unvme_cmd *cmd;
+	int nr = 0;
+
+	if (nr_cqes <= 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (!cq) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	while (nr < nr_cqes) {
+		cqe = nvme_cq_get_cqe(cq);
+		if (!cqe)
+			continue;
+
+		memcpy(&cqes[nr++], cqe, sizeof(*cqe));
+
+		cmd = unvmed_get_cmd_from_cqe(u, cqe);
+		unvmed_cmd_free(&cmd);
+	}
+
+	nvme_cq_update_head(cq);
+	return nr;
+}
+
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
 				  struct nvme_cqe **cqes)
 {
 	struct nvme_sq *sq = unvmed_get_sq(u, sqid);
 	int nr_sqes;
+	int ret;
 
 	if (!sq) {
 		errno = EINVAL;
@@ -511,8 +559,9 @@ int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
 	*cqes = malloc(sizeof(struct nvme_cqe) * nr_sqes);
 
 	nvme_sq_update_tail(sq);
-	nvme_cq_wait_cqes(sq->cq, *cqes, nr_sqes, NULL);
-	nvme_cq_update_head(sq->cq);
+	ret = unvmed_cmd_cmpl_n(u, sq->cq->id, *cqes, nr_sqes);
+	if (ret != nr_sqes)
+		return -1;
 
 	return nr_sqes;
 }

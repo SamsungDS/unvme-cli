@@ -826,9 +826,6 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 	if (!nr_sqes)
 		return 0;
 
-	if (!unvmed_free_cmds(u, sqid))
-		unvme_err_return(EINVAL, "no freed commands");
-
 	unvme_pr_err("waiting for %d CQ entries ...\n", nr_sqes);
 	for (int i = 0; i < nr_sqes; i++) {
 		unvme_pr_cqe(&cqes[i]);
