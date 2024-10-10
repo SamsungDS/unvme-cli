@@ -85,9 +85,31 @@ struct command *unvme_cmds(void);
 
 #define UNVME_MSGQ		"/dev/mqueue/unvmed"
 
-int unvme_msgq_get(const char *keyfile);
-int unvme_msgq_send(int msg_id, struct unvme_msg *msg);
-int unvme_msgq_recv(int msg_id, struct unvme_msg *msg, long type);
+static inline int unvme_msgq_send(int msg_id, struct unvme_msg *msg)
+{
+	return msgsnd(msg_id, msg, sizeof(msg->msg), 0);
+}
+
+static inline int unvme_msgq_recv(int msg_id, struct unvme_msg *msg, long type)
+{
+	return msgrcv(msg_id, msg, sizeof(msg->msg), type, 0);
+}
+
+static inline int unvme_msgq_get(const char *keyfile)
+{
+	int msg_id;
+	key_t key;
+
+	key = ftok(keyfile, 0x0);
+	if (key < 0)
+		return -1;
+
+	msg_id = msgget(key, 0666);
+	if (msg_id < 0)
+		return -1;
+
+	return msg_id;
+}
 
 #define UNVME_DAEMON_PID	"/var/run/unvmed.pid"
 

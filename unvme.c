@@ -123,38 +123,6 @@ void unvme_cmd_help(const char *name, const char *desc, struct opt_table *opts)
 	}
 }
 
-int unvme_msgq_send(int msg_id, struct unvme_msg *msg)
-{
-	if (msgsnd(msg_id, msg, sizeof(msg->msg), 0) < 0)
-		unvme_pr_return(-1, "ERROR: failed to send a message\n");
-
-	return 0;
-}
-
-int unvme_msgq_recv(int msg_id, struct unvme_msg *msg, long type)
-{
-	if (msgrcv(msg_id, msg, sizeof(msg->msg), type, 0) < 0)
-		unvme_pr_return(-1, "ERROR: failed to receive a message\n");
-
-	return 0;
-}
-
-int unvme_msgq_get(const char *keyfile)
-{
-	int msg_id;
-	key_t key;
-
-	key = ftok(keyfile, 0x0);
-	if (key < 0)
-		return -1;
-
-	msg_id = msgget(key, 0666);
-	if (msg_id < 0)
-		return -1;
-
-	return msg_id;
-}
-
 static int unvme_send_msg(struct unvme_msg *msg)
 {
 	int msgq = unvme_msgq_get(UNVME_MSGQ);
@@ -162,7 +130,13 @@ static int unvme_send_msg(struct unvme_msg *msg)
 	if (msgq < 0)
 		unvme_pr_return(-1, "ERROR: failed to get msgq\n");
 
-	return unvme_msgq_send(msgq, msg);
+	if (unvme_msgq_send(msgq, msg) < 0) {
+		if (errno == EIDRM)
+			unvme_pr_err("ERROR: failed to send a msg to daemon, "
+					"see 'unvme log' for details\n");
+	}
+
+	return 0;
 }
 
 static int unvme_recv_msg(struct unvme_msg *msg)
@@ -172,7 +146,13 @@ static int unvme_recv_msg(struct unvme_msg *msg)
 	if (msgq < 0)
 		unvme_pr_return(-1, "ERROR: failed to get msgq\n");
 
-	return unvme_msgq_recv(msgq, msg, unvme_msg_pid(msg));
+	if (unvme_msgq_recv(msgq, msg, unvme_msg_pid(msg)) < 0) {
+		if (errno == EIDRM)
+			unvme_pr_err("ERROR: failed to receive a msg from daemon, "
+					"see 'unvme log' for details\n");
+	}
+
+	return 0;
 }
 
 static int unvme_parse_bdf(const char *input, char *bdf)
@@ -440,9 +420,9 @@ int main(int argc, char *argv[])
 	unvme_stdio_init();
 
 	if (unvme_send_msg(&msg))
-		unvme_pr_return(-1, "ERROR: failed to send msg request\n");
+		return -1;
 	if (unvme_recv_msg(&msg))
-		unvme_pr_return(-1, "ERROR: failed to receive msg request\n");
+		return -1;
 
 	unvme_stdio_finish();
 

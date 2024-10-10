@@ -10,6 +10,7 @@
 #include <assert.h>
 
 #include <sys/signal.h>
+#include <sys/msg.h>
 #include <sys/wait.h>
 
 #include <ccan/opt/opt.h>

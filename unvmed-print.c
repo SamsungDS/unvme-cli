@@ -5,6 +5,7 @@
 #include <ccan/str/str.h>
 
 #include <vfn/nvme.h>
+#include <sys/msg.h>
 #include <nvme/types.h>
 #include <libunvmed.h>
 

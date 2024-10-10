@@ -26,54 +26,6 @@
 __thread FILE *__stdout = NULL;
 __thread FILE *__stderr = NULL;
 
-struct client {
-	pid_t pid;
-	struct list_node list;
-};
-static LIST_HEAD(__clients);
-
-static inline struct client *unvme_get_client(pid_t pid, bool del)
-{
-	struct client *c, *next;
-
-	list_for_each_safe(&__clients, c, next, list) {
-		if (c->pid == pid) {
-			if (del)
-				list_del(&c->list);
-			return c;
-		}
-	}
-
-	return NULL;
-}
-
-static inline void unvme_add_client(pid_t pid)
-{
-	struct client *c;
-
-	c = unvme_get_client(pid, false);
-	assert(c == NULL);
-
-	c = calloc(1, sizeof(struct client));
-	assert(c != NULL);
-
-	c->pid = pid;
-	list_add_tail(&__clients, &c->list);
-}
-
-static inline void unvme_del_client(pid_t pid)
-{
-	struct client *c = unvme_get_client(pid, true);
-
-	assert(c != NULL);
-	free(c);
-}
-
-static inline struct client *unvme_pop_client(void)
-{
-	return list_pop(&__clients, struct client, list);
-}
-
 static int unvme_set_pid(void)
 {
 	pid_t pid = getpid();
@@ -202,21 +154,8 @@ static int unvme_msgq_create(const char *keyfile)
 	return msg_id;
 }
 
-static void unvme_broadcast_msgs(int ret)
-{
-	int msgq = unvme_msgq_get(UNVME_MSGQ);
-	struct unvme_msg msg = {0, };
-	struct client *c;
-
-	while ((c = unvme_pop_client()) != NULL) {
-		unvme_msg_to_client(&msg, c->pid, ret);
-		unvme_msgq_send(msgq, &msg);
-	}
-}
-
 static void unvme_release(int signum)
 {
-	unvme_broadcast_msgs(ECANCELED);
 	unvme_msgq_delete(UNVME_MSGQ);
 
 	unvmed_free_ctrl_all();
@@ -257,25 +196,15 @@ static inline int unvme_cmdline_strlen(void)
 static int unvme_recv_msg(struct unvme_msg *msg)
 {
 	int msgq = unvme_msgq_get(UNVME_MSGQ);
-	int ret;
 
-	ret = unvme_msgq_recv(msgq, msg, getpid());
-	if (!ret)
-		unvme_add_client(unvme_msg_pid(msg));
-
-	return ret;
+	return unvme_msgq_recv(msgq, msg, getpid());
 }
 
 static int unvme_send_msg(struct unvme_msg *msg)
 {
 	int msgq = unvme_msgq_get(UNVME_MSGQ);
-	int ret;
 
-	ret = unvme_msgq_send(msgq, msg);
-	if (!ret)
-		unvme_del_client(unvme_msg_pid(msg));
-
-	return ret;
+	return unvme_msgq_send(msgq, msg);
 }
 
 static void __unvme_get_stdio(pid_t pid, char *filefmt, FILE **stdio)
@@ -367,6 +296,7 @@ int unvmed(char *argv[])
 
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);
+	close(STDERR_FILENO);
 
 	unvme_msgq_create(UNVME_MSGQ);
 
@@ -383,7 +313,8 @@ int unvmed(char *argv[])
 	while (true) {
 		msg = unvme_alloc_msg();
 
-		unvme_recv_msg(msg);
+		if (unvme_recv_msg(msg) < 0)
+			return -1;
 		pthread_create(&th, NULL, unvme_handler, (void *)msg);
 	}
 
