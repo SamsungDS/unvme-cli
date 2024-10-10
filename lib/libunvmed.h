@@ -48,7 +48,6 @@ int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len, uint64_t *iova, uns
 int unvmed_unmap_vaddr(struct unvme *u, void *buf);
 struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid, size_t data_len);
 void unvmed_cmd_free(void *p);
-int unvmed_free_cmds(struct unvme *u, uint32_t sqid);
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe, unsigned long flags);
 struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd);
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid, struct nvme_cqe **cqes);

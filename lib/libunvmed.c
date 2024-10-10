@@ -21,8 +21,6 @@ struct unvme {
 	int nr_sqs;
 	int nr_cqs;
 
-	struct list_head cmd_list;
-
 	struct list_node list;
 };
 
@@ -142,7 +140,6 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 
 	u = zmalloc(sizeof(struct unvme));
 
-	list_head_init(&u->cmd_list);
 	/*
 	 * Zero-based values for I/O queues to pass to `libvfn` excluding the
 	 * admin submission/completion queues.
@@ -424,8 +421,6 @@ struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid,
 	cmd->iova = iova;
 	cmd->should_free = true;
 
-	list_add(&u->cmd_list, &cmd->list);
-
 	return cmd;
 
 free_buf:
@@ -447,26 +442,8 @@ void unvmed_cmd_free(void *p)
 			pgunmap(cmd->vaddr, cmd->len);
 		}
 		nvme_rq_release(cmd->rq);
-		list_del(&cmd->list);
-
 		free(cmd);
 	}
-}
-
-int unvmed_free_cmds(struct unvme *u, uint32_t sqid)
-{
-	struct unvme_cmd *cmd, *next;
-	int nr_freed = 0;
-
-	list_for_each_safe(&u->cmd_list, cmd, next, list) {
-		if (cmd->rq->sq->id == sqid) {
-			cmd->should_free = true;
-			unvmed_cmd_free(&cmd);
-			nr_freed++;
-		}
-	}
-
-	return nr_freed;
 }
 
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
