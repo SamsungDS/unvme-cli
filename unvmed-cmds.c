@@ -141,8 +141,8 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 	if (!dfd)
 		unvme_pr_return(ENOENT, "unvme: failed to open sysfs\n");
 
-	unvme_pr("%-20s  %-4s\n", "NVMe device", "Attached");
-        unvme_pr("------------------------------\n");
+	unvme_pr("NVMe device    \tAttached\tDriver      \n");
+        unvme_pr("---------------\t--------\t------------\n");
 	while ((entry = readdir(dfd))) {
 		if (streq(entry->d_name, ".") || streq(entry->d_name, ".."))
 			continue;
@@ -151,7 +151,9 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 		if (!__is_nvme_device(bdf))
 			continue;
 
-		unvme_pr("%-20s  %-4s\n", bdf, unvmed_get(bdf) ? "yes" : "no");
+		unvme_pr("%-15s\t%-8s\t%-12s\n", bdf,
+				unvmed_get(bdf) ? "yes" : "no",
+				pci_get_driver(bdf));
 	}
 
 	closedir(dfd);
