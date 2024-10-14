@@ -332,7 +332,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
-	cq = unvmed_get_cq(u, qid);
+	cq = unvmed_get_cq(u, cqid);
 	if (!cq) {
 		errno = ENODEV;
 		return -1;
