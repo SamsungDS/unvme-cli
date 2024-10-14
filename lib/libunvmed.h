@@ -31,6 +31,8 @@ void unvmed_init(const char *logfile);
 
 struct unvme *unvmed_get(const char *bdf);
 
+int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs);
+int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs);
 struct nvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid);
 struct nvme_cq *unvmed_get_cq(struct unvme *u, uint32_t qid);
 

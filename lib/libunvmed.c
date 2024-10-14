@@ -83,6 +83,58 @@ struct unvme *unvmed_get(const char *bdf)
 	return NULL;
 }
 
+int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs)
+{
+	struct nvme_sq *sq;
+	int nr_sqs = 0;
+	int qid;
+
+	if (!sqs) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	*sqs = calloc(u->nr_sqs, sizeof(struct nvme_sq));
+	if (!*sqs)
+		return -1;
+
+	for (qid = 0; qid < u->nr_sqs; qid++) {
+		sq = unvmed_get_sq(u, qid);
+		if (!sq)
+			continue;
+
+		memcpy(&((*sqs)[nr_sqs++]), sq, sizeof(*sq));
+	}
+
+	return nr_sqs;
+}
+
+int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs)
+{
+	struct nvme_cq *cq;
+	int nr_cqs = 0;
+	int qid;
+
+	if (!cqs) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	*cqs = calloc(u->nr_cqs, sizeof(struct nvme_cq));
+	if (!*cqs)
+		return -1;
+
+	for (qid = 0; qid < u->nr_cqs; qid++) {
+		cq = unvmed_get_cq(u, qid);
+		if (!cq)
+			continue;
+
+		memcpy(&((*cqs)[nr_cqs++]), cq, sizeof(*cq));
+	}
+
+	return nr_cqs;
+}
+
 struct nvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid)
 {
 	struct nvme_sq *sq;
