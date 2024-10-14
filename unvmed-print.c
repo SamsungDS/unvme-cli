@@ -58,9 +58,24 @@ void unvme_pr_status(struct unvme *u)
 {
 	uint32_t cc = unvmed_read32(u, NVME_REG_CC);
 	uint32_t csts = unvmed_read32(u, NVME_REG_CSTS);
-	uint32_t qid;
+	struct nvme_sq *sqs;
+	struct nvme_cq *cqs;
+	int nr_sqs, nr_cqs;
 	struct nvme_sq *sq;
 	struct nvme_cq *cq;
+
+	nr_sqs = unvmed_get_sqs(u, &sqs);
+	if (nr_sqs < 0) {
+		unvme_pr_err("failed to get submission queues\n");
+		return;
+	}
+
+	nr_cqs = unvmed_get_cqs(u, &cqs);
+	if (nr_cqs < 0) {
+		free(sqs);
+		unvme_pr_err("failed to get completion queues\n");
+		return;
+	}
 
 	unvme_pr("Controller				: %s\n", unvmed_bdf(u));
 	unvme_pr("Controller Configuration	(CC)	: %#x\n", cc);
@@ -69,10 +84,8 @@ void unvme_pr_status(struct unvme *u)
 	unvme_pr("Submission Queue\n");
 	unvme_pr("qid  vaddr              iova               cqid tail ptail qsize\n");
 	unvme_pr("---- ------------------ ------------------ ---- ---- ----- -----\n");
-	for (qid = 0; ; qid++) {
-		sq = unvmed_get_sq(u, qid);
-		if (!sq)
-			break;
+	for (int i = 0; i < nr_sqs; i++) {
+		sq = &sqs[i];
 
 		unvme_pr("%4d %18p %#18lx %4d %4d %5d %5d\n",
 			 sq->id, sq->vaddr, sq->iova,
@@ -82,8 +95,8 @@ void unvme_pr_status(struct unvme *u)
 	unvme_pr("Completion Queue\n");
 	unvme_pr("qid  vaddr              iova               head qsize phase vec \n");
 	unvme_pr("---- ------------------ ------------------ ---- ----- ----- ----\n");
-	for (qid = 0; ; qid++) {
-		cq = unvmed_get_cq(u, qid);
+	for (int i = 0; i < nr_cqs; i++) {
+		cq = &cqs[i];
 		if (!cq)
 			break;
 
@@ -92,4 +105,7 @@ void unvme_pr_status(struct unvme *u)
 			 cq->head, cq->qsize, cq->phase, cq->vector);
 	}
 	unvme_pr("\n");
+
+	free(cqs);
+	free(sqs);
 }
