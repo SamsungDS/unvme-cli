@@ -21,6 +21,14 @@ struct unvme {
 	int nr_sqs;
 	int nr_cqs;
 
+	struct list_head ns_list;
+	int nr_ns;
+
+	struct list_node list;
+};
+
+struct __unvme_ns {
+	unvme_declare_ns();
 	struct list_node list;
 };
 
@@ -78,6 +86,43 @@ struct unvme *unvmed_get(const char *bdf)
 	list_for_each(&unvme_list, u, list) {
 		if (!strcmp(u->ctrl.pci.bdf, bdf))
 			return u;
+	}
+
+	return NULL;
+}
+
+int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist)
+{
+	struct __unvme_ns *ns;
+	int nr_ns = 0;
+
+	if (!nslist) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (!u->nr_ns)
+		return 0;
+
+	*nslist = calloc(u->nr_ns, sizeof(struct unvme_ns));
+	if (!*nslist)
+		return -1;
+
+	list_for_each(&u->ns_list, ns, list) {
+		assert(nr_ns < u->nr_ns);
+		memcpy(&((*nslist)[nr_ns++]), ns, sizeof(struct unvme_ns));
+	}
+
+	return nr_ns;
+}
+
+struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid)
+{
+	struct __unvme_ns *ns;
+
+	list_for_each(&u->ns_list, ns, list) {
+		if (ns->nsid == nsid)
+			return (struct unvme_ns *)ns;
 	}
 
 	return NULL;
@@ -228,8 +273,51 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	u->nr_sqs = opts.nsqr + 2;
 	u->nr_cqs = opts.ncqr + 2;
 
+	list_head_init(&u->ns_list);
 	list_add(&unvme_list, &u->list);
 	return u;
+}
+
+int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
+{
+	struct nvme_id_ns id_ns_local;
+	struct nvme_id_ns *id_ns = identify;
+	struct __unvme_ns *ns;
+	unsigned long flags = 0;
+	uint8_t format_idx;
+	int ret;
+
+	if (unvmed_get_ns(u, nsid)) {
+		errno = EEXIST;
+		return -1;
+	}
+
+	if (!id_ns) {
+		ret = unvmed_id_ns(u, nsid, &id_ns_local, flags);
+		if (ret)
+			return ret;
+
+		id_ns = &id_ns_local;
+	}
+
+	ns = zmalloc(sizeof(struct __unvme_ns));
+	if (!ns)
+		return -1;
+
+	if (id_ns->nlbaf < 16)
+		format_idx = id_ns->flbas & 0xf;
+	else
+		format_idx = ((id_ns->flbas & 0xf) +
+		       (((id_ns->flbas >> 5) & 0x3) << 4));
+
+	ns->nsid = nsid;
+	ns->lba_size = 1 << id_ns->lbaf[format_idx].ds;
+	ns->nr_lbas = le64_to_cpu((uint64_t)id_ns->nsze);
+
+	list_add_tail(&u->ns_list, &ns->list);
+	u->nr_ns++;
+
+	return 0;
 }
 
 /*

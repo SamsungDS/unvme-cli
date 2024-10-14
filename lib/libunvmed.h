@@ -15,6 +15,17 @@
 struct unvme;
 struct unvme_cmd;
 
+#define unvme_declare_ns(name)	\
+struct name {			\
+	struct unvme *u;	\
+				\
+	uint32_t nsid;		\
+	unsigned int lba_size;	\
+	unsigned long nr_lbas;	\
+}
+
+unvme_declare_ns(unvme_ns);
+
 /*
  * NVMe spec-based data structures defined in `libvfn`
  */
@@ -30,6 +41,8 @@ struct nvme_cq;
 void unvmed_init(const char *logfile);
 
 struct unvme *unvmed_get(const char *bdf);
+int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist);
+struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid);
 
 int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs);
 int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs);
@@ -37,6 +50,7 @@ struct nvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid);
 struct nvme_cq *unvmed_get_cq(struct unvme *u, uint32_t qid);
 
 struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
+int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
 void unvmed_free_ctrl(struct unvme *u);
 void unvmed_free_ctrl_all(void);
 void unvmed_reset_ctrl(struct unvme *u);
