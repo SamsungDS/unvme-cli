@@ -69,11 +69,19 @@ void unvme_pr_status(struct unvme *u)
 {
 	uint32_t cc = unvmed_read32(u, NVME_REG_CC);
 	uint32_t csts = unvmed_read32(u, NVME_REG_CSTS);
+	struct unvme_ns *nslist;
 	struct nvme_sq *sqs;
 	struct nvme_cq *cqs;
-	int nr_sqs, nr_cqs;
+	int nr_ns, nr_sqs, nr_cqs;
+	struct unvme_ns *ns;
 	struct nvme_sq *sq;
 	struct nvme_cq *cq;
+
+	nr_ns = unvmed_get_nslist(u, &nslist);
+	if (nr_ns < 0) {
+		unvme_pr_err("failed to get namespaces\n");
+		return;
+	}
 
 	nr_sqs = unvmed_get_sqs(u, &sqs);
 	if (nr_sqs < 0) {
@@ -91,6 +99,17 @@ void unvme_pr_status(struct unvme *u)
 	unvme_pr("Controller				: %s\n", unvmed_bdf(u));
 	unvme_pr("Controller Configuration	(CC)	: %#x\n", cc);
 	unvme_pr("Controller Status		(CSTS)	: %#x\n\n", csts);
+
+	unvme_pr("Namespaces\n");
+	unvme_pr("nsid       block size(B) meta size(B) size(blocks)\n");
+	unvme_pr("---------- ------------- ------------ ------------\n");
+	for (int i = 0; i < nr_ns; i++) {
+		ns = &nslist[i];
+
+		unvme_pr("%#10x %13u %12u %#12lx\n",
+				ns->nsid, ns->lba_size, 0, ns->nr_lbas);
+	}
+	unvme_pr("\n");
 
 	unvme_pr("Submission Queue\n");
 	unvme_pr("qid  vaddr              iova               cqid tail ptail qsize\n");

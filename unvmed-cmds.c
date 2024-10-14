@@ -470,6 +470,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	uint32_t nsid = 0;
 	char *format= "normal";
 	bool nodb = false;
+	bool init = false;
 	bool help = false;
 	const char *desc =
 		"Submit an Identify Namespace admin command to the target <device>.";
@@ -478,6 +479,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[M] Namespace ID"),
 		OPT_WITH_ARG("-o|--output-format", opt_set_charp, opt_show_charp, &format, "[O] Output format: [normal|binary], defaults to normal"),
 		OPT_WITHOUT_ARG("-N|--nodb", opt_set_bool, &nodb, "[O] Don't update tail doorbell of the submission queue"),
+		OPT_WITHOUT_ARG("--init", opt_set_bool, &init, "[O] Initialize namespace instance and keep it in unvmed driver"),
 		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
 		OPT_ENDTABLE
 	};
@@ -506,9 +508,11 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		flags |= UNVMED_CMD_F_NODB;
 
 	ret = unvmed_id_ns(u, nsid, buf, flags);
-	if (!ret && !nodb)
+	if (!ret && !nodb) {
 		__unvme_cmd_pr(format, buf, size, unvme_pr_id_ns);
-	else if (ret > 0)
+		if (init)
+			unvmed_init_ns(u, nsid, buf);
+	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
 	return ret;
