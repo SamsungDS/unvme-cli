@@ -52,6 +52,7 @@ static struct command cmds[] = {
 	{"create-iosq",		"Create I/O Submission Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iosq},
 	{"delete-iosq",		"Delete I/O Submission Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_delete_iosq},
 	{"id-ns",		"Identify Namespace (CNS 0h)",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_ns},
+	{"id-active-nslist",	"Identify Active Namespace List (CNS 2h)",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_active_nslist},
 	{"read",		"NVM Read command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_read},
 	{"write",		"NVM Write command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_write},
 	{"passthru",		"Passthrough command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_passthru},

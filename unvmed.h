@@ -25,6 +25,7 @@ struct nvme_cqe;
  */
 void unvme_pr_raw(void *vaddr, size_t len);
 void unvme_pr_id_ns(void *vaddr);
+void unvme_pr_id_active_nslist(void *vaddr);
 void unvme_pr_show_regs(struct unvme *u);
 void unvme_pr_status(struct unvme *u);
 

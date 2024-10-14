@@ -514,6 +514,49 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	return ret;
 }
 
+int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *bdf = unvme_msg_bdf(msg);
+	struct unvme *u = unvmed_get(bdf);
+	uint32_t nsid = 0;
+	char *format = "normal";
+	bool help = false;
+	const char *desc =
+		"Submit an Identify Active Namespace List admin command to the target <device>.";
+
+	struct opt_table opts[] = {
+		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[M] Namespace ID"),
+		OPT_WITH_ARG("-o|--output-format", opt_set_charp, opt_show_charp, &format, "[O] Output format: [normal|binary], defaults to normal"),
+		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
+		OPT_ENDTABLE
+	};
+
+	const size_t size = NVME_IDENTIFY_DATA_SIZE;
+	__unvme_free void *buf;
+	int ret;
+
+	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+
+	if (!u)
+		unvme_err_return(EPERM, "Do 'unvme add %s' first",
+				unvme_msg_bdf(msg));
+
+	if (!unvmed_get_sq(u, 0))
+		unvme_err_return(EPERM, "'enable' must be executed first");
+
+	buf = malloc(size);
+	if (!buf)
+		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
+
+	ret = unvmed_id_active_nslist(u, nsid, buf);
+	if (!ret)
+		__unvme_cmd_pr(format, buf, size, unvme_pr_id_active_nslist);
+	else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+
+	return ret;
+}
+
 int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 {
 	const char *bdf = unvme_msg_bdf(msg);

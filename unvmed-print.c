@@ -26,6 +26,17 @@ void unvme_pr_id_ns(void *vaddr)
 	unvme_pr("ncap: %lx\n", le64_to_cpu(id_ns->ncap));
 }
 
+void unvme_pr_id_active_nslist(void *vaddr)
+{
+	uint32_t *id = (uint32_t *)vaddr;
+
+	while (*id) {
+		unvme_pr("%s%u", (id == vaddr) ? "" : ", ", *id);
+		id++;
+	}
+	unvme_pr("\n");
+}
+
 void unvme_pr_show_regs(struct unvme *u)
 {
 	unvme_pr("cap     : %lx\n",	unvmed_read64(u, NVME_REG_CAP));
