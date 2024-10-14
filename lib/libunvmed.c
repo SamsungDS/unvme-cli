@@ -648,6 +648,34 @@ int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, unsigned long flags)
 	return unvmed_cqe_status(cqe);
 }
 
+int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf)
+{
+	__unvmed_free_cmd struct unvme_cmd *cmd;
+
+	struct nvme_cmd_identify *sqe;
+	struct nvme_cqe *cqe;
+
+	cmd = unvmed_alloc_cmd(u, 0, NVME_IDENTIFY_DATA_SIZE);
+	if (!cmd)
+		return -1;
+
+	sqe = (struct nvme_cmd_identify *)&cmd->sqe;
+	sqe->opcode = nvme_admin_identify;
+	sqe->nsid = cpu_to_le32(nsid);
+	sqe->cns = cpu_to_le32(0x2);
+
+	if (unvmed_map_prp(cmd))
+		return -1;
+
+	unvmed_cmd_post(cmd, (union nvme_cmd *)sqe, 0);
+
+	cqe = unvmed_cmd_cmpl(cmd);
+	if (buf && nvme_cqe_ok(cqe))
+		memcpy(buf, cmd->vaddr, cmd->len);
+
+	return unvmed_cqe_status(cqe);
+}
+
 int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		uint64_t slba, uint16_t nlb,
 		void *buf, size_t size, unsigned long flags)
