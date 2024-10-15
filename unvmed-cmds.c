@@ -500,7 +500,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvmed_get_sq(u, 0))
 		unvme_err_return(EPERM, "'enable' must be executed first");
 
-	buf = malloc(size);
+	buf = aligned_alloc(getpagesize(), size);
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
@@ -536,7 +536,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
-	__unvme_free void *buf;
+	void *buf;
 	int ret;
 
 	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
@@ -548,7 +548,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvmed_get_sq(u, 0))
 		unvme_err_return(EPERM, "'enable' must be executed first");
 
-	buf = malloc(size);
+	buf = aligned_alloc(getpagesize(), size);
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
@@ -592,7 +592,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
-	__unvme_free void *buf;
+	void *buf;
 	unsigned long flags = 0;
 	int ret;
 
@@ -608,7 +608,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvmed_get_sq(u, sqid))
 		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
 
-	buf = malloc(data_size);
+	buf = aligned_alloc(getpagesize(), data_size);
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
@@ -660,7 +660,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
-	__unvme_free void *buf;
+	void *buf;
 	unsigned long flags = 0;
 	int ret;
 
@@ -678,7 +678,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (!unvmed_get_sq(u, sqid))
 		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
 
-	buf = malloc(data_size);
+	buf = aligned_alloc(getpagesize(), data_size);
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
@@ -763,7 +763,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
-	__unvme_free void *buf;
+	void *buf;
 	unsigned long cmd_flags = 0;
 	union nvme_cmd sqe = {0, };
 	int ret;
@@ -801,7 +801,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (write && !input)
 		unvme_err_return(EINVAL, "-i|--input-file must be specified");
 
-	buf = malloc(data_len);
+	buf = aligned_alloc(getpagesize(), data_len);
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 

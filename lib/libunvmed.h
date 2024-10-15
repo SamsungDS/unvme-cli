@@ -53,6 +53,8 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
 int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
 void unvmed_free_ctrl(struct unvme *u);
 void unvmed_free_ctrl_all(void);
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid, void *buf, size_t data_len);
+void unvmed_cmd_free(struct unvme_cmd *cmd);
 void unvmed_reset_ctrl(struct unvme *u);
 int unvmed_create_adminq(struct unvme *u);
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes, uint8_t mps, uint8_t css);
@@ -62,8 +64,6 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t cqi
 int unvmed_delete_sq(struct unvme *u, uint32_t qid);
 int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len, uint64_t *iova, unsigned long flags);
 int unvmed_unmap_vaddr(struct unvme *u, void *buf);
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid, size_t data_len);
-void unvmed_cmd_free(void *p);
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe, unsigned long flags);
 struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd);
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid, struct nvme_cqe **cqes);
@@ -104,8 +104,6 @@ int unvmed_passthru(struct unvme *u, uint32_t sqid, void *buf, size_t size,
 	mmio_write32(unvmed_reg(u) + (offset), cpu_to_le32((value)))
 #define unvmed_write64(u, offset, value) \
 	mmio_write64(unvmed_reg(u) + (offset), cpu_to_le64((value)))
-
-#define __unvmed_free_cmd __attribute__((cleanup(unvmed_cmd_free)))
 
 extern int __unvmed_logfd;
 

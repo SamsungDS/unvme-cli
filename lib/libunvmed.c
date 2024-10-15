@@ -50,7 +50,6 @@ struct unvme_cmd {
 	size_t len;
 	uint64_t iova;
 
-	bool should_free;
 	struct list_node list;
 };
 
@@ -341,6 +340,63 @@ void unvmed_free_ctrl_all(void)
 		unvmed_free_ctrl(u);
 }
 
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid,
+				   void *buf, size_t data_len)
+{
+	struct unvme_cmd *cmd;
+	struct nvme_sq *sq;
+	struct nvme_rq *rq;
+	uint64_t iova;
+
+	if (buf && !data_len) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	sq = unvmed_get_sq(u, sqid);
+	if (!sq) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	rq = nvme_rq_acquire(sq);
+	if (!rq)
+		return NULL;
+
+	cmd = zmalloc(sizeof(*cmd));
+	if (!cmd)
+		goto free_rq;
+
+	cmd->u = u;
+	cmd->rq = rq;
+	cmd->vaddr = buf;
+	cmd->len = data_len;
+	rq->opaque = cmd;
+
+	if (cmd->vaddr) {
+		if (unvmed_map_vaddr(u, cmd->vaddr, cmd->len, &iova, 0x0))
+			goto free_cmd;
+	}
+
+	cmd->iova = iova;
+
+	return cmd;
+
+free_cmd:
+	free(cmd);
+free_rq:
+	nvme_rq_release(rq);
+	return NULL;
+}
+
+void unvmed_cmd_free(struct unvme_cmd *cmd)
+{
+	if (cmd->vaddr)
+		unvmed_unmap_vaddr(cmd->u, cmd->vaddr);
+	nvme_rq_release(cmd->rq);
+	free(cmd);
+}
+
 static void __unvme_reset_ctrl(struct unvme *u)
 {
 	uint32_t cc = unvmed_read32(u, NVME_REG_CC);
@@ -441,11 +497,11 @@ static void __unvmed_delete_cq(struct unvme *u, uint32_t qid)
 
 int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 {
-	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct unvme_cmd *cmd;
 	struct nvme_cmd_delete_q *sqe;
 	struct nvme_cqe *cqe;
 
-	cmd = unvmed_alloc_cmd(u, 0, 0);
+	cmd = unvmed_alloc_cmd(u, 0, NULL, 0);
 	if (!cmd)
 		return -1;
 
@@ -459,6 +515,7 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	if (nvme_cqe_ok(cqe))
 		__unvmed_delete_cq(u, qid);
 
+	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(cqe);
 }
 
@@ -492,11 +549,11 @@ static void __unvmed_delete_sq(struct unvme *u, uint32_t qid)
 
 int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 {
-	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct unvme_cmd *cmd;
 	struct nvme_cmd_delete_q *sqe;
 	struct nvme_cqe *cqe;
 
-	cmd = unvmed_alloc_cmd(u, 0, 0);
+	cmd = unvmed_alloc_cmd(u, 0, NULL, 0);
 	if (!cmd)
 		return -1;
 
@@ -510,6 +567,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	if (nvme_cqe_ok(cqe))
 		__unvmed_delete_sq(u, qid);
 
+	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(cqe);
 }
 
@@ -531,69 +589,6 @@ int unvmed_unmap_vaddr(struct unvme *u, void *buf)
 	return iommu_unmap_vaddr(ctx, buf, NULL);
 }
 
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid,
-				   size_t data_len)
-{
-	struct unvme_cmd *cmd;
-	struct nvme_sq *sq;
-	struct nvme_rq *rq;
-	uint64_t iova;
-
-	sq = unvmed_get_sq(u, sqid);
-	if (!sq) {
-		errno = EINVAL;
-		return NULL;
-	}
-
-	rq = nvme_rq_acquire(sq);
-	if (!rq)
-		return NULL;
-
-	cmd = zmalloc(sizeof(*cmd));
-	if (!cmd)
-		goto free_rq;
-
-	cmd->u = u;
-	cmd->rq = rq;
-	rq->opaque = cmd;
-
-	if (data_len) {
-		if (pgmap(&cmd->vaddr, data_len) != data_len)
-			goto free_cmd;
-		cmd->len = data_len;
-
-		if (unvmed_map_vaddr(u, cmd->vaddr, cmd->len, &iova, 0x0))
-			goto free_buf;
-	}
-
-	cmd->iova = iova;
-	cmd->should_free = true;
-
-	return cmd;
-
-free_buf:
-	pgunmap(cmd->vaddr, cmd->len);
-free_cmd:
-	free(cmd);
-free_rq:
-	nvme_rq_release(rq);
-	return NULL;
-}
-
-void unvmed_cmd_free(void *p)
-{
-	struct unvme_cmd *cmd = *(struct unvme_cmd **)p;
-
-	if (cmd && cmd->should_free) {
-		if (cmd->len) {
-			unvmed_unmap_vaddr(cmd->u, cmd->vaddr);
-			pgunmap(cmd->vaddr, cmd->len);
-		}
-		nvme_rq_release(cmd->rq);
-		free(cmd);
-	}
-}
-
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags)
 {
@@ -602,8 +597,6 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 
 	if (!(flags & UNVMED_CMD_F_NODB))
 		nvme_sq_update_tail(cmd->rq->sq);
-	else
-		cmd->should_free = false;
 }
 
 struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd)
@@ -654,7 +647,7 @@ int unvmed_cmd_cmpl_n(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes,
 		memcpy(&cqes[nr++], cqe, sizeof(*cqe));
 
 		cmd = unvmed_get_cmd_from_cqe(u, cqe);
-		unvmed_cmd_free(&cmd);
+		unvmed_cmd_free(cmd);
 	}
 
 	nvme_cq_update_head(cq);
@@ -707,12 +700,12 @@ int unvmed_map_prp(struct unvme_cmd *cmd)
 
 int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, unsigned long flags)
 {
-	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct unvme_cmd *cmd;
 
 	struct nvme_cmd_identify *sqe;
 	struct nvme_cqe *cqe;
 
-	cmd = unvmed_alloc_cmd(u, 0, NVME_IDENTIFY_DATA_SIZE);
+	cmd = unvmed_alloc_cmd(u, 0, buf, NVME_IDENTIFY_DATA_SIZE);
 	if (!cmd)
 		return -1;
 
@@ -730,20 +723,19 @@ int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, unsigned long flags)
 		return 0;
 
 	cqe = unvmed_cmd_cmpl(cmd);
-	if (buf && nvme_cqe_ok(cqe))
-		memcpy(buf, cmd->vaddr, cmd->len);
 
+	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(cqe);
 }
 
 int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf)
 {
-	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct unvme_cmd *cmd;
 
 	struct nvme_cmd_identify *sqe;
 	struct nvme_cqe *cqe;
 
-	cmd = unvmed_alloc_cmd(u, 0, NVME_IDENTIFY_DATA_SIZE);
+	cmd = unvmed_alloc_cmd(u, 0, buf, NVME_IDENTIFY_DATA_SIZE);
 	if (!cmd)
 		return -1;
 
@@ -758,9 +750,8 @@ int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf)
 	unvmed_cmd_post(cmd, (union nvme_cmd *)sqe, 0);
 
 	cqe = unvmed_cmd_cmpl(cmd);
-	if (buf && nvme_cqe_ok(cqe))
-		memcpy(buf, cmd->vaddr, cmd->len);
 
+	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(cqe);
 }
 
@@ -768,12 +759,12 @@ int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		uint64_t slba, uint16_t nlb,
 		void *buf, size_t size, unsigned long flags)
 {
-	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct unvme_cmd *cmd;
 
 	struct nvme_cmd_rw *sqe;
 	struct nvme_cqe *cqe;
 
-	cmd = unvmed_alloc_cmd(u, sqid, size);
+	cmd = unvmed_alloc_cmd(u, sqid, buf, size);
 	if (!cmd)
 		return -1;
 
@@ -792,9 +783,8 @@ int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		return 0;
 
 	cqe = unvmed_cmd_cmpl(cmd);
-	if (buf && nvme_cqe_ok(cqe))
-		memcpy(buf, cmd->vaddr, size);
 
+	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(cqe);
 }
 
@@ -802,12 +792,12 @@ int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		 uint64_t slba, uint16_t nlb,
 		 void *buf, size_t size, unsigned long flags)
 {
-	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct unvme_cmd *cmd;
 
 	struct nvme_cmd_rw *sqe;
 	struct nvme_cqe *cqe;
 
-	cmd = unvmed_alloc_cmd(u, sqid, size);
+	cmd = unvmed_alloc_cmd(u, sqid, buf, size);
 	if (!cmd)
 		return -1;
 
@@ -817,8 +807,6 @@ int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid,
 	sqe->slba = cpu_to_le64(slba);
 	sqe->nlb = cpu_to_le16(nlb);
 
-	if (buf)
-		memcpy(cmd->vaddr, buf, size);
 	if (unvmed_map_prp(cmd))
 		return -1;
 
@@ -829,24 +817,23 @@ int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid,
 
 	cqe = unvmed_cmd_cmpl(cmd);
 
+	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(cqe);
 }
 
 int unvmed_passthru(struct unvme *u, uint32_t sqid, void *buf, size_t size,
 		    union nvme_cmd *sqe, bool read, unsigned long flags)
 {
-	__unvmed_free_cmd struct unvme_cmd *cmd;
+	struct unvme_cmd *cmd;
 
 	struct nvme_cqe *cqe;
 
-	cmd = unvmed_alloc_cmd(u, sqid, size);
+	cmd = unvmed_alloc_cmd(u, sqid, buf, size);
 	if (!cmd)
 		return -1;
 
 	memcpy(&cmd->sqe, sqe, sizeof(*sqe));
 
-	if (!read && buf)
-		memcpy(cmd->vaddr, buf, size);
 	if (!cmd->sqe.dptr.prp1 && !cmd->sqe.dptr.prp2) {
 		if (unvmed_map_prp(cmd))
 			return -1;
@@ -858,8 +845,7 @@ int unvmed_passthru(struct unvme *u, uint32_t sqid, void *buf, size_t size,
 		return 0;
 
 	cqe = unvmed_cmd_cmpl(cmd);
-	if (buf && read && nvme_cqe_ok(cqe))
-		memcpy(buf, cmd->vaddr, size);
 
+	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(cqe);
 }
