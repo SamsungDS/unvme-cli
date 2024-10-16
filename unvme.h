@@ -79,6 +79,18 @@ struct command {
 };
 struct command *unvme_cmds(void);
 
+static inline struct command *unvme_get_cmd(const char *name)
+{
+	struct command *cmds = unvme_cmds();
+
+	for (int i = 0; cmds[i].name != NULL; i++) {
+		if (!strcmp(name, cmds[i].name))
+			return &cmds[i];
+	}
+
+	return NULL;
+}
+
 #define UNVME_DAEMON_LOG	"/var/log/unvmed.log"
 #define UNVME_STDOUT		"/var/log/unvmed/stdout-%d"
 #define UNVME_STDERR		"/var/log/unvmed/stderr-%d"

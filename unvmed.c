@@ -51,8 +51,8 @@ static int unvme_set_pid(void)
 static __thread char __argv[UNVME_MAX_OPT * UNVME_MAX_STR];
 static int __unvme_handler(struct unvme_msg *msg)
 {
-	const struct command *cmds = unvme_cmds();
 	char *oneline = __argv;
+	struct command *cmd;
 	char **argv;
 	int argc = msg->msg.argc;
 	int ret;
@@ -82,13 +82,10 @@ static int __unvme_handler(struct unvme_msg *msg)
 	}
 
 	ret = -EINVAL;
-	for (i = 0; cmds[i].name != NULL; i++) {
-		if (streq(argv[1], cmds[i].name) &&
-				cmds[i].ctype & UNVME_DAEMON_CMD) {
-			ret = cmds[i].func(argc, argv, msg);
-			break;
-		}
-	}
+
+	cmd = unvme_get_cmd(argv[1]);
+	if (cmd && cmd->ctype & UNVME_DAEMON_CMD)
+		ret = cmd->func(argc, argv, msg);
 
 out:
 	for (int i = 0; i < argc; i++)

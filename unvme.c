@@ -382,8 +382,8 @@ static void unvme_stdio_finish(void)
 int main(int argc, char *argv[])
 {
 	struct unvme_msg msg = {0, };
-	const char *cmd = argv[1];
-	struct command *cmds = unvme_cmds();
+	const char *name = argv[1];
+	struct command *cmd;
 	char bdf[13];
 	int ret;
 
@@ -404,11 +404,12 @@ int main(int argc, char *argv[])
 	if (!getcwd(msg.msg.pwd, UNVME_PWD_STRLEN))
 		unvme_pr_return(1, "ERROR: failed to copy current working dir\n");
 
-	for (int i = 0; cmds[i].name != NULL; i++) {
-		if (streq(cmd, cmds[i].name) &&
-				cmds[i].ctype & UNVME_CLIENT_CMD)
-			return cmds[i].func(argc, argv, &msg);
-	}
+	cmd = unvme_get_cmd(name);
+	if (!cmd)
+		return 1;
+
+	if (cmd->ctype & UNVME_CLIENT_CMD)
+		return cmd->func(argc, argv, &msg);
 
 	if (!unvme_is_daemon_running())
 		unvme_pr_return(1, "ERROR: unvmed is not running, "
