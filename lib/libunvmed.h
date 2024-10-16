@@ -41,6 +41,7 @@ struct nvme_cq;
 void unvmed_init(const char *logfile);
 
 struct unvme *unvmed_get(const char *bdf);
+int unvmed_nr_cmds(struct unvme *u);
 int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist);
 struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid);
 
@@ -70,6 +71,7 @@ struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd);
 struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe);
 int unvmed_cq_run(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes);
 int unvmed_cq_run_n(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes, int min, int max);
+void unvmed_sq_update_tail(struct unvme *u, uint32_t sqid);
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid, struct nvme_cqe **cqes);
 int unvmed_map_prp(struct unvme_cmd *cmd);
 

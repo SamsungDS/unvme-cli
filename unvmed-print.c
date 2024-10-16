@@ -100,6 +100,9 @@ void unvme_pr_status(struct unvme *u)
 	unvme_pr("Controller Configuration	(CC)	: %#x\n", cc);
 	unvme_pr("Controller Status		(CSTS)	: %#x\n\n", csts);
 
+	unvme_pr("Number of inflight commands		: %d\n", unvmed_nr_cmds(u));
+	unvme_pr("\n");
+
 	unvme_pr("Namespaces\n");
 	unvme_pr("nsid       block size(B) meta size(B) size(blocks)\n");
 	unvme_pr("---------- ------------- ------------ ------------\n");

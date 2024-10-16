@@ -3,6 +3,7 @@
 #include <sys/time.h>
 
 #include <vfn/nvme.h>
+#include <vfn/support/atomic.h>
 
 #include <nvme/types.h>
 
@@ -20,6 +21,7 @@ struct unvme {
 	bool enabled;
 	int nr_sqs;
 	int nr_cqs;
+	int nr_cmds;
 
 	struct list_head ns_list;
 	int nr_ns;
@@ -90,6 +92,11 @@ struct unvme *unvmed_get(const char *bdf)
 	}
 
 	return NULL;
+}
+
+int unvmed_nr_cmds(struct unvme *u)
+{
+	return u->nr_cmds;
 }
 
 int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist)
@@ -632,6 +639,7 @@ static int __unvmed_cq_run_n(struct unvme *u, uint32_t cqid,
 {
 	struct nvme_cq *cq = unvmed_get_cq(u, cqid);
 	struct nvme_cqe *cqe;
+	int nr_cmds;
 	int nr = 0;
 
 	if (!cq) {
@@ -648,7 +656,12 @@ static int __unvmed_cq_run_n(struct unvme *u, uint32_t cqid,
 		}
 
 		memcpy(&cqes[nr++], cqe, sizeof(*cqe));
+		unvmed_log_cmd_cmpl(unvmed_bdf(u), cqe);
 	}
+
+	do {
+		nr_cmds = u->nr_cmds;
+	} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - nr));
 
 	nvme_cq_update_head(cq);
 	return nr;
@@ -678,6 +691,35 @@ int unvmed_cq_run_n(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes,
 	return ret + n;
 }
 
+static int unvmed_nr_pending_sqes(struct unvme *u, uint32_t sqid)
+{
+	struct nvme_sq *sq = unvmed_get_sq(u, sqid);
+	int nr_sqes;
+
+	if (sq->tail >= sq->ptail)
+		nr_sqes = sq->tail - sq->ptail;
+	else
+		nr_sqes = (sq->qsize - sq->ptail) + sq->tail;
+
+	return nr_sqes;
+}
+
+void unvmed_sq_update_tail(struct unvme *u, uint32_t sqid)
+{
+	struct nvme_sq *sq = unvmed_get_sq(u, sqid);
+	int nr_sqes = unvmed_nr_pending_sqes(u, sqid);
+	int nr_cmds;
+
+	if (!nr_sqes)
+		return;
+
+	do {
+		nr_cmds = u->nr_cmds;
+	} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds + nr_sqes));
+
+	nvme_sq_update_tail(sq);
+}
+
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
 				  struct nvme_cqe **cqes)
 {
@@ -690,11 +732,7 @@ int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
 		return -1;
 	}
 
-	if (sq->tail >= sq->ptail)
-		nr_sqes = sq->tail - sq->ptail;
-	else
-		nr_sqes = (sq->qsize - sq->ptail) + sq->tail;
-
+	nr_sqes = unvmed_nr_pending_sqes(u, sqid);
 	if (!nr_sqes)
 		return 0;
 
