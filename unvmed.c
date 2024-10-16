@@ -23,10 +23,63 @@
 #include "unvme.h"
 #include "unvmed.h"
 
+struct unvme_job {
+	int client_pid;
+	pthread_t thread;
+
+	struct list_node list;
+};
+
 __thread FILE *__stdout = NULL;
 __thread FILE *__stderr = NULL;
 static char *__libfio;
 static pthread_mutex_t __app_mutex;
+
+static LIST_HEAD(__jobs);
+static pthread_mutex_t __job_mutex;
+
+static inline struct unvme_job *unvme_add_job(int client_pid)
+{
+	struct unvme_job *job = calloc(1, sizeof(*job));
+
+	job->client_pid = client_pid;
+
+	assert(job != NULL);
+
+	pthread_mutex_lock(&__job_mutex);
+	list_add_tail(&__jobs, &job->list);
+	pthread_mutex_unlock(&__job_mutex);
+
+	return job;
+}
+
+static inline struct unvme_job *unvme_get_job(int client_pid)
+{
+	struct unvme_job *job;
+
+	pthread_mutex_lock(&__job_mutex);
+	list_for_each(&__jobs, job, list) {
+		if (job->client_pid == client_pid) {
+			pthread_mutex_unlock(&__job_mutex);
+			return job;
+		}
+	}
+	pthread_mutex_unlock(&__job_mutex);
+
+	return NULL;
+}
+
+static inline void unvme_del_job(int client_pid)
+{
+	struct unvme_job *job = unvme_get_job(client_pid);
+
+	if (!job)
+		return;
+
+	pthread_mutex_lock(&__job_mutex);
+	list_del(&job->list);
+	pthread_mutex_unlock(&__job_mutex);
+}
 
 static int unvme_set_pid(void)
 {
@@ -274,6 +327,8 @@ static void *unvme_handler(void *opaque)
 	unvme_msg_to_client(msg, unvme_msg_pid(msg), ret);
 	unvme_send_msg(msg);
 
+	unvme_del_job(pid);
+
 	free(msg);
 	pthread_exit(NULL);
 }
@@ -295,10 +350,30 @@ const char *unvmed_get_libfio(void)
 	return __libfio;
 }
 
+static void unvme_run_job(struct unvme_msg *msg)
+{
+	struct unvme_job *job = unvme_add_job(unvme_msg_pid(msg));
+
+	pthread_create(&job->thread, NULL, unvme_handler, (void *)msg);
+}
+
+static void unvme_signal_job(struct unvme_msg *msg)
+{
+	struct unvme_job *job;
+
+	job = unvme_get_job(unvme_msg_pid(msg));
+	assert(job != NULL);
+
+	if (unvme_msg_signum(msg) == SIGINT || unvme_msg_signum(msg) == SIGTERM)
+		unvme_del_job(unvme_msg_pid(msg));
+
+	pthread_kill(job->thread, unvme_msg_signum(msg));
+	pthread_join(job->thread, NULL);
+}
+
 int unvmed(char *argv[], const char *fio)
 {
 	struct unvme_msg *msg;
-	pthread_t th;
 
 	/*
 	 * Convert the current process to a daemon process
@@ -337,6 +412,7 @@ int unvmed(char *argv[], const char *fio)
 	unvme_set_pid();
 
 	pthread_mutex_init(&__app_mutex, NULL);
+	pthread_mutex_init(&__job_mutex, NULL);
 
 	unvmed_log_info("ready to receive messages from client ...");
 	if (fio)
@@ -347,7 +423,12 @@ int unvmed(char *argv[], const char *fio)
 
 		if (unvme_recv_msg(msg) < 0)
 			return -1;
-		pthread_create(&th, NULL, unvme_handler, (void *)msg);
+
+		if (unvme_msg_is_normal(msg))
+			unvme_run_job(msg);
+		else
+			unvme_signal_job(msg);
+
 	}
 
 	/*

@@ -31,6 +31,7 @@ static char *__stdout_fname;
 static char *__stderr_fname;
 static bool __stdio_stop;
 static pthread_t __stdio_th[4];
+static struct command *__cmd;
 
 static int unvme_help(int argc, char *argv[], struct unvme_msg *msg);
 static int unvme_version(int argc, char *argv[], struct unvme_msg *msg);
@@ -412,11 +413,27 @@ static void unvme_stdio_finish(bool app_stdio)
 	}
 }
 
+static void unvme_sigint(int signum)
+{
+	struct unvme_msg msg = {0, };
+
+	unvme_msg_to_daemon(&msg);
+	unvme_msg_signum(&msg) = signum;
+
+	unvme_send_msg(&msg);
+	unvme_recv_msg(&msg);
+}
+
+static void unvme_cleanup(void)
+{
+	if (__cmd)
+		unvme_stdio_finish(!!(__cmd->ctype & UNVME_APP_CMD));
+}
+
 int main(int argc, char *argv[])
 {
 	struct unvme_msg msg = {0, };
 	const char *name = argv[1];
-	struct command *cmd;
 	bool app_cmd;
 	char bdf[13];
 	int ret;
@@ -438,18 +455,21 @@ int main(int argc, char *argv[])
 	if (!getcwd(msg.msg.pwd, UNVME_PWD_STRLEN))
 		unvme_pr_return(1, "ERROR: failed to copy current working dir\n");
 
-	cmd = unvme_get_cmd(name);
-	if (!cmd)
+	__cmd = unvme_get_cmd(name);
+	if (!__cmd)
 		return 1;
 
-	if (cmd->ctype & UNVME_CLIENT_CMD)
-		return cmd->func(argc, argv, &msg);
+	if (__cmd->ctype & UNVME_CLIENT_CMD)
+		return __cmd->func(argc, argv, &msg);
 
 	if (!unvme_is_daemon_running())
 		unvme_pr_return(1, "ERROR: unvmed is not running, "
 				"please run 'unvme start' first\n");
 
-	app_cmd = !!(cmd->ctype & UNVME_APP_CMD);
+	atexit(unvme_cleanup);
+	signal(SIGINT, unvme_sigint);
+
+	app_cmd = !!(__cmd->ctype & UNVME_APP_CMD);
 
 	/*
 	 * Prepare stderr file for the current process to receive from the
@@ -462,7 +482,7 @@ int main(int argc, char *argv[])
 	if (unvme_recv_msg(&msg))
 		return -1;
 
-	unvme_stdio_finish(app_cmd);
+	unvme_cleanup();
 
 	if (msg.msg.ret == -ENOTCONN) {
 		unvme_pr_err("ERROR: unvmed has been terminated unexpectedly."

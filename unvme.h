@@ -32,16 +32,28 @@ struct unvme_msg {
 		char pwd[UNVME_PWD_STRLEN];
 		int pid;  /* client pid */
 
-		/*
-		 * Response message from daemon to client
-		 */
-		int ret;
+		union {
+			/*
+			 * Signal request to daemon from client
+			 */
+			int signum;
+			/*
+			 * Response message from daemon to client
+			 */
+			int ret;
+		};
 	} msg;
 };
 
 #define unvme_msg_pid(p)	((p)->msg.pid)
 #define unvme_msg_bdf(p)	((p)->msg.bdf)
 #define unvme_msg_pwd(p)	((p)->msg.pwd)
+#define unvme_msg_signum(p)	((p)->msg.signum)
+
+static inline bool unvme_msg_is_normal(struct unvme_msg *msg)
+{
+	return unvme_msg_signum(msg) == 0;
+}
 
 int unvme_get_daemon_pid(void);
 bool unvme_is_daemon_running(void);
