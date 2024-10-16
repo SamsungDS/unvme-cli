@@ -618,7 +618,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (data)
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), data);
 
-	ret = unvmed_read(u, sqid, nsid, slba, nlb, buf, data_size, flags);
+	ret = unvmed_read(u, sqid, nsid, slba, nlb, buf, data_size, flags, NULL);
 	if (!ret && !nodb) {
 		if (!filepath)
 			unvme_cmd_pr_raw(buf, data_size);
@@ -691,7 +691,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvme_read_file(filepath, buf, data_size))
 		unvme_err_return(ENOENT, "failed to read data from file %s", filepath);
 
-	ret = unvmed_write(u, sqid, nsid, slba, nlb, buf, data_size, flags);
+	ret = unvmed_write(u, sqid, nsid, slba, nlb, buf, data_size, flags, NULL);
 	if (ret > 0)
 		unvme_pr_cqe_status(ret);
 

@@ -50,6 +50,8 @@ struct unvme_cmd {
 	size_t len;
 	uint64_t iova;
 
+	void *opaque;
+
 	struct list_node list;
 };
 
@@ -589,6 +591,11 @@ int unvmed_unmap_vaddr(struct unvme *u, void *buf)
 	return iommu_unmap_vaddr(ctx, buf, NULL);
 }
 
+void *unvmed_cmd_opaque(struct unvme_cmd *cmd)
+{
+	return cmd->opaque;
+}
+
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags)
 {
@@ -777,7 +784,7 @@ int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf)
 
 int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		uint64_t slba, uint16_t nlb,
-		void *buf, size_t size, unsigned long flags)
+		void *buf, size_t size, unsigned long flags, void *opaque)
 {
 	struct unvme_cmd *cmd;
 
@@ -799,8 +806,10 @@ int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid,
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)sqe, flags);
 
-	if (flags & UNVMED_CMD_F_NODB)
+	if (flags & UNVMED_CMD_F_NODB) {
+		cmd->opaque = opaque;
 		return 0;
+	}
 
 	cqe = unvmed_cmd_cmpl(cmd);
 
@@ -810,7 +819,7 @@ int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid,
 
 int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		 uint64_t slba, uint16_t nlb,
-		 void *buf, size_t size, unsigned long flags)
+		 void *buf, size_t size, unsigned long flags, void *opaque)
 {
 	struct unvme_cmd *cmd;
 
@@ -832,8 +841,10 @@ int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid,
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)sqe, flags);
 
-	if (flags & UNVMED_CMD_F_NODB)
+	if (flags & UNVMED_CMD_F_NODB) {
+		cmd->opaque = opaque;
 		return 0;
+	}
 
 	cqe = unvmed_cmd_cmpl(cmd);
 
