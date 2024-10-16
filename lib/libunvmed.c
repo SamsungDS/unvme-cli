@@ -621,17 +621,12 @@ static inline struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
 	return (struct unvme_cmd *)rq->opaque;
 }
 
-int unvmed_cmd_cmpl_n(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes,
-		      int nr_cqes)
+static int __unvmed_cq_run_n(struct unvme *u, uint32_t cqid,
+			     struct nvme_cqe *cqes, int nr_cqes, bool nowait)
 {
 	struct nvme_cq *cq = unvmed_get_cq(u, cqid);
 	struct nvme_cqe *cqe;
 	int nr = 0;
-
-	if (nr_cqes <= 0) {
-		errno = EINVAL;
-		return -1;
-	}
 
 	if (!cq) {
 		errno = EINVAL;
@@ -640,14 +635,41 @@ int unvmed_cmd_cmpl_n(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes,
 
 	while (nr < nr_cqes) {
 		cqe = nvme_cq_get_cqe(cq);
-		if (!cqe)
+		if (!cqe) {
+			if (nowait)
+				break;
 			continue;
+		}
 
 		memcpy(&cqes[nr++], cqe, sizeof(*cqe));
 	}
 
 	nvme_cq_update_head(cq);
 	return nr;
+}
+
+int unvmed_cq_run(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes)
+{
+	return __unvmed_cq_run_n(u, cqid, cqes, 0, true);
+}
+
+int unvmed_cq_run_n(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes,
+		    int min, int max)
+{
+	int ret;
+	int n;
+
+	n = __unvmed_cq_run_n(u, cqid, cqes, min, false);
+	if (n < 0)
+		return -1;
+
+	ret = n;
+
+	n = __unvmed_cq_run_n(u, cqid, cqes + n, max, true);
+	if (n < 0)
+		return -1;
+
+	return ret + n;
 }
 
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
@@ -673,7 +695,7 @@ int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
 	*cqes = malloc(sizeof(struct nvme_cqe) * nr_sqes);
 
 	nvme_sq_update_tail(sq);
-	ret = unvmed_cmd_cmpl_n(u, sq->cq->id, *cqes, nr_sqes);
+	ret = unvmed_cq_run_n(u, sq->cq->id, *cqes, nr_sqes, nr_sqes);
 	for (int i = 0; ret > 0 && i < ret; i++)
 		unvmed_cmd_free(unvmed_get_cmd_from_cqe(u, *cqes + i));
 
