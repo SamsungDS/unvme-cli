@@ -25,6 +25,7 @@
 
 __thread FILE *__stdout = NULL;
 __thread FILE *__stderr = NULL;
+static pthread_mutex_t __app_mutex;
 
 static int unvme_set_pid(void)
 {
@@ -84,8 +85,19 @@ static int __unvme_handler(struct unvme_msg *msg)
 	ret = -EINVAL;
 
 	cmd = unvme_get_cmd(argv[1]);
-	if (cmd && cmd->ctype & UNVME_DAEMON_CMD)
+	if (cmd && cmd->ctype & UNVME_DAEMON_CMD) {
+		/*
+		 * We should truncate the stdout and stderr file which will be
+		 * written by the application thread per every running.
+		 */
+		if (cmd->ctype & UNVME_APP_CMD)
+			pthread_mutex_lock(&__app_mutex);
+
 		ret = cmd->func(argc, argv, msg);
+
+		if (cmd->ctype & UNVME_APP_CMD)
+			pthread_mutex_unlock(&__app_mutex);
+	}
 
 out:
 	for (int i = 0; i < argc; i++)
@@ -310,6 +322,8 @@ int unvmed(char *argv[])
 	signal(SIGSEGV, unvme_error);
 	signal(SIGABRT, unvme_error);
 	unvme_set_pid();
+
+	pthread_mutex_init(&__app_mutex, NULL);
 
 	unvmed_log_info("ready to receive messages from client ...");
 

@@ -68,6 +68,7 @@ enum command_type {
 	UNVME_DAEMON_CMD	= 1 << 1,
 	UNVME_DEV_CMD		= 1 << 2,
 	UNVME_NODEV_CMD		= 1 << 3,
+	UNVME_APP_CMD		= 1 << 4,
 };
 
 struct command {
