@@ -607,8 +607,7 @@ struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd)
 	return &cmd->cqe;
 }
 
-static inline struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
-							struct nvme_cqe *cqe)
+struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe)
 {
 	struct nvme_rq *rq;
 	struct nvme_sq *sq;
