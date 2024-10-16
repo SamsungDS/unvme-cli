@@ -93,19 +93,9 @@ struct command *unvme_cmds(void)
 	return cmds;
 }
 
-static struct command *unvme_cmd(const char *cmd)
-{
-	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
-		if (streq(cmd, cmds[i].name))
-			return &cmds[i];
-	}
-
-	return NULL;
-}
-
 void unvme_cmd_help(const char *name, const char *desc, struct opt_table *opts)
 {
-	struct command *cmd = unvme_cmd(name);
+	struct command *cmd = unvme_get_cmd(name);
 
 	if (!cmd)
 		return;
@@ -226,7 +216,7 @@ static int unvme_check_args(int argc, char *argv[], char *bdf)
 		return 0;
 	}
 
-	cmd = unvme_cmd(argv[1]);
+	cmd = unvme_get_cmd(argv[1]);
 	if (!cmd)
 		unvme_pr_err_return(-EINVAL, "Invalid command '%s'\n",
 				argv[1]);
