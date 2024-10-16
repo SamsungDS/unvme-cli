@@ -25,6 +25,7 @@
 
 __thread FILE *__stdout = NULL;
 __thread FILE *__stderr = NULL;
+static char *__libfio;
 static pthread_mutex_t __app_mutex;
 
 static int unvme_set_pid(void)
@@ -171,6 +172,9 @@ retry:
 
 static void unvme_release(int signum)
 {
+	if (__libfio)
+		free(__libfio);
+
 	unvme_msgq_delete(UNVME_MSGQ);
 
 	unvmed_free_ctrl_all();
@@ -286,7 +290,12 @@ static inline struct unvme_msg *unvme_alloc_msg(void)
 	return msg;
 }
 
-int unvmed(char *argv[])
+const char *unvmed_get_libfio(void)
+{
+	return __libfio;
+}
+
+int unvmed(char *argv[], const char *fio)
 {
 	struct unvme_msg *msg;
 	pthread_t th;
@@ -330,6 +339,8 @@ int unvmed(char *argv[])
 	pthread_mutex_init(&__app_mutex, NULL);
 
 	unvmed_log_info("ready to receive messages from client ...");
+	if (fio)
+		__libfio = strdup(fio);
 
 	while (true) {
 		msg = unvme_alloc_msg();

@@ -24,8 +24,16 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 	int ret = 0;
 	bool help = false;
 	const char *desc = "Start unvmed daemon process.";
+#ifdef UNVME_FIO
+	char *with_fio = "/usr/local/bin/unvme-fio";
+#else
+	char *with_fio = NULL;
+#endif
 
 	struct opt_table opts[] = {
+#ifdef UNVME_FIO
+		OPT_WITH_ARG("--with-fio", opt_set_charp, opt_show_charp, &with_fio, "[O] fio shared object path to run"),
+#endif
 		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
 		OPT_ENDTABLE
 	};
@@ -35,12 +43,15 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvme_is_daemon_running())
 		unvme_pr_return(1, "unvme: unvmed is already running\n");
 
+	if (with_fio && access(with_fio, F_OK))
+		with_fio = NULL;
+
 	pid = fork();
 	if (pid < 0) {
 		perror("fork");
 		ret = errno;
 	} else if (!pid)
-		ret = unvmed(argv);
+		ret = unvmed(argv, with_fio);
 
 	return ret;
 }

@@ -921,3 +921,40 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 	unvmed_reset_ctrl(u);
 	return 0;
 }
+
+#ifdef UNVME_FIO
+static inline void unvmed_log_null(const char *fmt, ...) {}
+extern int unvmed_run_fio(int argc, char *argv[], const char *libfio);
+int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Run fio libvfn ioengine with NVMe controller resources configured by unvme-cli.\n"
+		"'unvme start --with-fio=<fio>' must be given first to load fio shared object to unvmed.\n"
+		"And users should enable and create I/O queues before running fio through this command";
+
+	bool help = false;
+	struct opt_table opts[] = {
+		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
+		OPT_ENDTABLE
+	};
+	const char *libfio;
+
+	if (!argc)
+		unvme_help_return();
+
+	/*
+	 * We don't care the failure of the parameter parsing since we will
+	 * have fio arguments in this command.
+	 */
+	opt_register_table(opts, NULL);
+	opt_parse(&argc, argv, unvmed_log_null);
+	opt_free_table();
+
+	libfio = unvmed_get_libfio();
+	if (!libfio)
+		unvme_err_return(EINVAL, "failed to get fio shared object. "
+				"'unvme start --with-fio=<fio>' required.");
+
+	return unvmed_run_fio(argc - 1, &argv[1], libfio);
+}
+#endif

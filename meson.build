@@ -24,8 +24,13 @@ add_project_link_arguments(link_args, language: 'c')
 vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
 nvme_lib = dependency('libnvme', version: '>=1.8.0', static: static)
 
+conf = configuration_data()
+
 subdir('ccan')
 subdir('lib')
+
+fio_lib = []
+subdir('app')
 
 executable(
   'unvme',
@@ -33,12 +38,11 @@ executable(
    'unvme-cmds.c',],
   dependencies: [vfn_lib, nvme_lib, unvmed_dep],
   link_with: [ccan_lib],
+  link_whole: [fio_lib],
   include_directories: [ccan_inc, libunvmed_inc],
   install: true,
   install_dir: get_option('bindir'),
 )
-
-conf = configuration_data()
 
 # Set the unvme-cli version
 conf.set('UNVME_VERSION', '"' + meson.project_version() + '"')

@@ -37,6 +37,8 @@ char *unvme_get_filepath(char *pwd, const char *filename);
 int unvme_write_file(const char *abspath, void *buf, size_t len);
 int unvme_read_file(const char *abspath, void *buf, size_t len);
 
+const char *unvmed_get_libfio(void);
+
 /*
  * per-thread stdio stream objects
  */

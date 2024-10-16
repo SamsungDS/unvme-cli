@@ -204,11 +204,12 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_reset(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_fio(int argc, char *argv[], struct unvme_msg *msg);
 
 /*
  * unvmed.c
  */
-int unvmed(char *argv[]);
+int unvmed(char *argv[], const char *fio);
 
 /*
  * unvme.c
