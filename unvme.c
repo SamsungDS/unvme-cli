@@ -30,7 +30,7 @@
 static char *__stdout_fname;
 static char *__stderr_fname;
 static bool __stdio_stop;
-static pthread_t __stdio_th[2];
+static pthread_t __stdio_th[4];
 
 static int unvme_help(int argc, char *argv[], struct unvme_msg *msg);
 static int unvme_version(int argc, char *argv[], struct unvme_msg *msg);
@@ -322,7 +322,7 @@ err:
 	unvme_exit();
 }
 
-static void __unvme_stdio_pr(const char *fname, int stdio)
+static void __unvme_stdio_pr(const char *fname, int stdio, bool to_remove)
 {
 	char buf[256];
 	int token = 1;
@@ -347,36 +347,66 @@ static void __unvme_stdio_pr(const char *fname, int stdio)
 	}
 
 	close(fd);
-	remove(fname);
+
+	if (to_remove)
+		remove(fname);
 }
 
 static void *unvme_stdout_handler(void *opaque)
 {
-	__unvme_stdio_pr(__stdout_fname, STDOUT_FILENO);
+	__unvme_stdio_pr(__stdout_fname, STDOUT_FILENO, true);
 	pthread_exit(NULL);
 }
 
 static void *unvme_stderr_handler(void *opaque)
 {
-	__unvme_stdio_pr(__stderr_fname, STDERR_FILENO);
+	__unvme_stdio_pr(__stderr_fname, STDERR_FILENO, true);
 	pthread_exit(NULL);
 }
 
-static void unvme_stdio_init(void)
+static void *unvme_app_stdout_handler(void *opaque)
+{
+	__unvme_stdio_pr(UNVME_DAEMON_STDOUT, STDOUT_FILENO, false);
+
+	if (truncate(UNVME_DAEMON_STDOUT, 0))
+		unvme_pr_err("failed to truncate %s\n", UNVME_DAEMON_STDOUT);
+	pthread_exit(NULL);
+}
+
+static void *unvme_app_stderr_handler(void *opaque)
+{
+	__unvme_stdio_pr(UNVME_DAEMON_STDERR, STDERR_FILENO, false);
+
+	if (truncate(UNVME_DAEMON_STDERR, 0))
+		unvme_pr_err("failed to truncate %s\n", UNVME_DAEMON_STDERR);
+	pthread_exit(NULL);
+}
+
+static void unvme_stdio_init(bool app_stdio)
 {
 	__unvme_stdio_init(&__stdout_fname, UNVME_STDOUT);
 	__unvme_stdio_init(&__stderr_fname, UNVME_STDERR);
 
 	pthread_create(&__stdio_th[0], NULL, unvme_stdout_handler, NULL);
 	pthread_create(&__stdio_th[1], NULL, unvme_stderr_handler, NULL);
+
+	if (app_stdio) {
+		pthread_create(&__stdio_th[2], NULL, unvme_app_stdout_handler, NULL);
+		pthread_create(&__stdio_th[3], NULL, unvme_app_stderr_handler, NULL);
+	}
 }
 
-static void unvme_stdio_finish(void)
+static void unvme_stdio_finish(bool app_stdio)
 {
 	__stdio_stop = true;
 
 	pthread_join(__stdio_th[0], NULL);
 	pthread_join(__stdio_th[1], NULL);
+
+	if (app_stdio) {
+		pthread_join(__stdio_th[2], NULL);
+		pthread_join(__stdio_th[3], NULL);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -384,6 +414,7 @@ int main(int argc, char *argv[])
 	struct unvme_msg msg = {0, };
 	const char *name = argv[1];
 	struct command *cmd;
+	bool app_cmd;
 	char bdf[13];
 	int ret;
 
@@ -415,18 +446,20 @@ int main(int argc, char *argv[])
 		unvme_pr_return(1, "ERROR: unvmed is not running, "
 				"please run 'unvme start' first\n");
 
+	app_cmd = !!(cmd->ctype & UNVME_APP_CMD);
+
 	/*
 	 * Prepare stderr file for the current process to receive from the
 	 * daemon process.
 	 */
-	unvme_stdio_init();
+	unvme_stdio_init(app_cmd);
 
 	if (unvme_send_msg(&msg))
 		return -1;
 	if (unvme_recv_msg(&msg))
 		return -1;
 
-	unvme_stdio_finish();
+	unvme_stdio_finish(app_cmd);
 
 	if (msg.msg.ret == -ENOTCONN) {
 		unvme_pr_err("ERROR: unvmed has been terminated unexpectedly."

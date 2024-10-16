@@ -310,8 +310,12 @@ int unvmed(char *argv[])
 	unvmed_init(UNVME_DAEMON_LOG);
 
 	close(STDIN_FILENO);
-	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
+	if (!freopen(UNVME_DAEMON_STDOUT, "w", stdout))
+		unvmed_log_err("failed to redirect stdout to %s", UNVME_DAEMON_STDOUT);
+	setvbuf(stdout, NULL, _IOLBF, 0);
+	if (!freopen(UNVME_DAEMON_STDERR, "w", stderr))
+		unvmed_log_err("failed to redirect stdout to %s", UNVME_DAEMON_STDERR);
+	setvbuf(stderr, NULL, _IOLBF, 0);
 
 	unvme_msgq_create(UNVME_MSGQ);
 

@@ -93,6 +93,9 @@ static inline struct command *unvme_get_cmd(const char *name)
 }
 
 #define UNVME_DAEMON_LOG	"/var/log/unvmed.log"
+/* application (e.g., fio) will print stdout/stderr to the file */
+#define UNVME_DAEMON_STDOUT	"/var/log/unvmed.stdout"
+#define UNVME_DAEMON_STDERR	"/var/log/unvmed.stderr"
 #define UNVME_STDOUT		"/var/log/unvmed/stdout-%d"
 #define UNVME_STDERR		"/var/log/unvmed/stderr-%d"
 
