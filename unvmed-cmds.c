@@ -24,7 +24,6 @@
 #define unvme_err_return(err, fmt, ...)					\
 	do {								\
 		unvme_pr_err("ERROR: "fmt"\n\n", ##__VA_ARGS__);	\
-		unvme_cmd_help(argv[1], desc, opts);			\
 		return err;						\
 	} while(0)
 
