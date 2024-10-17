@@ -28,6 +28,20 @@
 		return err;						\
 	} while(0)
 
+extern __thread struct unvme_msg *__msg;
+
+/*
+ * Overrided exit() function which should be called by the external apps.
+ */
+void exit(int status)
+{
+	unvmed_log_err("job (pid=%d) has been terminated (err=%d)",
+			unvme_msg_pid(__msg), status);
+
+	unvme_exit_job(status);
+	pthread_exit(NULL);
+}
+
 static void unvme_pr_cqe(struct nvme_cqe *cqe)
 {
 	uint32_t sct, sc;

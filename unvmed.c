@@ -38,6 +38,8 @@ static pthread_mutex_t __app_mutex;
 static LIST_HEAD(__jobs);
 static pthread_mutex_t __job_mutex;
 
+__thread struct unvme_msg *__msg;
+
 static inline struct unvme_job *unvme_add_job(int client_pid)
 {
 	struct unvme_job *job = calloc(1, sizeof(*job));
@@ -315,21 +317,33 @@ static void unvme_get_stdio(pid_t pid)
 	__unvme_get_stdio(pid, UNVME_STDERR, &__stderr);
 }
 
+void unvme_exit_job(int ret)
+{
+	if (!__msg)
+		return;
+
+	unvme_msg_to_client(__msg, unvme_msg_pid(__msg), ret);
+	unvme_send_msg(__msg);
+
+	unvme_del_job(unvme_msg_pid(__msg));
+
+	pthread_mutex_unlock(&__app_mutex);
+
+	free(__msg);
+}
+
 static void *unvme_handler(void *opaque)
 {
 	struct unvme_msg *msg = (struct unvme_msg *)opaque;
 	pid_t pid = unvme_msg_pid(msg);
 	int ret;
 
+	__msg = msg;
+
 	unvme_get_stdio(pid);
 	ret = __unvme_handler(msg);
 
-	unvme_msg_to_client(msg, unvme_msg_pid(msg), ret);
-	unvme_send_msg(msg);
-
-	unvme_del_job(pid);
-
-	free(msg);
+	unvme_exit_job(ret);
 	pthread_exit(NULL);
 }
 
