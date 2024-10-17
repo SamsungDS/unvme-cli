@@ -938,7 +938,7 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 
 #ifdef UNVME_FIO
 static inline void unvmed_log_null(const char *fmt, ...) {}
-extern int unvmed_run_fio(int argc, char *argv[], const char *libfio);
+extern int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd);
 int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 {
 	const char *desc =
@@ -969,6 +969,6 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_err_return(EINVAL, "failed to get fio shared object. "
 				"'unvme start --with-fio=<fio>' required.");
 
-	return unvmed_run_fio(argc - 1, &argv[1], libfio);
+	return unvmed_run_fio(argc - 1, &argv[1], libfio, unvme_msg_pwd(msg));
 }
 #endif

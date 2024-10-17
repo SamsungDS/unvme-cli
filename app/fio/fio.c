@@ -7,9 +7,11 @@
 static void *__handle __attribute__((__unused__));
 
 extern char **environ;
+
+extern char *unvme_get_filepath(char *pwd, const char *filename);
 extern void *fio_libunvmed(void);
 
-int unvmed_run_fio(int argc, char *argv[], const char *libfio)
+int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 {
 	int (*main)(int, char *[], char *[]);
 	void (*register_ioengine)(void *);
@@ -57,8 +59,13 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio)
 	 * successfully.
 	 */
 	__argv = malloc(sizeof(char *) * (argc + 2));
-	for (int i = 0; i < argc; i++)
-		__argv[i] = argv[i];
+	for (int i = 0; i < argc; i++) {
+		/* job file path */
+		if (argv[i][0] != '-')
+			__argv[i] = unvme_get_filepath((char *)pwd, argv[i]);
+		else
+			__argv[i] = argv[i];
+	}
 	__argv[argc] = "--eta=always";
 	__argv[argc + 1] = NULL;
 
