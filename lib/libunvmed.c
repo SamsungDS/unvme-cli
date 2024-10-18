@@ -221,15 +221,23 @@ static void __unvme_reset_ctrl(struct unvme *u)
  */
 void unvmed_reset_ctrl(struct unvme *u)
 {
+	struct nvme_sq *sq;
+	struct nvme_cq *cq;
 	uint32_t qid;
 
 	__unvme_reset_ctrl(u);
 
-	for (qid = 0; qid < u->nr_sqs; qid++)
-		nvme_discard_sq(&u->ctrl, unvmed_get_sq(u, qid));
+	for (qid = 0; qid < u->nr_sqs; qid++) {
+		sq = unvmed_get_sq(u, qid);
+		if (sq)
+			nvme_discard_sq(&u->ctrl, sq);
+	}
 
-	for (qid = 0; qid < u->nr_cqs; qid++)
-		nvme_discard_cq(&u->ctrl, unvmed_get_cq(u, qid));
+	for (qid = 0; qid < u->nr_cqs; qid++) {
+		cq = unvmed_get_cq(u, qid);
+		if (cq)
+			nvme_discard_cq(&u->ctrl, cq);
+	}
 
 	u->enabled = false;
 }
