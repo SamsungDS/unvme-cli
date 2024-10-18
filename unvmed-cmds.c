@@ -349,6 +349,9 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!qsize)
 		unvme_err_return(EINVAL, "-z|--qsize required");
 
+	if (unvmed_get_cq(u, qid))
+		unvme_err_return(EEXIST, "CQ (qid=%u) already exists", qid);
+
 	return unvmed_create_cq(u, qid, qsize, vector);
 }
 
@@ -376,7 +379,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_err_return(EINVAL, "-q|--qid required");
 
 	if (!unvmed_get_cq(u, qid))
-		unvme_pr_err("CQ (qid=%u) does not exist, but continuing..\n", qid);
+		unvme_err_return(ENODEV, "CQ (qid=%u) does not exist", qid);
 
 	return unvmed_delete_cq(u, qid);
 }
@@ -414,6 +417,9 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!cqid)
 		unvme_err_return(EINVAL, "-c|--cqid required");
 
+	if (unvmed_get_sq(u, qid))
+		unvme_err_return(EEXIST, "SQ (qid=%u) already exists", qid);
+
 	return unvmed_create_sq(u, qid, qsize, cqid);
 }
 
@@ -442,7 +448,7 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_err_return(EINVAL, "-q|--qid required");
 
 	if (!unvmed_get_sq(u, qid))
-		unvme_pr_err("SQ (qid=%u) does not exist, but continuing..\n", qid);
+		unvme_err_return(ENODEV, "SQ (qid=%u) does not exist", qid);
 
 	return unvmed_delete_sq(u, qid);
 }
