@@ -103,7 +103,8 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
 int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
 void unvmed_free_ctrl(struct unvme *u);
 void unvmed_free_ctrl_all(void);
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid, void *buf, size_t data_len);
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid);
+void __unvmed_cmd_free(struct unvme_cmd *cmd);
 void unvmed_cmd_free(struct unvme_cmd *cmd);
 void unvmed_reset_ctrl(struct unvme *u);
 int unvmed_create_adminq(struct unvme *u);
@@ -122,7 +123,7 @@ int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
 int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes, int min, int max);
 void unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq);
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid, struct nvme_cqe **cqes);
-int unvmed_map_prp(struct unvme_cmd *cmd);
+int __unvmed_map_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, uint64_t iova, size_t len);
 
 enum unvmed_cmd_flags {
 	/* No doorbell update after posting one or more commands */
