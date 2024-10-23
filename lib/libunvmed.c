@@ -889,6 +889,11 @@ void *unvmed_cmd_opaque(struct unvme_cmd *cmd)
 	return cmd->opaque;
 }
 
+void unvmed_cmd_set_opaque(struct unvme_cmd *cmd, void *opaque)
+{
+	cmd->opaque = opaque;
+}
+
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags)
 {

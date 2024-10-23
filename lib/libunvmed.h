@@ -116,6 +116,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid);
 int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len, uint64_t *iova, unsigned long flags);
 int unvmed_unmap_vaddr(struct unvme *u, void *buf);
 void *unvmed_cmd_opaque(struct unvme_cmd *cmd);
+void unvmed_cmd_set_opaque(struct unvme_cmd *cmd, void *opaque);
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe, unsigned long flags);
 struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd);
 struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe);

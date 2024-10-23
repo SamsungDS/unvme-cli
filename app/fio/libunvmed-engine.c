@@ -67,6 +67,7 @@ struct libunvmed_data {
 	 * Size of original buffer of `td->orig_buffer`.
 	 */
 	ssize_t orig_buffer_size;
+	uint64_t orig_buffer_iova;
 
 	/*
 	 * Target I/O submission queue instance per a thread.  A submission
@@ -109,6 +110,14 @@ static inline char *libunvmed_to_bdf(struct fio_file *f)
 	}
 
 	return f->file_name;
+}
+
+static inline uint64_t libunvmed_to_iova(struct thread_data *td, void *buf)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	uint64_t offset = (uint64_t)(buf - (void *)td->orig_buffer);
+
+	return ld->orig_buffer_iova + (uint64_t)offset;
 }
 
 static int libunvmed_check_constraints(struct thread_data *td)
@@ -232,7 +241,8 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		return ret;
 	}
 
-	ret = unvmed_map_vaddr(u, td->orig_buffer, ld->orig_buffer_size, NULL, 0);
+	ret = unvmed_map_vaddr(u, td->orig_buffer, ld->orig_buffer_size,
+			&ld->orig_buffer_iova, 0);
 	if (ret)
 		libunvmed_log("failed to map io_u buffers to iommu\n");
 
@@ -251,6 +261,10 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 		libunvmed_log("failed to grab mutex lock\n");
 		return ret;
 	}
+
+	ret = unvmed_unmap_vaddr(ld->u, td->orig_buffer);
+	if (ret)
+		libunvmed_log("failed to unmap io_u buffers from iommu\n");
 
 	free(ld->cqes);
 	free(ld);
@@ -295,54 +309,83 @@ static void fio_libunvmed_iomem_free(struct thread_data *td)
 	pthread_mutex_unlock(&g_serialize);
 }
 
-static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
+static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 					  struct io_u *io_u)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
-	struct unvme *u = ld->u;
+
 	struct unvme_ns *ns = ld->ns;
-	uint32_t sqid;
+	struct unvme_cmd *cmd;
+	struct nvme_cmd_rw sqe = {0, };
+
+	uint64_t iova;
 	uint64_t slba;
 	uint32_t nlb;
 
-	fio_ro_check(td, io_u);
+	int ret = FIO_Q_QUEUED;
 
 	if (unvmed_sq_try_enter(ld->usq))
 		return FIO_Q_BUSY;
 
-	sqid = unvmed_sq_id(ld->usq);
+	if (!ld->usq->enabled)
+		goto retry;
 
-	if (!ld->usq->enabled) {
-		unvmed_sq_exit(ld->usq);
-		return FIO_Q_BUSY;
-	}
-
-	if (ld->nr_queued == td->o.iodepth) {
-		unvmed_sq_exit(ld->usq);
-		return FIO_Q_BUSY;
-	}
+	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq));
+	if (!cmd)
+		goto retry;
 
 	slba = io_u->offset >> ilog2(ns->lba_size);
 	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
 
+	sqe.opcode = (io_u->ddir == DDIR_READ) ? nvme_cmd_read : nvme_cmd_write;
+	sqe.nsid = cpu_to_le32(ns->nsid);
+	sqe.slba = cpu_to_le64(slba);
+	sqe.nlb = cpu_to_le16(nlb);
+
+	/*
+	 * XXX: Making a decision whether PRP or SGL is to be used should be
+	 * done in the driver library in sometime later.
+	 */
+	iova = libunvmed_to_iova(td, io_u->xfer_buf);
+	if (__unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, iova,
+				io_u->xfer_buflen)) {
+		unvmed_cmd_free(cmd);
+		ret = -errno;
+		goto out;
+	}
+
+	unvmed_cmd_set_opaque(cmd, io_u);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
+out:
+	unvmed_sq_exit(ld->usq);
+	return ret;
+retry:
+	unvmed_sq_exit(ld->usq);
+	return FIO_Q_BUSY;
+}
+
+static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
+					  struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	int ret;
+
+	if (ld->nr_queued == td->o.iodepth)
+		return FIO_Q_BUSY;
+
+	fio_ro_check(td, io_u);
+
 	switch (io_u->ddir) {
 	case DDIR_READ:
-		unvmed_read(u, sqid, ns->nsid, slba, nlb, io_u->xfer_buf,
-				io_u->xfer_buflen, UNVMED_CMD_F_NODB, io_u);
-		break;
 	case DDIR_WRITE:
-		unvmed_write(u, sqid, ns->nsid, slba, nlb, io_u->xfer_buf,
-				io_u->xfer_buflen, UNVMED_CMD_F_NODB, io_u);
+		ret = fio_libunvmed_rw(td, io_u);
 		break;
 	default:
-		unvmed_sq_exit(ld->usq);
 		return -ENOTSUP;
 	}
 
 	ld->nr_queued++;
-
-	unvmed_sq_exit(ld->usq);
-	return FIO_Q_QUEUED;
+	return ret;
 }
 
 static int fio_libunvmed_commit(struct thread_data *td)
@@ -370,7 +413,7 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	else
 		io_u->error = le16_to_cpu(cqe->sfp) >> 1;
 
-	unvmed_cmd_free(cmd);
+	__unvmed_cmd_free(cmd);
 
 	ld->nr_queued--;
 	return io_u;
