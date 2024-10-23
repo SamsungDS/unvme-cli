@@ -979,7 +979,6 @@ static int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 		nr_cmds = u->nr_cmds;
 	} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - nr));
 
-	nvme_cq_update_head(ucq->q);
 	return nr;
 }
 
@@ -1000,12 +999,16 @@ int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 
 	ret = n;
 
-	if (ret >= max)
+	if (ret >= max) {
+		nvme_cq_update_head(ucq->q);
 		return ret;
+	}
 
 	n = __unvmed_cq_run_n(u, ucq, cqes + n, max, true);
 	if (n < 0)
 		return -1;
+	else if (n > 0)
+		nvme_cq_update_head(ucq->q);
 
 	return ret + n;
 }
