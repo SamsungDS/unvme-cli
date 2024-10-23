@@ -73,7 +73,8 @@ struct libunvmed_data {
 	 * queue is fully dedicated to a thread(job), which means totally
 	 * non-sharable.
 	 */
-	struct nvme_sq *sq;
+	struct unvme_sq *usq;
+	struct unvme_cq *ucq;
 
 	unsigned int nr_queued;
 	struct nvme_cqe *cqes;
@@ -217,11 +218,13 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 
 	ld->f = f;
 
-	ld->sq = unvmed_get_sq(u, o->sqid);
-	if (!ld->sq) {
+	ld->usq = unvmed_get_sq(u, o->sqid);
+	if (!ld->usq) {
 		libunvmed_log("submission queue (--sqid=%d) not found\n", o->sqid);
 		return -1;
 	}
+
+	ld->ucq = ld->usq->ucq;
 
 	ret = pthread_mutex_lock(&g_serialize);
 	if (ret) {
@@ -298,31 +301,47 @@ static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 	struct libunvmed_data *ld = td->io_ops_data;
 	struct unvme *u = ld->u;
 	struct unvme_ns *ns = ld->ns;
+	uint32_t sqid;
 	uint64_t slba;
 	uint32_t nlb;
 
 	fio_ro_check(td, io_u);
 
-	if (ld->nr_queued == td->o.iodepth)
+	if (unvmed_sq_try_enter(ld->usq))
 		return FIO_Q_BUSY;
+
+	sqid = unvmed_sq_id(ld->usq);
+
+	if (!ld->usq->enabled) {
+		unvmed_sq_exit(ld->usq);
+		return FIO_Q_BUSY;
+	}
+
+	if (ld->nr_queued == td->o.iodepth) {
+		unvmed_sq_exit(ld->usq);
+		return FIO_Q_BUSY;
+	}
 
 	slba = io_u->offset >> ilog2(ns->lba_size);
 	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
 
 	switch (io_u->ddir) {
 	case DDIR_READ:
-		unvmed_read(u, ld->sq->id, ns->nsid, slba, nlb, io_u->xfer_buf,
+		unvmed_read(u, sqid, ns->nsid, slba, nlb, io_u->xfer_buf,
 				io_u->xfer_buflen, UNVMED_CMD_F_NODB, io_u);
 		break;
 	case DDIR_WRITE:
-		unvmed_write(u, ld->sq->id, ns->nsid, slba, nlb, io_u->xfer_buf,
+		unvmed_write(u, sqid, ns->nsid, slba, nlb, io_u->xfer_buf,
 				io_u->xfer_buflen, UNVMED_CMD_F_NODB, io_u);
 		break;
 	default:
+		unvmed_sq_exit(ld->usq);
 		return -ENOTSUP;
 	}
 
 	ld->nr_queued++;
+
+	unvmed_sq_exit(ld->usq);
 	return FIO_Q_QUEUED;
 }
 
@@ -330,7 +349,7 @@ static int fio_libunvmed_commit(struct thread_data *td)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
 
-	unvmed_sq_update_tail(ld->u, ld->sq->id);
+	unvmed_sq_update_tail(ld->u, ld->usq);
 	return 0;
 }
 
@@ -341,6 +360,8 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	struct nvme_cqe *cqe = &ld->cqes[event];
 	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
 	struct io_u *io_u;
+
+	assert(cmd != NULL);
 
 	io_u = (struct io_u *)unvmed_cmd_opaque(cmd);
 
@@ -360,9 +381,10 @@ static int fio_libunvmed_getevents(struct thread_data *td, unsigned int min,
 {
 	struct libunvmed_data *ld = td->io_ops_data;
 	struct nvme_cqe *cqes = ld->cqes;
+	struct unvme_cq *ucq = ld->usq->ucq;
 	int ret;
 
-	ret = unvmed_cq_run_n(ld->u, ld->sq->cq->id, cqes, min, max);
+	ret = unvmed_cq_run_n(ld->u, ucq, cqes, min, max);
 	if (ret < 0)
 		return -errno;
 

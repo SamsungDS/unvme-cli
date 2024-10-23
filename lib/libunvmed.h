@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include <sys/time.h>
 
 /*
@@ -25,6 +26,54 @@ struct name {			\
 }
 
 unvme_declare_ns(unvme_ns);
+
+#define unvme_declare_sq(name)	\
+struct name {			\
+	struct nvme_sq *q;	\
+	struct unvme_cq *ucq;	\
+	struct unvme_cmd *cmds; \
+	pthread_spinlock_t lock;\
+	bool enabled;		\
+}
+
+#define unvme_declare_cq(name)	\
+struct name {			\
+	struct nvme_cq *q;	\
+	pthread_spinlock_t lock;\
+	bool enabled;		\
+}
+
+unvme_declare_cq(unvme_cq);
+unvme_declare_sq(unvme_sq);
+
+#define unvmed_cq_id(ucq)	((ucq)->q->id)
+#define unvmed_sq_id(usq)	((usq)->q->id)
+#define unvmed_sq_cqid(usq)	(unvmed_cq_id((usq)->ucq))
+
+static inline void unvmed_sq_enter(struct unvme_sq *usq)
+{
+	pthread_spin_lock(&usq->lock);
+}
+
+static inline int unvmed_sq_try_enter(struct unvme_sq *usq)
+{
+	return pthread_spin_trylock(&usq->lock);
+}
+
+static inline void unvmed_sq_exit(struct unvme_sq *usq)
+{
+	pthread_spin_unlock(&usq->lock);
+}
+
+static inline void unvmed_cq_enter(struct unvme_cq *ucq)
+{
+	pthread_spin_lock(&ucq->lock);
+}
+
+static inline void unvmed_cq_exit(struct unvme_cq *ucq)
+{
+	pthread_spin_unlock(&ucq->lock);
+}
 
 /*
  * NVMe spec-based data structures defined in `libvfn`
@@ -47,8 +96,8 @@ struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid);
 
 int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs);
 int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs);
-struct nvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid);
-struct nvme_cq *unvmed_get_cq(struct unvme *u, uint32_t qid);
+struct unvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid);
+struct unvme_cq *unvmed_get_cq(struct unvme *u, uint32_t qid);
 
 struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
 int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
@@ -69,9 +118,9 @@ void *unvmed_cmd_opaque(struct unvme_cmd *cmd);
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe, unsigned long flags);
 struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd);
 struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe);
-int unvmed_cq_run(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes);
-int unvmed_cq_run_n(struct unvme *u, uint32_t cqid, struct nvme_cqe *cqes, int min, int max);
-void unvmed_sq_update_tail(struct unvme *u, uint32_t sqid);
+int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
+int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes, int min, int max);
+void unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq);
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid, struct nvme_cqe **cqes);
 int unvmed_map_prp(struct unvme_cmd *cmd);
 
