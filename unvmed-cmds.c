@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <sys/msg.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 
 #include <ccan/opt/opt.h>
 #include <ccan/str/str.h>
@@ -90,8 +91,17 @@ static bool __is_nvme_device(const char *bdf)
 
 static int unvmed_pci_bind(const char *bdf)
 {
+	char *path = "/sys/module/vfio_pci";
 	const char *target = "vfio-pci";
 	unsigned long long vendor, device;
+	struct stat st;
+
+	if (stat(path, &st) || !S_ISDIR(st.st_mode)) {
+		unvme_pr_err("'%s' kernel module is not loaded.  "
+				"Try 'modprobe %s'.\n", target, target);
+		errno = ENOENT;
+		return -1;
+	}
 
 	if (pci_device_info_get_ull(bdf, "vendor", &vendor)) {
 		perror("pci_device_info_get_ull");
