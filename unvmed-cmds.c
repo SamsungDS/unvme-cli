@@ -483,7 +483,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
-	__unvme_free void *buf;
+	__unvme_free void *buf = NULL;
 	unsigned long flags = 0;
 	int ret;
 
