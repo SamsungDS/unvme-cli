@@ -227,8 +227,10 @@ retry:
 
 static void unvme_release(int signum)
 {
-	if (__libfio)
+	if (__libfio) {
 		free(__libfio);
+		__libfio = NULL;
+	}
 
 	unvme_msgq_delete(UNVME_MSGQ);
 
@@ -330,6 +332,7 @@ void unvme_exit_job(int ret)
 	pthread_mutex_unlock(&__app_mutex);
 
 	free(__msg);
+	__msg = NULL;
 }
 
 static void *unvme_handler(void *opaque)
