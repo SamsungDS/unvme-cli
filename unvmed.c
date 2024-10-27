@@ -128,10 +128,16 @@ static int unvme_msgq_create(const char *keyfile)
 	key_t key;
 	int fd;
 
-	fd = open(keyfile, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-	if (fd < 0)
+retry:
+	fd = open(keyfile, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
+	if (fd < 0) {
+		if (errno == EEXIST) {
+			if (!remove(keyfile))
+				goto retry;
+		}
 		unvme_pr_return(-1, "failed to create msgq keyfile %s\n",
 				keyfile);
+	}
 	close(fd);
 
 	key = ftok(keyfile, 0x0);
