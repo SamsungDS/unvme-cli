@@ -34,8 +34,10 @@ extern __thread struct unvme_msg *__msg;
  */
 void exit(int status)
 {
-	unvmed_log_err("job (pid=%d) has been terminated (err=%d)",
-			unvme_msg_pid(__msg), status);
+	if (__msg) {
+		unvmed_log_err("job (pid=%d) has been terminated (err=%d)",
+				unvme_msg_pid(__msg), status);
+	}
 
 	unvme_exit_job(status);
 	pthread_exit(NULL);
