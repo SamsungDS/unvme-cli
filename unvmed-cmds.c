@@ -11,7 +11,6 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 
-#include <ccan/opt/opt.h>
 #include <ccan/str/str.h>
 #include <nvme/types.h>
 #include <vfn/pci.h>
@@ -20,6 +19,8 @@
 #include "libunvmed.h"
 #include "unvme.h"
 #include "unvmed.h"
+
+#include "argtable3/argtable3.h"
 
 #define unvme_err_return(err, fmt, ...)					\
 	do {								\
@@ -150,18 +151,20 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 	struct dirent *entry;
 	char *bdf;
 	DIR *dfd;
-	bool help = false;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Print NVMe PCI device(s) in the current system as PCI BDF\n"
 		"(Bus-Device-Function) format. It requires unvmed to figure\n"
 		"out whether each device is attached to unvmed service or not.";
 
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	dfd = opendir("/sys/bus/pci/devices");
 	if (!dfd)
@@ -189,34 +192,40 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	bool help = false;
-	uint32_t nr_ioqs = 1;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *nrioqs;
+	struct arg_lit *help;
+	struct arg_end *end;
 
 	const char *desc =
 		"Register a given target <device> to unvmed service by binding\n"
 		"it to 'vfio-pci' kernel driver to support user-space I/O.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--nr-ioqs", opt_set_uintval, opt_show_uintval, &nr_ioqs,
-				"[O] Maxinum number of I/O queues to create (defaults to 1)"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		nrioqs = arg_int0("q", "nr-ioqs", "<n>", "[O] Maximum number of "
+			"I/O queues to create (defaults to 1)"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	/* Set default argument values prior to parsing */
+	arg_intv(nrioqs) = 1;
 
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
 	if (u)
-		unvme_err_return(EPERM, "Do 'unvme del %s' first", bdf);
+		unvme_err_return(EPERM, "Do 'unvme del %s' first", arg_strv(dev));
 
-	if (nr_ioqs < 1)
+	if (arg_intv(nrioqs) < 1)
 		unvme_err_return(EINVAL, "'--nr-ioqs=' should be greater than 0");
 
-	if (unvmed_pci_bind(bdf))
+	if (unvmed_pci_bind(arg_strv(dev)))
 		unvme_err_return(errno, "failed to bind PCI device");
 
-	if (!unvmed_init_ctrl(bdf, nr_ioqs))
+	if (!unvmed_init_ctrl(arg_strv(dev), arg_intv(nrioqs)))
 		unvme_err_return(errno, "failed to initialize unvme");
 
 	return 0;
@@ -224,49 +233,56 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_lit *help;
+	struct arg_end *end;
 
 	const char *desc =
 		"Delete a given target <device> from unvmed service by unbinding\n"
 		"it from 'vfio-pci' kernel driver";
 
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", bdf);
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
 	unvmed_free_ctrl(u);
 
-	if (unvmed_pci_unbind(bdf))
-		unvme_err_return(errno, "failed to unbind %s\n", bdf);
+	if (unvmed_pci_unbind(arg_strv(dev)))
+		unvme_err_return(errno, "failed to unbind %s\n", arg_strv(dev));
 
 	return 0;
 }
 
 int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Show NVMe controller properties (registers in MMIO space).";
 
-	bool help = false;
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", bdf);
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
 	unvme_pr_show_regs(u);
 	return 0;
@@ -274,23 +290,26 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_lit *help;
+	struct arg_end *end;
 
 	const char *desc =
 		"Show status of a given target <device> in unvmed.\n"
 		"The status includes CC, CSTS and Submission/Completion Queue.";
 
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", bdf);
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
 	unvme_pr_status(u);
 
@@ -299,45 +318,58 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *iosqes;
+	struct arg_int *iocqes;
+	struct arg_int *mps;
+	struct arg_int *css;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Enable NVMe controller along with setting up admin queues.\n"
 		"It will wait for CSTS.RDY to be 1 after setting CC.EN to 1.";
 
-	uint32_t iosqes = 6;
-	uint32_t iocqes = 4;
-	uint32_t mps = 0;
-	uint32_t css = 0;
-
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-s|--iosqes", opt_set_uintval, opt_show_uintval, &iosqes, "[O] I/O Submission Queue entry Size (2^n) (default: 6)"),
-		OPT_WITH_ARG("-c|--iocqes", opt_set_uintval, opt_show_uintval, &iocqes, "[O] I/O Completion Queue entry Size (2^n) (default: 4)"),
-		OPT_WITH_ARG("-m|--mps", opt_set_uintval, opt_show_uintval, &mps, "[O] Memory Page Size (2^(12+n)) (default: 0)"),
-		OPT_WITH_ARG("-i|--css", opt_set_uintval, opt_show_uintval, &css, "[O] I/O Command Set Selected (default: 0)"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		iosqes = arg_int0("s", "iosqes", "<n>", "[O] I/O Sumission Queue Entry Size (2^n) (default: 6)"),
+		iocqes = arg_int0("c", "iocqes", "<n>", "[O] I/O Completion Queue Entry Size (2^n) (default: 4)"),
+		mps = arg_int0("m", "mps", "<n>", "[O] Memory Page Size (2^(12+n)) (default: 0)"),
+		css = arg_int0("i", "css", "<n>", "[O] I/O Command Set Selected  (default: 0)"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	/* Set default argument values prior to parsing */
+	arg_intv(iosqes) = 6;
+	arg_intv(iocqes) = 4;
+	arg_intv(mps) = 0;
+	arg_intv(css) = 0;
 
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
-	if (iosqes > 0xf)
+	if (arg_intv(iosqes) > 0xf)
 		unvme_err_return(EINVAL, "invalid -s|--iosqes");
-	if (iocqes > 0xf)
+
+	if (arg_intv(iocqes) > 0xf)
 		unvme_err_return(EINVAL, "invalid -c|--iocqes");
-	if (mps > 0xf)
+
+	if (arg_intv(mps) > 0xf)
 		unvme_err_return(EINVAL, "invalid -m|--mps");
-	if (css > 0x7)
+
+	if (arg_intv(css) > 0x7)
 		unvme_err_return(EINVAL, "invalid -i|--css");
 
 	if (unvmed_create_adminq(u))
 		unvme_err_return(errno, "failed to create adminq");
 
-	if (unvmed_enable_ctrl(u, iosqes, iocqes, mps, css))
+	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes), arg_intv(mps),
+			arg_intv(css)))
 		unvme_err_return(errno, "failed to enable controller");
 
 	return 0;
@@ -345,158 +377,163 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	uint32_t qid = 0;
-	uint32_t qsize = 0;
-	uint32_t vector = 0;
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *qid;
+	struct arg_int *qsize;
+	struct arg_int *vector;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Submit a Create I/O Completion Queue admin command to the target\n"
 		"<device>. DMA address of the queue will be allocated and configured\n"
 		"by libvfn.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--qid", opt_set_uintval, opt_show_uintval, &qid, "[M] Completion Queue ID to create"),
-		OPT_WITH_ARG("-z|--qsize", opt_set_uintval, opt_show_uintval, &qsize, "[M] Queue size (1-based)"),
-		OPT_WITH_ARG("-v|--vector", opt_set_uintval, opt_show_uintval, &vector, "[O] Interrupt vector (defaults to 0)"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		qid = arg_int1("q", "qid", "<n>", "[M] Completion Queue ID to create"),
+		qsize = arg_int1("z", "qsize", "<n>", "[M] Queue size (1-based)"),
+		vector = arg_int0("v", "vector", "<n>", "[O] Interrupt vector (defaults to 0)"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	/* Set default argument values prior to parsing */
+	arg_intv(vector) = -1;
 
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
-	if (!qid)
-		unvme_err_return(EINVAL, "-q|--qid required");
-	if (!qsize)
-		unvme_err_return(EINVAL, "-z|--qsize required");
+	if (arg_intv(vector) < 0)
+		arg_intv(vector) = -1;
 
-	if (unvmed_get_cq(u, qid))
-		unvme_err_return(EEXIST, "CQ (qid=%u) already exists", qid);
+	if (unvmed_get_cq(u, arg_intv(qid)))
+		unvme_err_return(EEXIST, "CQ (qid=%u) already exists", arg_intv(qid));
 
-	return unvmed_create_cq(u, qid, qsize, vector);
+	return unvmed_create_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector));
 }
 
 int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	uint32_t qid = 0;
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *qid;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Submit a Delete I/O Completion Queue admin command to the target <device>.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--qid", opt_set_uintval, opt_show_uintval, &qid, "[M] Completion Queue ID to delete"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		qid = arg_int1("q", "qid", "<n>", "[M] Completion Queue ID to delete"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
-	if (!qid)
-		unvme_err_return(EINVAL, "-q|--qid required");
+	if (!unvmed_get_cq(u, arg_intv(qid)))
+		unvme_err_return(ENODEV, "CQ (qid=%u) does not exist", arg_intv(qid));
 
-	if (!unvmed_get_cq(u, qid))
-		unvme_err_return(ENODEV, "CQ (qid=%u) does not exist", qid);
-
-	return unvmed_delete_cq(u, qid);
+	return unvmed_delete_cq(u, arg_intv(qid));
 }
 
 int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	uint32_t qid = 0;
-	uint32_t qsize = 0;
-	uint32_t cqid = 0;
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *qid;
+	struct arg_int *qsize;
+	struct arg_int *cqid;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Submit a Create I/O Submission Queue admin command to the target\n"
 		"<device>. DMA address of the queue will be allocated and configured\n"
 		"by libvfn.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--qid", opt_set_uintval, opt_show_uintval, &qid, "[M] Submission Queue ID to create"),
-		OPT_WITH_ARG("-z|--qsize", opt_set_uintval, opt_show_uintval, &qsize, "[M] Queue size (1-based)"),
-		OPT_WITH_ARG("-c|--cqid", opt_set_uintval, opt_show_uintval, &cqid, "[M] Completion Queue ID"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		qid = arg_int1("q", "qid", "<n>", "[M] Submission Queue ID to create"),
+		qsize = arg_int1("z", "qsize", "<n>", "[M] Queue size (1-based)"),
+		cqid = arg_int1("c", "cqid", "<n>", "[M] Completion Queue ID"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
-	if (!qid)
-		unvme_err_return(EINVAL, "-q|--qid required");
-	if (!qsize)
-		unvme_err_return(EINVAL, "-z|--qsize required");
-	if (!cqid)
-		unvme_err_return(EINVAL, "-c|--cqid required");
+	if (unvmed_get_sq(u, arg_intv(qid)))
+		unvme_err_return(EEXIST, "SQ (qid=%u) already exists", arg_intv(qid));
 
-	if (unvmed_get_sq(u, qid))
-		unvme_err_return(EEXIST, "SQ (qid=%u) already exists", qid);
-
-	return unvmed_create_sq(u, qid, qsize, cqid);
+	return unvmed_create_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid));
 }
 
 int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	uint32_t qid = 0;
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *qid;
+	struct arg_lit *help;
+	struct arg_end *end;
 	const char *desc =
 		"Submit a Delete I/O Submission Queue admin command\n"
 		"to the target <device>.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--qid", opt_set_uintval, opt_show_uintval, &qid, "[M] Submission Queue ID to delete"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		qid = arg_int1("q", "qid", "<n>", "[M] Submission Queue ID to delete"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
-	if (!qid)
-		unvme_err_return(EINVAL, "-q|--qid required");
+	if (!unvmed_get_sq(u, arg_intv(qid)))
+		unvme_err_return(ENODEV, "SQ (qid=%u) does not exist", arg_intv(qid));
 
-	if (!unvmed_get_sq(u, qid))
-		unvme_err_return(ENODEV, "SQ (qid=%u) does not exist", qid);
-
-	return unvmed_delete_sq(u, qid);
+	return unvmed_delete_sq(u, arg_intv(qid));
 }
 
 int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	uint32_t nsid = 0;
-	char *format= "normal";
-	bool nodb = false;
-	bool init = false;
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *nsid;
+	struct arg_str *format;
+	struct arg_lit *nodb;
+	struct arg_lit *init;
+	struct arg_lit *help;
+	struct arg_end *end;
 	const char *desc =
 		"Submit an Identify Namespace admin command to the target <device>.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[M] Namespace ID"),
-		OPT_WITH_ARG("-o|--output-format", opt_set_charp, opt_show_charp, &format, "[O] Output format: [normal|binary], defaults to normal"),
-		OPT_WITHOUT_ARG("-N|--nodb", opt_set_bool, &nodb, "[O] Don't update tail doorbell of the submission queue"),
-		OPT_WITHOUT_ARG("--init", opt_set_bool, &init, "[O] Initialize namespace instance and keep it in unvmed driver"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		nsid = arg_int1("n", "nsid", "<n>", "[M] Namespace ID"),
+		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
+		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
+		init = arg_lit0(NULL, "init", "[O] Initialize namespace instance and keep it in unvmed driver"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
@@ -504,14 +541,16 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	unsigned long flags = 0;
 	int ret;
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	/* Set default argument values prior to parsing */
+	arg_strv(format) = "normal";
 
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
 		unvme_err_return(EPERM, "Do 'unvme add %s' first",
-				unvme_msg_bdf(msg));
+				arg_strv(dev));
 
-	if (!nsid)
-		unvme_err_return(EINVAL, "-n|--namespace-id required");
 	if (!unvmed_get_sq(u, 0))
 		unvme_err_return(EPERM, "'enable' must be executed first");
 
@@ -519,14 +558,14 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
-	if (nodb)
+	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 
-	ret = unvmed_id_ns(u, nsid, buf, flags);
-	if (!ret && !nodb) {
-		__unvme_cmd_pr(format, buf, size, unvme_pr_id_ns);
-		if (init)
-			unvmed_init_ns(u, nsid, buf);
+	ret = unvmed_id_ns(u, arg_intv(nsid), buf, flags);
+	if (!ret && !arg_boolv(nodb)) {
+		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ns);
+		if (arg_boolv(init))
+			unvmed_init_ns(u, arg_intv(nsid), buf);
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
@@ -535,30 +574,33 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	uint32_t nsid = 0;
-	char *format = "normal";
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *nsid;
+	struct arg_str *format;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Submit an Identify Active Namespace List admin command to the target <device>.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[M] Namespace ID"),
-		OPT_WITH_ARG("-o|--output-format", opt_set_charp, opt_show_charp, &format, "[O] Output format: [normal|binary], defaults to normal"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		nsid = arg_int1("n", "nsid", "<n>", "[M] Namespace ID"),
+		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	void *buf;
 	int ret;
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first",
-				unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
 	if (!unvmed_get_sq(u, 0))
 		unvme_err_return(EPERM, "'enable' must be executed first");
@@ -567,9 +609,9 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
-	ret = unvmed_id_active_nslist(u, nsid, buf);
+	ret = unvmed_id_active_nslist(u, arg_intv(nsid), buf);
 	if (!ret)
-		__unvme_cmd_pr(format, buf, size, unvme_pr_id_active_nslist);
+		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_active_nslist);
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
@@ -578,32 +620,35 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	uint32_t sqid = 0;
-	uint32_t nsid = 0;
-	uint64_t slba = 0;
-	uint32_t nlb = 0;
-	uint32_t data_size= 0;
-	char *data = NULL;
-	bool nodb = false;
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *sqid;
+	struct arg_int *nsid;
+	struct arg_dbl *slba;
+	struct arg_int *nlb;
+	struct arg_int *data_size;
+	struct arg_file *data;
+	struct arg_lit *nodb;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Submit a Read I/O command to the given submission queue of the\n"
 		"target <device>. To run this command, I/O queue MUST be created.\n"
 		"Read data from the namespace can be printed to stdout or a file\n"
 		"configured by -d|--data.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--sqid", opt_set_uintval, opt_show_uintval, &sqid, "[M] Submission queue ID"),
-		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[M] Namespace ID"),
-		OPT_WITH_ARG("-s|--start-block", opt_set_ulongval, opt_show_ulongval, &slba, "[M] Start LBA"),
-		OPT_WITH_ARG("-c|--block-count", opt_set_uintval, opt_show_uintval, &nlb, "[M] Number of logical block (0-based)"),
-		OPT_WITH_ARG("-z|--data-size", opt_set_uintval_bi, opt_show_uintval_bi, &data_size, "[M] Read data buffer size in bytes"),
-		OPT_WITH_ARG("-d|--data", opt_set_charp, opt_show_charp, &data, "[O] File to write read data"),
-		OPT_WITHOUT_ARG("-N|--nodb", opt_set_bool, &nodb, "[O] Don't update tail doorbell of the submission queue"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+                sqid = arg_int1("q", "sqid", "<n>", "[M] Submission queue ID"),
+                nsid = arg_int1("n", "namespace-id", "<n>", "[M] Namespace ID"),
+                slba = arg_dbl1("s", "start-block", "<n>", "[M] Start LBA"),
+		nlb = arg_int1("c", "block-count", "<n>", "[M] Number of logical block (0-based)"),
+		data_size = arg_int1("z", "data-size", "<n>", "[M] Read data buffer size in bytes"),
+		data = arg_file0("d", "data", "<output>", "[O] File to write read data"),
+		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
 	__unvme_free char *filepath = NULL;
@@ -611,34 +656,32 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	unsigned long flags = 0;
 	int ret;
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
-	if (!sqid)
-		unvme_err_return(EINVAL, "-q|--sqid required");
-	if (!nsid)
-		unvme_err_return(EINVAL, "-n|--namespace-id required");
-	if (!unvmed_get_sq(u, sqid))
+	if (!unvmed_get_sq(u, arg_intv(sqid)))
 		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
 
-	buf = aligned_alloc(getpagesize(), data_size);
+	buf = aligned_alloc(getpagesize(), arg_intv(data_size));
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
-	if (nodb)
+	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 
-	if (data)
-		filepath = unvme_get_filepath(unvme_msg_pwd(msg), data);
+	if (arg_boolv(data))
+		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 
-	ret = unvmed_read(u, sqid, nsid, slba, nlb, buf, data_size, flags, NULL);
-	if (!ret && !nodb) {
+	ret = unvmed_read(u, arg_intv(sqid), arg_intv(nsid), arg_dblv(slba),
+			arg_intv(nlb), buf, arg_intv(data_size), flags, NULL);
+	if (!ret && !arg_boolv(nodb)) {
 		if (!filepath)
-			unvme_cmd_pr_raw(buf, data_size);
+			unvme_cmd_pr_raw(buf, arg_intv(data_size));
 		else
-			unvme_write_file(filepath, buf, data_size);
+			unvme_write_file(filepath, buf, arg_intv(data_size));
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
@@ -647,31 +690,34 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	uint32_t sqid = 0;
-	uint32_t nsid = 0;
-	uint64_t slba = 0;
-	uint32_t nlb = 0;
-	uint32_t data_size = 0;
-	char *data = NULL;
-	bool nodb = false;
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *sqid;
+	struct arg_int *nsid;
+	struct arg_dbl *slba;
+	struct arg_int *nlb;
+	struct arg_int *data_size;
+	struct arg_file *data;
+	struct arg_lit *nodb;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Submit a Write command to the given submission queue of the\n"
 		"target <device>. To run this command, I/O queue MUST be created.\n"
 		"WRite data file can be given as -d|--data with a file path.";
 
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--sqid", opt_set_uintval, opt_show_uintval, &sqid, "[M] Submission queue ID"),
-		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[M] Namespace ID"),
-		OPT_WITH_ARG("-s|--start-block", opt_set_ulongval, opt_show_ulongval, &slba, "[M] Start LBA"),
-		OPT_WITH_ARG("-c|--block-count", opt_set_uintval, opt_show_uintval, &nlb, "[M] Number of logical block (1-based)"),
-		OPT_WITH_ARG("-z|--data-size", opt_set_uintval_bi, opt_show_uintval_bi, &data_size, "[O] Logical block size in bytes"),
-		OPT_WITH_ARG("-d|--data", opt_set_charp, opt_show_charp, &data, "[M] File to write as write data"),
-		OPT_WITHOUT_ARG("-N|--nodb", opt_set_bool, &nodb, "[O] Don't update tail doorbell of the submission queue"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+                sqid = arg_int1("q", "sqid", "<n>", "[M] Submission queue ID"),
+                nsid = arg_int1("n", "namespace-id", "<n>", "[M] Namespace ID"),
+                slba = arg_dbl1("s", "start-block", "<n>", "[M] Start LBA"),
+		nlb = arg_int1("c", "block-count", "<n>", "[M] Number of logical block (0-based)"),
+		data_size = arg_int1("z", "data-size", "<n>", "[O] Logical block size in bytes"),
+		data = arg_file1("d", "data", "<input>", "[M] File to write as write data"),
+		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
 	__unvme_free char *filepath = NULL;
@@ -679,34 +725,30 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	unsigned long flags = 0;
 	int ret;
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
-	if (!sqid)
-		unvme_err_return(EINVAL, "-q|--sqid required");
-	if (!nsid)
-		unvme_err_return(EINVAL, "-n|--namespace-id required");
-	if (!data)
-		unvme_err_return(EINVAL, "-d|--data required");
-	if (!unvmed_get_sq(u, sqid))
+	if (!unvmed_get_sq(u, arg_intv(sqid)))
 		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
 
-	buf = aligned_alloc(getpagesize(), data_size);
+	buf = aligned_alloc(getpagesize(), arg_intv(data_size));
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
-	if (nodb)
+	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 
-	if (data)
-		filepath = unvme_get_filepath(unvme_msg_pwd(msg), data);
+	if (arg_boolv(data))
+		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 
-	if (unvme_read_file(filepath, buf, data_size))
+	if (unvme_read_file(filepath, buf, arg_intv(data_size)))
 		unvme_err_return(ENOENT, "failed to read data from file %s", filepath);
 
-	ret = unvmed_write(u, sqid, nsid, slba, nlb, buf, data_size, flags, NULL);
+	ret = unvmed_write(u, arg_intv(sqid), arg_intv(nsid), arg_dblv(slba),
+			arg_intv(nlb), buf, arg_intv(data_size), flags, NULL);
 	if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
@@ -715,9 +757,34 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *sqid;
+	struct arg_int *nsid;
+	struct arg_int *opcode;
+	struct arg_int *flags;
+	struct arg_int *rsvd;
+	struct arg_int *data_len;
+	struct arg_int *cdw2;
+	struct arg_int *cdw3;
+	/* To figure out whether --prp1=, --prp2= are given or not */
+	struct arg_str *prp1;
+	struct arg_str *prp2;
+	struct arg_int *cdw10;
+	struct arg_int *cdw11;
+	struct arg_int *cdw12;
+	struct arg_int *cdw13;
+	struct arg_int *cdw14;
+	struct arg_int *cdw15;
+	struct arg_file *input;
+	struct arg_lit *show_cmd;
+	struct arg_lit *dry_run;
+	struct arg_lit *read;
+	struct arg_lit *write;
+	struct arg_lit *nodb;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Submit a passthru command to the given submission queue of the\n"
 		"target <device>. To run this command, queue MUST be created.\n"
@@ -726,142 +793,127 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		"User can inject specific values to PRP1 and PRP2 in DPTR with --prp1, --prp2\n"
 		"options, but it might cause system crash without protection by IOMMU.";
 
-	uint32_t sqid = 0;
-	uint32_t nsid = 0;
-	int opcode = -1;
-	uint32_t flags = 0;
-	uint32_t rsvd = 0;
-	uint32_t data_len = 0;
-	uint32_t cdw2 = 0;
-	uint32_t cdw3 = 0;
-	/* To figure out whether --prp1=, --prp2= are given or not */
-	char *prp1 = NULL;
-	char *prp2 = NULL;
-	uint32_t cdw10 = 0;
-	uint32_t cdw11 = 0;
-	uint32_t cdw12 = 0;
-	uint32_t cdw13 = 0;
-	uint32_t cdw14 = 0;
-	uint32_t cdw15 = 0;
-	char *input = NULL;
-	bool show_cmd = false;
-	bool dry_run = false;
-	bool read = false;
-	bool write = false;
-	bool nodb = false;
-
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--sqid", opt_set_uintval, opt_show_uintval, &sqid, "[O] Submission queue ID, defaults to 0"),
-		OPT_WITH_ARG("-o|--opcode", opt_set_intval, opt_show_intval, &opcode, "[M] Operation code"),
-		OPT_WITH_ARG("-f|--flags", opt_set_uintval, opt_show_uintval, &flags, "[O] Command flags in CDW0[15:8]"),
-		OPT_WITH_ARG("-R|--rsvd", opt_set_uintval, opt_show_uintval, &rsvd, "[O] Reserved field"),
-		OPT_WITH_ARG("-n|--namespace-id", opt_set_uintval, opt_show_uintval, &nsid, "[O] Namespace ID, Mandatory if --sqid > 0"),
-		OPT_WITH_ARG("-l|--data-len", opt_set_uintval_bi, opt_show_uintval_bi, &data_len, "[O] Data length in bytes"),
-		OPT_WITH_ARG("-2|--cdw2", opt_set_uintval, opt_show_uintval, &cdw2, "[O] Command dword 2"),
-		OPT_WITH_ARG("-3|--cdw3", opt_set_uintval, opt_show_uintval, &cdw3, "[O] Command dword 3"),
-		OPT_WITH_ARG("--prp1", opt_set_charp, opt_show_charp, &prp1, "[O] PRP1 in DPTR (for injection)"),
-		OPT_WITH_ARG("--prp2", opt_set_charp, opt_show_charp, &prp2, "[O] PRP2 in DPTR (for injection)"),
-		OPT_WITH_ARG("-4|--cdw10", opt_set_uintval, opt_show_uintval, &cdw10, "[O] Command dword 10"),
-		OPT_WITH_ARG("-5|--cdw11", opt_set_uintval, opt_show_uintval, &cdw11, "[O] Command dword 11"),
-		OPT_WITH_ARG("-6|--cdw12", opt_set_uintval, opt_show_uintval, &cdw12, "[O] Command dword 12"),
-		OPT_WITH_ARG("-7|--cdw13", opt_set_uintval, opt_show_uintval, &cdw13, "[O] Command dword 13"),
-		OPT_WITH_ARG("-8|--cdw14", opt_set_uintval, opt_show_uintval, &cdw14, "[O] Command dword 14"),
-		OPT_WITH_ARG("-9|--cdw15", opt_set_uintval, opt_show_uintval, &cdw15, "[O] Command dword 15"),
-		OPT_WITH_ARG("-i|--input-file", opt_set_charp, opt_show_charp, &input, "[M] File to write (in write direction)"),
-		OPT_WITHOUT_ARG("-s|--show-command", opt_set_bool, &show_cmd, "[O] Show command before sending"),
-		OPT_WITHOUT_ARG("-d|--dry-run", opt_set_bool, &dry_run, "[O] Show command instead of sending"),
-		OPT_WITHOUT_ARG("-r|--read", opt_set_bool, &read, "[O] Set read data direction "),
-		OPT_WITHOUT_ARG("-w|--write", opt_set_bool, &write, "[O] Set write data direction "),
-		OPT_WITHOUT_ARG("-N|--nodb", opt_set_bool, &nodb, "[O] Don't update tail doorbell of the submission queue"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+                sqid = arg_int0("q", "sqid", "<n>", "[O] Submission queue ID"),
+                nsid = arg_int0("n", "namespace-id", "<n>", "[O] Namespace ID, Mandatory if --sqid > 0"),
+		opcode = arg_int1("o", "opcode", "<int>", "[M] Operation code"),
+		flags = arg_int0("f", "flags", "<n>", "[O] Command flags in CDW0[15:8]"),
+		rsvd = arg_int0("R", "rsvd", "<n>", "[O] Reserved field"),
+		data_len = arg_int0("l", "data-len", "<n>", "[O] Data length in bytes"),
+		cdw2 = arg_int0("2", "cdw2", "<n>", "[O] Command dword 2"),
+		cdw3 = arg_int0("3", "cdw3", "<n>", "[O] Command dword 3"),
+		prp1 = arg_str0(NULL, "prp1", "<ptr>", "[O] PRP1 in DPTR (for injection)"),
+		prp2 = arg_str0(NULL, "prp2", "<ptr>", "[O] PRP2 in DPTR (for injection)"),
+		cdw10 = arg_int0("4", "cdw10", "<n>", "[O] Command dword 10"),
+		cdw11 = arg_int0("5", "cdw11", "<n>", "[O] Command dword 11"),
+		cdw12 = arg_int0("6", "cdw12", "<n>", "[O] Command dword 12"),
+		cdw13 = arg_int0("7", "cdw13", "<n>", "[O] Command dword 13"),
+		cdw14 = arg_int0("8", "cdw14", "<n>", "[O] Command dword 14"),
+		cdw15 = arg_int0("9", "cdw15", "<n>", "[O] Command dword 15"),
+		input = arg_file0("i", "input-file", "<input>", "[M] File to write (in write direction)"),
+		show_cmd = arg_lit0("s", "show-command", "[O] Show command before sending"),
+		dry_run = arg_lit0("d", "dry-run", "[O] Show command instead of sending"),
+		read = arg_lit0("r", "read", "[O] Set read data direction"),
+		write = arg_lit0("w", "write", "[O] Set write data direction"),
+		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
 	__unvme_free char *filepath = NULL;
 	void *buf;
 	unsigned long cmd_flags = 0;
+	bool _write = false;
+	bool _read = false;
 	union nvme_cmd sqe = {0, };
 	int ret;
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	/* Set default argument values prior to parsing */
+	arg_intv(opcode) = -1;
 
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "do 'unvme add %s' first", unvme_msg_bdf(msg));
-	if (opcode < 0)
-		unvme_err_return(EINVAL, "-o|--opcode must be specified");
-	if (sqid && !nsid)
-		unvme_err_return(EINVAL, "-n|--namespace-id must be specified when io-passthru command (sqid=%d)", sqid);
-	if (read && write)
+		unvme_err_return(EPERM, "do 'unvme add %s' first", arg_strv(dev));
+	if (arg_boolv(sqid) && !arg_boolv(nsid))
+		unvme_err_return(EINVAL, "-n|--namespace-id must be specified when io-passthru command (sqid=%d)", arg_intv(sqid));
+	if (arg_boolv(read) && arg_boolv(write))
 		unvme_err_return(EINVAL, "-r and -w option cannot be set at the same time");
-	if (!unvmed_get_sq(u, sqid))
-		unvme_err_return(ENOENT, "Submission queue not exists (sqid=%d)", sqid);
+	if (!unvmed_get_sq(u, arg_intv(sqid)))
+		unvme_err_return(ENOENT, "Submission queue not exists (sqid=%d)", arg_intv(sqid));
+
+	_write = arg_boolv(write);
+	_read = arg_boolv(read);
 
 	/*
 	 * If both -r and -w are not given, decide the data direction by the
 	 * opcode.
 	 */
-	if (!read && !write) {
-		switch (opcode & 0x3) {
+	if (!_read && !_write) {
+		switch (arg_intv(opcode) & 0x3) {
 		case 0x1:
-			write = true;
+			_write = true;
 			break;
 		case 0x2:
-			read = true;
+			_read = true;
 			break;
 		default:
 			break;
 		}
 	}
 
-	if (write && !input)
+	if (_write && !arg_filev(input))
 		unvme_err_return(EINVAL, "-i|--input-file must be specified");
 
-	buf = aligned_alloc(getpagesize(), data_len);
+	buf = aligned_alloc(getpagesize(), arg_intv(data_len));
 	if (!buf)
 		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
 
-	if (write) {
-		filepath = unvme_get_filepath(unvme_msg_pwd(msg), input);
-		if (unvme_read_file(filepath, buf, data_len))
+	if (_write) {
+		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(input));
+		if (unvme_read_file(filepath, buf, arg_intv(data_len)))
 			unvme_err_return(ENOENT, "failed to read data from file %s", filepath);
 	}
 
-	sqe.opcode = (uint8_t)opcode;
-	sqe.flags = (uint8_t)flags;
-	sqe.nsid = cpu_to_le32(nsid);
-	sqe.cdw2 = cpu_to_le32(cdw2);
-	sqe.cdw3 = cpu_to_le32(cdw3);
+	sqe.opcode = (uint8_t)arg_intv(opcode);
+	sqe.flags = (uint8_t)arg_intv(flags);
+	sqe.nsid = cpu_to_le32(arg_intv(nsid));
+	sqe.cdw2 = cpu_to_le32(arg_intv(cdw2));
+	sqe.cdw3 = cpu_to_le32(arg_intv(cdw3));
 
 	/*
 	 * Override prp1 and prp2 if they are given to inject specific values
 	 */
 	if (prp1)
-		sqe.dptr.prp1 = strtoull(prp1, NULL, 0);
+		sqe.dptr.prp1 = strtoull(arg_strv(prp1), NULL, 0);
 	if (prp2)
-		sqe.dptr.prp2 = strtoull(prp2, NULL, 0);
+		sqe.dptr.prp2 = strtoull(arg_strv(prp2), NULL, 0);
 
-	sqe.cdw10 = cpu_to_le32(cdw10);
-	sqe.cdw11 = cpu_to_le32(cdw11);
-	sqe.cdw12 = cpu_to_le32(cdw12);
-	sqe.cdw13 = cpu_to_le32(cdw13);
-	sqe.cdw14 = cpu_to_le32(cdw14);
-	sqe.cdw15 = cpu_to_le32(cdw15);
+	sqe.cdw10 = cpu_to_le32(arg_intv(cdw10));
+	sqe.cdw11 = cpu_to_le32(arg_intv(cdw11));
+	sqe.cdw12 = cpu_to_le32(arg_intv(cdw12));
+	sqe.cdw13 = cpu_to_le32(arg_intv(cdw13));
+	sqe.cdw14 = cpu_to_le32(arg_intv(cdw14));
+	sqe.cdw15 = cpu_to_le32(arg_intv(cdw15));
 
-	if (show_cmd || dry_run) {
+	if (arg_boolv(show_cmd) || arg_boolv(dry_run)) {
 		uint32_t *entry = (uint32_t *)&sqe;
 		for (int dw = 0; dw < 16; dw++)
 			unvme_pr("cdw%d\t\t: 0x%08x\n", dw, *(entry + dw));
 	}
-	if (dry_run)
+	if (arg_boolv(dry_run))
 		return 0;
 
-	if (nodb)
+	if (arg_boolv(nodb))
 		cmd_flags |= UNVMED_CMD_F_NODB;
 
-	ret = unvmed_passthru(u, sqid, buf, data_len, &sqe, read, cmd_flags);
-	if (!ret && !nodb) {
-		if (read)
-			unvme_cmd_pr_raw(buf, data_len);
+	ret = unvmed_passthru(u, arg_intv(sqid), buf, arg_intv(data_len), &sqe,
+			_read, cmd_flags);
+	if (!ret && !arg_boolv(nodb)) {
+		if (_read)
+			unvme_cmd_pr_raw(buf, arg_intv(data_len));
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
@@ -870,35 +922,40 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
-	bool help = false;
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_dbl *sqid;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Update submission queue tail doorbell to issue all the pending written\n"
 		"submission queue entries by `--nodb` options.  This command will wait for\n"
 		"the pending commands in the submission queue to complete.";
 
-	uint64_t sqid = UINT64_MAX;
-	struct opt_table opts[] = {
-		OPT_WITH_ARG("-q|--sqid", opt_set_ulongval, opt_show_ulongval, &sqid, "[M] Submission queue ID"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		sqid = arg_dbl1("q", "sqid", "<n>", "[M] Submission queue ID"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
 	__unvme_free struct nvme_cqe *cqes = NULL;
 	int nr_sqes;
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	/* Set default argument values prior to parsing */
+	arg_dblv(sqid) = UINT64_MAX;
 
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", unvme_msg_bdf(msg));
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
-	if (sqid == UINT64_MAX)
-		unvme_err_return(EINVAL, "-q|--sqid required");
-	if (!unvmed_get_sq(u, sqid))
+	if (!unvmed_get_sq(u, arg_dblv(sqid)))
 		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
 
-	nr_sqes = unvmed_sq_update_tail_and_wait(u, sqid, &cqes);
+	nr_sqes = unvmed_sq_update_tail_and_wait(u, arg_dblv(sqid), &cqes);
 	if (nr_sqes < 0)
 		unvme_err_return(errno, "failed to update sq and wait cq");
 
@@ -915,55 +972,62 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 {
-	const char *bdf = unvme_msg_bdf(msg);
-	struct unvme *u = unvmed_get(bdf);
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Reset NVMe controller by setting CC.EN to 0 and wait for CSTS.RDY register\n"
 		"to be 0 which represents reset completed.  To re-enable the controller,\n"
 		"`enable` should be executed again.";
 
-	bool help = false;
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	unvme_parse_args(3, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
+	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", bdf);
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
 	unvmed_reset_ctrl(u);
 	return 0;
 }
 
 #ifdef UNVME_FIO
-static inline void unvmed_log_null(const char *fmt, ...) {}
 extern int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd);
 int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 {
+	struct arg_lit *help;
+	struct arg_end *end;
+
 	const char *desc =
 		"Run fio libvfn ioengine with NVMe controller resources configured by unvme-cli.\n"
 		"'unvme start --with-fio=<fio>' must be given first to load fio shared object to unvmed.\n"
 		"And users should enable and create I/O queues before running fio through this command";
 
-	bool help = false;
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+
 	const char *libfio;
 
-	if (!argc)
-		unvme_help_return();
+	if (argc < 3)
+		unvme_print_help(__stdout, argv[1], desc, argtable);
 
 	/*
 	 * We don't care the failure of the parameter parsing since we will
 	 * have fio arguments in this command.
 	 */
-	opt_register_table(opts, NULL);
-	opt_parse(&argc, argv, unvmed_log_null);
-	opt_free_table();
+	arg_parse(argc, argv, argtable);
+
+	if (arg_boolv(help))
+		unvme_print_help(__stdout, argv[1], desc, argtable);
 
 	libfio = unvmed_get_libfio();
 	if (!libfio)

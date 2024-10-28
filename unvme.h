@@ -13,10 +13,21 @@
 #include <sys/signal.h>
 #include <ccan/list/list.h>
 
+#include <argtable3/argtable3.h>
+
 #define UNVME_MAX_OPT		64
 #define UNVME_MAX_STR		32
 #define UNVME_BDF_STRLEN	13
 #define UNVME_PWD_STRLEN	256
+
+/*
+ * argtable3-related helper macros
+ */
+#define arg_boolv(a)		(!!(a)->count)
+#define arg_intv(a)		((a)->ival[0])
+#define arg_dblv(a)		((a)->dval[0])
+#define arg_strv(a)		((a)->sval[0])
+#define arg_filev(a)		((a)->filename[0])
 
 struct unvme_msg {
 	/* msgq message type used to represent client pid */
@@ -46,7 +57,6 @@ struct unvme_msg {
 };
 
 #define unvme_msg_pid(p)	((p)->msg.pid)
-#define unvme_msg_bdf(p)	((p)->msg.bdf)
 #define unvme_msg_pwd(p)	((p)->msg.pwd)
 #define unvme_msg_signum(p)	((p)->msg.signum)
 
@@ -141,8 +151,12 @@ static inline int unvme_msgq_get(const char *keyfile)
 
 #define UNVME_DAEMON_PID	"/var/run/unvmed.pid"
 
-struct opt_table;
-void unvme_cmd_help(const char *name, const char *desc, struct opt_table *opts);
+static inline void unvme_print_help(FILE *fp, char *cmd, const char *desc, void *argtable[]) {
+	fprintf(fp, "\n%s\n", desc);
+	fprintf(fp, "\nUsage: unvme %s", cmd);
+	arg_print_syntax(fp, argtable, "\n");
+	arg_print_glossary(fp, argtable, "\t%-30s\t%s\n");
+}
 
 #define unvme_pr(fmt, ...)				\
 	do {						\
@@ -160,37 +174,24 @@ void unvme_cmd_help(const char *name, const char *desc, struct opt_table *opts);
 		return ret;				\
 	} while(0)
 
-#define unvme_help_err(fmt, ...)					\
-	do {								\
-		fprintf(stderr, fmt"\n", ##__VA_ARGS__);		\
-		unvme_cmd_help(argv[1], desc, opts);			\
-		opt_free_table();					\
-		return -EINVAL;						\
-	} while(0)
-
-
-#define unvme_help_return(fmt, ...)				\
-	do {								\
-		fprintf(stderr, fmt"\n", ##__VA_ARGS__);		\
-		unvme_cmd_help(argv[1], desc, opts);			\
-		opt_free_table();					\
-		return -ENOEXEC;					\
-	} while(0)
-
-#define unvme_parse_args(exp_argc, argc, argv, opts, log_func, help, desc)	\
-	do {									\
-		if (!argc)							\
-			unvme_help_return();					\
-		opt_register_table(opts, NULL);					\
-		if (!opt_parse(&(argc), argv, log_func))			\
-			unvme_help_err();					\
-		if (help)							\
-			unvme_help_return();					\
-										\
-		if (argc < exp_argc)						\
-			unvme_help_return();					\
-		opt_free_table();						\
+#define unvme_parse_args(argc, argv, argtable, help, end, desc)				\
+	do {										\
+		int nerror = arg_parse(argc - 1, &argv[1], argtable);			\
+		if (arg_boolv(help)) {							\
+			unvme_print_help(__stdout, argv[1], desc, argtable);		\
+			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
+			return -ENOEXEC;						\
+		}									\
+		if (nerror > 0) {							\
+			arg_print_errors(__stdout, end, "unvme");			\
+			unvme_print_help(__stdout, argv[1], desc, argtable);		\
+			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
+			return -EINVAL;							\
+		}									\
 	} while (0)
+
+#define UNVME_ARG_MAX_ERROR	20
+#define UNVME_BDF_PATTERN	"^[0-9]+:[0-9]+(:[0-9]+)?(.[0-9]+)?|[0-9]+.[0-9]+"
 
 /*
  * Command handlers

@@ -13,41 +13,49 @@
 #include <sys/msg.h>
 #include <sys/wait.h>
 
-#include <ccan/opt/opt.h>
 #include <ccan/str/str.h>
 
 #include "unvme.h"
+
+#include "argtable3/argtable3.h"
+
+static FILE *__stdout;
+static FILE *__stderr;
+
+static void __attribute__((constructor)) __unvme_cmd_init(void) {
+	__stdout = stdout;
+	__stderr = stderr;
+}
 
 int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 {
 	pid_t pid;
 	int ret = 0;
-	bool help = false;
+	struct arg_str *with_fio;
+	struct arg_lit *help;
+	struct arg_end *end;
 	const char *desc = "Start unvmed daemon process.";
-	char *with_fio = NULL;
 
-	struct opt_table opts[] = {
-#ifdef UNVME_FIO
-		OPT_WITH_ARG("--with-fio", opt_set_charp, opt_show_charp, &with_fio, "[O] fio shared object path to run"),
-#endif
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		with_fio = arg_str0(NULL, "with-fio", "</path/to/fio>", "[O] fio shared object path to run"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(20),
 	};
 
-	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	if (unvme_is_daemon_running())
 		unvme_pr_return(1, "unvme: unvmed is already running\n");
 
-	if (with_fio && access(with_fio, F_OK))
-		with_fio = NULL;
+	if (arg_boolv(with_fio) && access(arg_strv(with_fio), F_OK))
+		arg_strv(with_fio) = NULL;
 
 	pid = fork();
 	if (pid < 0) {
 		perror("fork");
 		ret = errno;
 	} else if (!pid)
-		ret = unvmed(argv, with_fio);
+		ret = unvmed(argv, arg_strv(with_fio));
 
 	return ret;
 }
@@ -55,18 +63,19 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 {
 	pid_t pid;
-	bool help = false;
+	struct arg_lit *help;
+	struct arg_end *end;
 	const char *desc = "Stop unvmed daemon process";
 
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(20),
 	};
 
 	FILE *fp;
 	char pids[16];
 
-	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	fp = popen("pgrep unvme", "r");
 	if (!fp)
@@ -100,17 +109,18 @@ int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
 {
-	bool nvme = false;
-	bool help = false;
+	struct arg_lit *nvme;
+	struct arg_lit *help;
+	struct arg_end *end;
 	const char *desc = "Show logs written by unvmed process.";
 
-	struct opt_table opts[] = {
-		OPT_WITHOUT_ARG("-n|--nvme", opt_set_bool, &nvme, "Show NVMe command log only"),
-		OPT_WITHOUT_ARG("-h|--help", opt_set_bool, &help, "Show help message"),
-		OPT_ENDTABLE
+	void *argtable[] = {
+		nvme = arg_lit0("n", "nvme", "Show NVMe command log only"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(20),
 	};
 
-	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	char *line = NULL;
 	ssize_t nread;
@@ -122,7 +132,7 @@ int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
 	        unvme_pr_return(errno, "failed to open unvme log file");
 
 	while ((nread = getline(&line, &len, file)) != -1) {
-		if (nvme) {
+		if (arg_boolv(nvme) > 0) {
 			if (strstarts(line, "NVME"))
 				unvme_pr("%s", line);
 		} else

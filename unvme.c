@@ -17,12 +17,13 @@
 #include <sys/msg.h>
 #include <sys/ipc.h>
 
-#include <ccan/opt/opt.h>
 #include <ccan/str/str.h>
 #include <ccan/array_size/array_size.h>
 
 #include "unvme.h"
 #include "config.h"
+
+#include "argtable3/argtable3.h"
 
 /*
  * for async stdio print handlers
@@ -91,31 +92,6 @@ static int unvme_version(int argc, char *argv[], struct unvme_msg *msg)
 struct command *unvme_cmds(void)
 {
 	return cmds;
-}
-
-void unvme_cmd_help(const char *name, const char *desc, struct opt_table *opts)
-{
-	struct command *cmd = unvme_get_cmd(name);
-
-	if (!cmd)
-		return;
-
-	if (cmd->ctype & UNVME_DEV_CMD)
-		unvme_pr("Usage: unvme %s <device> [<args>]\n", name);
-	else
-		unvme_pr("Usage: unvme %s [<args>]\n", name);
-
-	unvme_pr("\n");
-
-	unvme_pr("%s\n", desc);
-
-	unvme_pr("\n");
-	unvme_pr("<args>\n");
-
-	while (opts->names) {
-		unvme_pr("\t%-16s\t%s\n", opts->names, opts->desc);
-		opts++;
-	}
 }
 
 static int unvme_send_msg(struct unvme_msg *msg)
@@ -200,6 +176,42 @@ static int unvme_parse_bdf(const char *input, char *bdf)
 }
 
 /*
+ *
+ */
+static int unvme_check_args_devcmd(int argc, char *argv[], char *bdf)
+{
+	struct arg_rex *dev;
+	struct arg_end *end;
+
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
+	};
+
+	const char *devstr;
+
+	arg_parse(argc - 1, &argv[1], argtable);
+
+	if (arg_boolv(dev)) {
+		devstr = arg_strv(dev);
+
+		if (unvme_parse_bdf(devstr, bdf)) {
+			unvme_pr_err("Invalid device format '%s'\n", argv[2]);
+			return -EINVAL;
+		}
+		argv[2] = bdf;
+	} else {
+		/*
+		 * We don't have to print help here since daemon will print the
+		 * help message.
+		 */
+		;
+	}
+
+	return 0;
+}
+
+/*
  * Check the given arguments are valid.
  *
  * Returns: Normally it returns the number of arguments given as a user input
@@ -210,6 +222,7 @@ static int unvme_parse_bdf(const char *input, char *bdf)
 static int unvme_check_args(int argc, char *argv[], char *bdf)
 {
 	struct command *cmd;
+	int ret;
 
 	if (argc == 1) {
 		unvme_help(0, NULL, NULL);
@@ -222,29 +235,13 @@ static int unvme_check_args(int argc, char *argv[], char *bdf)
 				argv[1]);
 
 	/*
-	 * UNVME_DEV_CMD has to be given with the target <device> which is a BDF
-	 * of a PCI device, but it's not given, so print help message.
-	 */
-	if (argc == 2 && cmd->ctype & UNVME_DEV_CMD)
-		return cmd->func(argc, argv, NULL);
-
-	for (int i = 2; i < argc; i++) {
-		if (strstarts(argv[i], "-h") || strstarts(argv[i], "--help")) {
-			/*
-			 * -h|--help option will be parsed in the command
-			 *  handler without doing actual command behavior.
-			 */
-			return cmd->func(argc, argv, NULL);
-		}
-	}
-
-	/*
 	 * Check the given <device> is a valid PCI BDF format.
 	 */
 	if (cmd->ctype & UNVME_DEV_CMD) {
-		if (unvme_parse_bdf(argv[2], bdf))
-			unvme_pr_err_return(-EINVAL, "Invalid device format "
-					"'%s'\n", argv[2]);
+		ret = unvme_check_args_devcmd(argc, argv, bdf);
+		if (ret)
+			return ret;
+
 	}
 
 	return argc;
