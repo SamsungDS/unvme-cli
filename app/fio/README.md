@@ -33,5 +33,21 @@ LDFLAGS="-shared" ./configure --extra-cflags='-fPIC' \
 	--disable-dfs \
 	--disable-tls
 make -j`nproc`
-cp fio /usr/local/bin/unvme-fio
+```
+
+Object file named `fio` will be generated and you will see it's a shared
+object like:
+
+```bash
+$ file fio
+fio: ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), dynamically linked, BuildID[sha1]=a07596014a8a4b688aa15c64338975e8ae4b3615, with debug_info, not stripped
+```
+
+# How to run `unvmed` with fio
+To run unvmed daemon process with pre-built fio:
+
+```bash
+unvme start --with-fio=/path/to/fio
+... <device configurations>
+unvme fio <opts>
 ```
