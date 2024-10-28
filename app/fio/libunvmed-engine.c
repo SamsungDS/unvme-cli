@@ -305,7 +305,8 @@ static void fio_libunvmed_iomem_free(struct thread_data *td)
 	struct libunvmed_data *ld = td->io_ops_data;
 
 	pthread_mutex_lock(&g_serialize);
-	pgunmap(td->orig_buffer, ld->orig_buffer_size);
+	if (td->orig_buffer)
+		pgunmap(td->orig_buffer, ld->orig_buffer_size);
 	pthread_mutex_unlock(&g_serialize);
 }
 
