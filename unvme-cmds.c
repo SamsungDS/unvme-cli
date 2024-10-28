@@ -63,15 +63,39 @@ int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 		OPT_ENDTABLE
 	};
 
+	FILE *fp;
+	char pids[16];
+
 	unvme_parse_args(2, argc, argv, opts, opt_log_stderr, help, desc);
 
-	if (!unvme_is_daemon_running())
-		unvme_pr_return(1, "unvme: unvmed is not running\n");
+	fp = popen("pgrep unvme", "r");
+	if (!fp)
+		unvme_pr_return(errno, "unvme: failed to pgrep unvme\n");
 
-	pid = unvme_get_daemon_pid();
-	kill(pid, SIGTERM);
+	/*
+	 * Find all the unvme* processes running in the current system and
+	 * terminate them gracefully.  If they are not terminated successfully,
+	 * kill them all here.
+	 */
+	while (fgets(pids, sizeof(pids) - 1, fp) != NULL) {
+		pid = atoi(pids);
+		if (pid == getpid())
+			continue;
 
-	return waitpid(pid, NULL, 0) > 0;
+		kill(pid, SIGTERM);
+		if (waitpid(pid, NULL, 0) < 0) {
+			kill(pid, SIGKILL);
+			waitpid(pid, NULL, 0);
+		}
+
+		unvme_pr_err("pid %d terminated\n", pid);
+	}
+
+	/* To make sure that unvmed.pid file is removed from the system */
+	remove(UNVME_DAEMON_PID);
+
+	pclose(fp);
+	return 0;
 }
 
 int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
