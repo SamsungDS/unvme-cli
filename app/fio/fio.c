@@ -38,19 +38,19 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 
 	main = dlsym(__handle, "main");
 	if (dlerror()) {
-		fprintf(stderr, "failed to load 'main' symbol in fio");
+		fprintf(stderr, "failed to load 'main' symbol in fio\n");
 		return errno;
 	}
 
 	register_ioengine = dlsym(__handle, "register_ioengine");
 	if (dlerror()) {
-		fprintf(stderr, "failed to load 'register_ioengine' symbol in fio");
+		fprintf(stderr, "failed to load 'register_ioengine' symbol in fio\n");
 		return errno;
 	}
 
 	unregister_ioengine = dlsym(__handle, "unregister_ioengine");
 	if (dlerror()) {
-		fprintf(stderr, "failed to load 'unregister_ioengine' symbol in fio");
+		fprintf(stderr, "failed to load 'unregister_ioengine' symbol in fio\n");
 		return errno;
 	}
 
