@@ -60,26 +60,26 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 	return ret;
 }
 
-int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
+static int __unvme_stop(const char *name)
 {
-	pid_t pid;
-	struct arg_lit *help;
-	struct arg_end *end;
-	const char *desc = "Stop unvmed daemon process";
-
-	void *argtable[] = {
-		help = arg_lit0("h", "help", "Show help message"),
-		end = arg_end(20),
-	};
-
-	FILE *fp;
 	char pids[16];
+	char *cmd = NULL;
+	pid_t pid;
+	FILE *fp;
+	int ret;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	ret = asprintf(&cmd, "pgrep %s", name);
+	if (ret < 0)
+		return ret;
 
-	fp = popen("pgrep unvme", "r");
-	if (!fp)
-		unvme_pr_return(errno, "unvme: failed to pgrep unvme\n");
+	fp = popen(cmd, "r");
+	if (!fp) {
+		unvme_pr_err("failed to popen '%s'\n", cmd);
+		free(cmd);
+		return -errno;
+	}
+
+	free(cmd);
 
 	/*
 	 * Find all the unvme* processes running in the current system and
@@ -96,14 +96,34 @@ int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 			kill(pid, SIGKILL);
 			waitpid(pid, NULL, 0);
 		}
-
-		unvme_pr_err("pid %d terminated\n", pid);
 	}
 
+	pclose(fp);
+	return 0;
+}
+
+int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
+{
+	struct arg_lit *all;
+	struct arg_lit *help;
+	struct arg_end *end;
+	const char *desc = "Stop unvmed daemon process";
+
+	void *argtable[] = {
+		all = arg_lit0("a", "all", "Stop all unvme-cli clients along with unvmed"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(20),
+	};
+
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
+
+	__unvme_stop("unvmed");
 	/* To make sure that unvmed.pid file is removed from the system */
 	remove(UNVME_DAEMON_PID);
 
-	pclose(fp);
+	if (arg_boolv(all))
+		__unvme_stop("unvme");
+
 	return 0;
 }
 
