@@ -49,4 +49,6 @@ terms, but when it's in this project, they should be under GPL-2.0-only.  See
 
 `unvme-cli` uses various libraries. ccan/ directory which has various libraries
 of Comprehensive C Archive Network (CCAN) which have separated licenses.  See
-`ccan/ccan/*/LICENSE` for each license used.
+`ccan/ccan/*/LICENSE` for each license used.  `argtable3/` directory contains
+argtable3 library which is under BSD license, see the details in
+argtable3/LICENSE.
