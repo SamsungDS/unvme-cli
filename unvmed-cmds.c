@@ -1017,9 +1017,6 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 
 	const char *libfio;
 
-	if (argc < 3)
-		unvme_print_help(__stdout, argv[1], desc, argtable);
-
 	/*
 	 * We don't care the failure of the parameter parsing since we will
 	 * have fio arguments in this command.
