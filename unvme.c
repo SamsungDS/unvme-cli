@@ -60,6 +60,7 @@ static struct command cmds[] = {
 	{"passthru",		"Passthrough command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_passthru},
 	{"update-sqdb",		"Update SQ tail doorbell",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_update_sqdb},
 	{"reset",		"Reset NVMe controller",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
+	{"perf",		"Microbenchmark for simple read/write with N QD",	UNVME_DAEMON_CMD | UNVME_DEV_CMD | UNVME_APP_CMD,	unvme_perf},
 #ifdef UNVME_FIO
 	{"fio",			"Run fio built as shared object",	UNVME_DAEMON_CMD | UNVME_NODEV_CMD | UNVME_APP_CMD,	unvme_fio},
 #endif

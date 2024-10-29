@@ -219,6 +219,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_reset(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_perf(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_fio(int argc, char *argv[], struct unvme_msg *msg);
 
 /*

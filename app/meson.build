@@ -1,3 +1,5 @@
+subdir('perf')
+
 fs = import('fs')
 
 fio = get_option('with-fio')

@@ -19,6 +19,7 @@
 #include "libunvmed.h"
 #include "unvme.h"
 #include "unvmed.h"
+#include "app/perf/perf.h"
 
 #include "argtable3/argtable3.h"
 
@@ -998,6 +999,73 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvmed_reset_ctrl(u);
 	return 0;
+}
+
+int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
+{
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *sqid;
+	struct arg_int *nsid;
+	struct arg_str *io_pattern;
+	struct arg_lit *random;
+	struct arg_int *io_depth;
+	struct arg_int *sec_runtime;
+	struct arg_int *sec_warmup;
+	struct arg_int *update_interval;
+	struct arg_lit *help;
+	struct arg_end *end;
+
+	const char *desc =
+		"Submit a Read or Write I/O command to the given submission queue of the\n"
+		"target <device> while maintaining queue depth, configured by -d|--io-depth.\n"
+		"To run this command, I/O queue MUST be created.  This is derieved from "
+		"libvfn's example tool 'perf'.";
+
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		sqid = arg_int1("q", "sqid", "<n>", "[M] Submission Queue ID"),
+		nsid = arg_int1("n", "namespace-id", "<n>", "[M] Namespace ID"),
+		io_pattern = arg_str0("p", "io-pattern", "[read|write]", "[O] I/O pattern (defaults: read)"),
+		random = arg_lit0("r", "random", "[O] Random I/O (defaults: false)"),
+		io_depth = arg_int0("d", "io-depth", "<n>", "[O] I/O depth (defaults: 1)"),
+		sec_runtime = arg_int0("t", "runtime", "<n>", "[O] Runtime in seconds (defaults: 10)"),
+		sec_warmup = arg_int0("w", "warmup", "<n>", "[O] Warmup time in seconds (defaults: 0)"),
+		update_interval = arg_int0("u", "update-interval", "<n>", "[O] Update stats interval in seconds (defaults: 1)"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
+	};
+
+	/* Set default argument values prior to parsing */
+	arg_strv(io_pattern) = "read";
+	arg_intv(io_depth) = 1;
+	arg_intv(sec_runtime) = 10;
+	arg_intv(sec_warmup) = 0;
+	arg_intv(update_interval) = 1;
+
+	int qsize;
+
+	unvme_parse_args(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u)
+		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!unvmed_get_sq(u, arg_intv(sqid)))
+		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
+
+	if (arg_intv(io_depth) < 1)
+		unvme_err_return(EINVAL, "invalid io-depth");
+	qsize = unvmed_get_sq(u, arg_intv(sqid))->q->qsize;
+	if (arg_intv(io_depth) > qsize - 1)
+		unvme_err_return(EINVAL, "io-depth must be less than qsize");
+
+	if (!(streq(arg_strv(io_pattern), "read") || streq(arg_strv(io_pattern), "write")))
+		unvme_err_return(EINVAL, "unsupported i/o pattern");
+
+	return unvmed_perf(u, arg_intv(sqid), arg_intv(nsid),
+			arg_strv(io_pattern), arg_boolv(random),
+			arg_intv(io_depth), arg_intv(sec_runtime),
+			arg_intv(sec_warmup), arg_intv(update_interval));
 }
 
 #ifdef UNVME_FIO
