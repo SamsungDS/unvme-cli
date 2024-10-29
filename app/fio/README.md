@@ -5,7 +5,7 @@ configurations (e.g., controller enable, queue creations, ...) can be done by
 CLI commands and I/O benchmarking cna be done with **unmodified** fio, but only
 just built as a shared object.
 
-To enable fio, provide `-Dwith-fio=<fio.so>` when meson setup.
+To enable fio, provide `-Dwith-fio=</path/to/fio>` when meson setup.
 
 # How to build fio
 To build `fio` as a shared object, do the following:
@@ -47,7 +47,7 @@ fio: ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), dynamically linked,
 To run unvmed daemon process with pre-built fio:
 
 ```bash
-unvme start --with-fio=/path/to/fio
+unvme start --with-fio=<fio.so>
 ... <device configurations>
 unvme fio <opts>
 ```
