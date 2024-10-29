@@ -152,9 +152,11 @@ static inline int unvme_msgq_get(const char *keyfile)
 #define UNVME_DAEMON_PID	"/var/run/unvmed.pid"
 
 static inline void unvme_print_help(FILE *fp, char *cmd, const char *desc, void *argtable[]) {
-	fprintf(fp, "\n%s\n", desc);
 	fprintf(fp, "\nUsage: unvme %s", cmd);
 	arg_print_syntax(fp, argtable, "\n");
+
+	fprintf(fp, "\n%s\n\n", desc);
+
 	arg_print_glossary(fp, argtable, "\t%-30s\t%s\n");
 }
 
