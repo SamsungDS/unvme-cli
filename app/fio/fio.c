@@ -38,7 +38,8 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 
 	main = dlsym(__handle, "main");
 	if (dlerror()) {
-		fprintf(stderr, "failed to load 'main' symbol in fio\n");
+		fprintf(stderr, "failed to load 'main' symbol in fio. "
+				"Maybe forgot to give 'unvme start ... --with-fio=<path/to/fio/so>'\n");
 		return errno;
 	}
 
