@@ -327,6 +327,9 @@ void unvme_exit_job(int ret)
 	unvme_msg_to_client(__msg, unvme_msg_pid(__msg), ret);
 	unvme_send_msg(__msg);
 
+	fclose(__stdout);
+	fclose(__stderr);
+
 	unvme_del_job(unvme_msg_pid(__msg));
 
 	pthread_mutex_unlock(&__app_mutex);
