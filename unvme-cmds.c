@@ -56,6 +56,10 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 		ret = errno;
 	} else if (!pid)
 		ret = unvmed(argv, arg_strv(with_fio));
+	else {
+		while (!unvme_is_daemon_running())
+			;
+	}
 
 	return ret;
 }
