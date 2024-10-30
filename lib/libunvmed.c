@@ -956,8 +956,8 @@ struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd)
 	return &cmd->cqe;
 }
 
-static int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
-			     struct nvme_cqe *cqes, int nr_cqes, bool nowait)
+int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
+		      struct nvme_cqe *cqes, int nr_cqes, bool nowait)
 {
 	struct nvme_cqe *cqe;
 	int nr_cmds;
