@@ -408,10 +408,17 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	return (struct unvme_sq *)usq;
 }
 
-static void unvmed_free_usq(struct __unvme_sq *usq)
+static void __unvmed_free_usq(struct __unvme_sq *usq)
 {
 	list_del(&usq->list);
 	free(usq);
+}
+
+static void unvmed_free_usq(struct unvme *u, struct __unvme_sq *usq)
+{
+	pthread_rwlock_wrlock(&u->sq_list_lock);
+	__unvmed_free_usq(usq);
+	pthread_rwlock_unlock(&u->sq_list_lock);
 }
 
 static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
@@ -432,10 +439,17 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 	return (struct unvme_cq *)ucq;
 }
 
-static void unvmed_free_ucq(struct __unvme_cq *ucq)
+static void __unvmed_free_ucq(struct __unvme_cq *ucq)
 {
 	list_del(&ucq->list);
 	free(ucq);
+}
+
+static void unvmed_free_ucq(struct unvme *u, struct __unvme_cq *ucq)
+{
+	pthread_rwlock_wrlock(&u->cq_list_lock);
+	__unvmed_free_ucq(ucq);
+	pthread_rwlock_unlock(&u->cq_list_lock);
 }
 
 /*
@@ -451,12 +465,12 @@ void unvmed_free_ctrl(struct unvme *u)
 
 	pthread_rwlock_wrlock(&u->sq_list_lock);
 	list_for_each_safe(&u->sq_list, usq, next_usq, list)
-		unvmed_free_usq(usq);
+		__unvmed_free_usq(usq);
 	pthread_rwlock_unlock(&u->sq_list_lock);
 
 	pthread_rwlock_wrlock(&u->cq_list_lock);
 	list_for_each_safe(&u->cq_list, ucq, next_ucq, list)
-		unvmed_free_ucq(ucq);
+		__unvmed_free_ucq(ucq);
 	pthread_rwlock_unlock(&u->cq_list_lock);
 
 	list_for_each_safe(&u->ns_list, ns, next_ns, list)
@@ -759,8 +773,10 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	if (!ucq)
 		return -1;
 
-	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector))
+	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector)) {
+		unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
 		return -1;
+	}
 
 	ucq->q = &u->ctrl.cq[qid];
 	ucq->enabled = true;
@@ -821,8 +837,10 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	if (!usq)
 		return -1;
 
-	if (nvme_create_iosq(&u->ctrl, qid, qsize, ucq->q, 0))
+	if (nvme_create_iosq(&u->ctrl, qid, qsize, ucq->q, 0)) {
+		unvmed_free_usq(u, (struct __unvme_sq *)usq);
 		return -1;
+	}
 
 	usq->q = &u->ctrl.sq[qid];
 	usq->ucq = ucq;
