@@ -320,6 +320,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_lit *no_adminq;
 	struct arg_int *iosqes;
 	struct arg_int *iocqes;
 	struct arg_int *mps;
@@ -333,6 +334,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		no_adminq = arg_lit0(NULL, "no-adminq", "[O] Enable device without creating admin queues"),
 		iosqes = arg_int0("s", "iosqes", "<n>", "[O] I/O Sumission Queue Entry Size (2^n) (default: 6)"),
 		iocqes = arg_int0("c", "iocqes", "<n>", "[O] I/O Completion Queue Entry Size (2^n) (default: 4)"),
 		mps = arg_int0("m", "mps", "<n>", "[O] Memory Page Size (2^(12+n)) (default: 0)"),
@@ -365,7 +367,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_intv(css) > 0x7)
 		unvme_err_return(EINVAL, "invalid -i|--css");
 
-	if (unvmed_create_adminq(u))
+	if (!arg_boolv(no_adminq) && unvmed_create_adminq(u))
 		unvme_err_return(errno, "failed to create adminq");
 
 	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes), arg_intv(mps),
