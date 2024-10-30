@@ -166,6 +166,11 @@ struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid)
 	return NULL;
 }
 
+int unvmed_get_max_qid(struct unvme *u)
+{
+	return u->nr_cqs - 1;
+}
+
 int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs)
 {
 	struct unvme_sq *usq;

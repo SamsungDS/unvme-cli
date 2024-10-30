@@ -94,6 +94,7 @@ int unvmed_nr_cmds(struct unvme *u);
 int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist);
 struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid);
 
+int unvmed_get_max_qid(struct unvme *u);
 int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs);
 int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs);
 struct unvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid);

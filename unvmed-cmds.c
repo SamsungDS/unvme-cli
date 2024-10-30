@@ -412,6 +412,10 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!u)
 		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
+	if (arg_intv(qid) > unvmed_get_max_qid(u))
+		unvme_err_return(EINVAL, "QID should not be higher than %d",
+				unvmed_get_max_qid(u));
+
 	if (arg_intv(vector) < 0)
 		arg_intv(vector) = -1;
 
@@ -480,6 +484,10 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	u = unvmed_get(arg_strv(dev));
 	if (!u)
 		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+
+	if (arg_intv(qid) > unvmed_get_max_qid(u))
+		unvme_err_return(EINVAL, "QID should not be higher than %d",
+				unvmed_get_max_qid(u));
 
 	if (unvmed_get_sq(u, arg_intv(qid)))
 		unvme_err_return(EEXIST, "SQ (qid=%u) already exists", arg_intv(qid));
