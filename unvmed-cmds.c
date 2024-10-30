@@ -10,6 +10,7 @@
 #include <sys/msg.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 
 #include <ccan/str/str.h>
 #include <nvme/types.h>
@@ -206,13 +207,13 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		nrioqs = arg_int0("q", "nr-ioqs", "<n>", "[O] Maximum number of "
-			"I/O queues to create (defaults to 1)"),
+			"I/O queues to create (defaults: # of cpu)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
 	/* Set default argument values prior to parsing */
-	arg_intv(nrioqs) = 1;
+	arg_intv(nrioqs) = get_nprocs();
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
