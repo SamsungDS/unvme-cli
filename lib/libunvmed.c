@@ -759,10 +759,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	if (!ucq)
 		return -1;
 
-	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector)) {
-		unvmed_cq_exit(ucq);
+	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector))
 		return -1;
-	}
 
 	ucq->q = &u->ctrl.cq[qid];
 	ucq->enabled = true;
