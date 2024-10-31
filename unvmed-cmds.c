@@ -397,7 +397,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		qid = arg_int1("q", "qid", "<n>", "[M] Completion Queue ID to create"),
 		qsize = arg_int1("z", "qsize", "<n>", "[M] Queue size (1-based)"),
-		vector = arg_int0("v", "vector", "<n>", "[O] Interrupt vector (defaults to 0)"),
+		vector = arg_int0("v", "vector", "<n>", "[O] Interrupt vector (defaults: -1)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
