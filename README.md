@@ -36,10 +36,17 @@ cd build && meson install
 ```
 
 ## License
-`unvme-cli` is licensed under the GNU General Public License v2.0 or later,
-except for `libunvmed` files in the lib/ directory, which are dual-licensed
-under the LGPL-2.1-or-later and the MIT License.
+`unvme-cli` is licensed under the GNU General Public License v2.0 only.
 
-`unvme-cli` uses `libvfn` library. And also please note that `unvme-cli` uses
-various libraries of Comprehensive C Archive Network (CCAN) which have separated
-licenses.  See `ccan/ccan/*/LICENSE` for each license used.
+Files under GPL-2.0-or-later can be used under terms of GPL-2.0 or any later
+version, but when included in this project, they are subject to the
+GPL-2.0-only license.
+
+Files for `libunvmed` in the lib/ directory are dual-licensed under the
+LGPL-2.1-or-later and the MIT license and they also can be used under their own
+terms, but when it's in this project, they should be under GPL-2.0-only.  See
+`lib/COPYING` and `lib/LICENSE`.
+
+`unvme-cli` uses various libraries. ccan/ directory which has various libraries
+of Comprehensive C Archive Network (CCAN) which have separated licenses.  See
+`ccan/ccan/*/LICENSE` for each license used.
