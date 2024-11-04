@@ -376,6 +376,9 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 			arg_intv(css)))
 		unvme_err_return(errno, "failed to enable controller");
 
+	if (arg_boolv(no_adminq))
+		unvme_pr_err("Warning: Admin queues are not created.  The following admin commands will not work\n");
+
 	return 0;
 }
 
@@ -411,6 +414,9 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	u = unvmed_get(arg_strv(dev));
 	if (!u)
 		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+
+	if (!unvmed_get_sq(u, 0))
+		unvme_err_return(EPERM, "'enable' must be executed first");
 
 	if (arg_intv(qid) > unvmed_get_max_qid(u))
 		unvme_err_return(EINVAL, "QID should not be higher than %d",
@@ -449,6 +455,9 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!u)
 		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
+	if (!unvmed_get_sq(u, 0))
+		unvme_err_return(EPERM, "'enable' must be executed first");
+
 	if (!unvmed_get_cq(u, arg_intv(qid)))
 		unvme_err_return(ENODEV, "CQ (qid=%u) does not exist", arg_intv(qid));
 
@@ -485,6 +494,9 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!u)
 		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
+	if (!unvmed_get_sq(u, 0))
+		unvme_err_return(EPERM, "'enable' must be executed first");
+
 	if (arg_intv(qid) > unvmed_get_max_qid(u))
 		unvme_err_return(EINVAL, "QID should not be higher than %d",
 				unvmed_get_max_qid(u));
@@ -518,6 +530,9 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	u = unvmed_get(arg_strv(dev));
 	if (!u)
 		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+
+	if (!unvmed_get_sq(u, 0))
+		unvme_err_return(EPERM, "'enable' must be executed first");
 
 	if (!unvmed_get_sq(u, arg_intv(qid)))
 		unvme_err_return(ENODEV, "SQ (qid=%u) does not exist", arg_intv(qid));
