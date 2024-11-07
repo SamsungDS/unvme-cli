@@ -860,6 +860,23 @@ int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
 			    uint32_t nsid, struct iovec *iov, int nr_iov);
 
 /**
+ * unvmed_nvm_id_ns - Identify NVM Identify Namespace (CNS 5h)
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Issue an Identify NVM Namespace to the controller @u.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+ */
+int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
+		     uint32_t nsid, struct iovec *iov, int nr_iov);
+
+/**
  * unvmed_read - Read I/O command
  * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)

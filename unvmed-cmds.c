@@ -896,6 +896,103 @@ out:
 	return ret;
 }
 
+int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
+{
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_int *nsid;
+	struct arg_int *prp1_offset;
+	struct arg_str *format;
+	struct arg_lit *help;
+	struct arg_end *end;
+
+	const char *desc =
+		"Submit an Identify Namespace NVM Command Set command to the target <device>.";
+
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		nsid = arg_int1("n", "nsid", "<n>", "[M] Namespace ID"),
+		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
+		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
+	};
+
+	const size_t size = NVME_IDENTIFY_DATA_SIZE;
+	const uint16_t sqid = 0;
+	struct unvme_cmd *cmd;
+	struct iovec iov;
+	ssize_t len;
+	void *buf = NULL;
+	int ret;
+
+	/* Set default argument values prior to parsing */
+	arg_strv(format) = "normal";
+	arg_intv(prp1_offset) = 0x0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (!unvmed_sq_enabled(u, 0)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	if (!unvmed_ns_find(u, arg_intv(nsid))) {
+		unvme_pr_err("failed to get namespace instance. Do `unvme id-ns` first\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	if (arg_intv(prp1_offset) >= getpagesize()) {
+		unvme_pr_err("invalid --prp1-offset\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
+	if (buf == MAP_FAILED) {
+		unvme_pr_err("failed to allocate buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd(u, sqid, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
+	buf += arg_intv(prp1_offset);
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = size,
+	};
+
+	ret = unvmed_nvm_id_ns(u, cmd, arg_intv(nsid), &iov, 1);
+	if (!ret)
+		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_nvm_id_ns);
+	else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;

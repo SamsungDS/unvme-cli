@@ -26,6 +26,20 @@ void unvme_pr_id_ns(void *vaddr)
 	unvme_pr("ncap: %lx\n", le64_to_cpu(id_ns->ncap));
 }
 
+void unvme_pr_nvm_id_ns(void *vaddr)
+{
+	struct nvme_nvm_id_ns *nvm_id_ns = (struct nvme_nvm_id_ns *)vaddr;
+
+	unvme_pr("lbstm    : %#lx\n", le64_to_cpu(nvm_id_ns->lbstm));
+	unvme_pr("pic      : %#x\n", nvm_id_ns->pic);
+	unvme_pr("pifa     : %#x\n", nvm_id_ns->pifa);
+	for (int i = 0; i < 64; i++) {
+		uint32_t elbaf = le32_to_cpu(nvm_id_ns->elbaf[i]);
+		unvme_pr("elbaf[%2d]: qpif:%d pif:%d sts:%-2d\n",
+				i, (elbaf >> 9) & 0xF, (elbaf >> 7) & 0x3, elbaf & 0x7F);
+	}
+}
+
 void unvme_pr_id_active_nslist(void *vaddr)
 {
 	uint32_t *id = (uint32_t *)vaddr;
