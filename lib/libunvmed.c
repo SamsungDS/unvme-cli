@@ -1031,7 +1031,7 @@ int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 		return ret;
 	}
 
-	n = __unvmed_cq_run_n(u, ucq, cqes + n, max, true);
+	n = __unvmed_cq_run_n(u, ucq, cqes + n, max - n, true);
 	if (n < 0)
 		return -1;
 	else if (n > 0)
