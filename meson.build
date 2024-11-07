@@ -52,7 +52,19 @@ executable(
 )
 
 # Set the unvme-cli version
-conf.set('UNVME_VERSION', '"' + meson.project_version() + '"')
+is_git = run_command('git', 'rev-parse', '--short=12', 'HEAD', check: false)
+if is_git.returncode() == 0
+  hash = is_git.stdout().strip()
+
+  diff = run_command('git', 'diff', '--quiet', check: false)
+  if diff.returncode() == 1
+    hash += '+'
+  endif
+
+  conf.set('UNVME_VERSION', '"' + meson.project_version() + '-g' + hash + '"')
+else
+  conf.set('UNVME_VERSION', '"' + meson.project_version() + '"')
+endif
 
 configure_file(
     output: 'config.h',
