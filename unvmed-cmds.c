@@ -623,6 +623,9 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	void *buf;
 	int ret;
 
+	/* Set default argument values prior to parsing */
+	arg_strv(format) = "normal";
+
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
