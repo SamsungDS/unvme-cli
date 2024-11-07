@@ -13,9 +13,12 @@ if static
   link_args += ['-static']
 endif
 
+args += ['-g']
+link_args += ['-g']
+
 if buildtype == 'debug'
-  args += ['-pg']
-  link_args += ['-pg']
+  args += ['-p']
+  link_args += ['-p']
 endif
 
 add_project_arguments(args, language: 'c')
