@@ -42,6 +42,8 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 		end = arg_end(20),
 	};
 
+	arg_strv(with_fio) = NULL;
+
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	if (unvme_is_daemon_running())
