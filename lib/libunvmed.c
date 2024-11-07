@@ -1011,7 +1011,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 
 int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes)
 {
-	return __unvmed_cq_run_n(u, ucq, cqes, 0, true);
+	return __unvmed_cq_run_n(u, ucq, cqes, ucq->q->qsize - 1, true);
 }
 
 int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
