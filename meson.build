@@ -13,12 +13,16 @@ if static
   link_args += ['-static']
 endif
 
+conf = configuration_data()
+
 args += ['-g']
 link_args += ['-g']
 
 if buildtype == 'debug'
   args += ['-p']
   link_args += ['-p']
+
+  conf.set('UNVME_DEBUG', '')
 endif
 
 add_project_arguments(args, language: 'c')
@@ -26,8 +30,6 @@ add_project_link_arguments(link_args, language: 'c')
 
 vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
 nvme_lib = dependency('libnvme', version: '>=1.8.0', static: static)
-
-conf = configuration_data()
 
 subdir('ccan')
 subdir('lib')
