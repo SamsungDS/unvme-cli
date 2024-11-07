@@ -33,13 +33,16 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 	* the memory makes fio run as a standalone application.
 	*/
 	__handle = dlopen(libfio, RTLD_LAZY);
-	if (!__handle)
+	if (!__handle) {
+		fprintf(stderr, "failed to load shared object '%s'.  "
+				"Give proper path to 'unvme start --with-fio=<path/to/fio/so>'\n", libfio);
 		return -1;
+	}
 
 	main = dlsym(__handle, "main");
 	if (dlerror()) {
 		fprintf(stderr, "failed to load 'main' symbol in fio. "
-				"Maybe forgot to give 'unvme start ... --with-fio=<path/to/fio/so>'\n");
+				"Maybe forgot to give 'unvme start --with-fio=<path/to/fio/so>'\n");
 		return errno;
 	}
 
