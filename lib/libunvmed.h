@@ -38,6 +38,7 @@ struct name {			\
 
 #define unvme_declare_cq(name)	\
 struct name {			\
+	struct unvme *u;	\
 	struct nvme_cq *q;	\
 	pthread_spinlock_t lock;\
 	bool enabled;		\
@@ -47,6 +48,7 @@ unvme_declare_cq(unvme_cq);
 unvme_declare_sq(unvme_sq);
 
 #define unvmed_cq_id(ucq)	((ucq)->q->id)
+#define unvmed_cq_iv(ucq)	((ucq)->q->vector)
 #define unvmed_sq_id(usq)	((usq)->q->id)
 #define unvmed_sq_cqid(usq)	(unvmed_cq_id((usq)->ucq))
 
@@ -73,6 +75,11 @@ static inline void unvmed_cq_enter(struct unvme_cq *ucq)
 static inline void unvmed_cq_exit(struct unvme_cq *ucq)
 {
 	pthread_spin_unlock(&ucq->lock);
+}
+
+static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
+{
+	return ucq->q->vector >= 0;
 }
 
 /*
@@ -110,7 +117,7 @@ void unvmed_cmd_free(struct unvme_cmd *cmd);
 void unvmed_reset_ctrl(struct unvme *u);
 int unvmed_create_adminq(struct unvme *u);
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes, uint8_t mps, uint8_t css);
-int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t vector);
+int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector);
 int unvmed_delete_cq(struct unvme *u, uint32_t qid);
 int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t cqid);
 int unvmed_delete_sq(struct unvme *u, uint32_t qid);

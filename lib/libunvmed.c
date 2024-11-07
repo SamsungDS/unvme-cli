@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later OR MIT
+#define _GNU_SOURCE
+
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
 
 #include <vfn/nvme.h>
 #include <vfn/support/atomic.h>
@@ -14,11 +18,19 @@
 
 int __unvmed_logfd = 0;
 
+struct unvme_cq_reaper;
+
+enum unvme_state {
+	UNVME_DISABLED	= 0,
+	UNVME_ENABLED,
+	UNVME_TEARDOWN,
+};
+
 struct unvme {
 	/* `ctrl` member must be the first member of `struct unvme` */
 	struct nvme_ctrl ctrl;
 
-	bool enabled;
+	enum unvme_state state;
 
 	int nr_sqs;
 	int nr_cqs;
@@ -32,8 +44,17 @@ struct unvme {
 	struct list_head ns_list;
 	int nr_ns;
 
+	int *efds;
+	int nr_efds;
+	struct unvme_cq_reaper *reapers;
+
 	struct list_node list;
 };
+
+static inline bool unvme_is_enabled(struct unvme *u)
+{
+	return u->state == UNVME_ENABLED;
+}
 
 struct __unvme_ns {
 	unvme_declare_ns();
@@ -58,6 +79,55 @@ struct __unvme_cq {
 	struct list_node list;
 };
 #define __to_cq(ucq)		((struct unvme_cq *)(ucq))
+
+/* Reaped CQ */
+struct unvme_rcq {
+	struct nvme_cqe *cqe;
+	int qsize;
+	uint16_t head;
+	uint16_t tail;
+};
+
+struct unvme_cq_reaper {
+	int epoll_fd;
+	int efd;
+	pthread_t th;
+	struct unvme_rcq rcq;
+};
+
+static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
+{
+	struct unvme *u = ucq->u;
+
+	if (!unvmed_cq_irq_enabled(ucq))
+		return NULL;
+
+	return &u->reapers[unvmed_cq_iv(ucq)].rcq;
+}
+
+static int unvmed_rcq_push(struct unvme_rcq *q, struct nvme_cqe *cqe)
+{
+	uint16_t tail = atomic_load_acquire(&q->tail);
+
+	if ((tail + 1) % q->qsize == atomic_load_acquire(&q->head))
+		return -EAGAIN;
+
+	q->cqe[tail] = *cqe;
+	atomic_store_release(&q->tail, (tail + 1) % q->qsize);
+	return 0;
+}
+
+static int unvmed_rcq_pop(struct unvme_rcq *q, struct nvme_cqe *cqe)
+{
+	uint16_t head = atomic_load_acquire(&q->head);
+
+	if (head == atomic_load_acquire(&q->tail))
+		return -ENOENT;
+
+	*cqe = q->cqe[head];
+	atomic_store_release(&q->head, (head + 1) % q->qsize);
+	return 0;
+}
 
 enum unvme_cmd_state {
 	UNVME_CMD_S_INIT		= 0,
@@ -257,6 +327,23 @@ static struct __unvme_cq *__unvmed_get_cq(struct unvme *u, uint32_t qid)
 	return ucq;
 }
 
+int unvmed_cq_wait_irq(struct unvme *u, int vector)
+{
+	struct epoll_event evs[1];
+	uint64_t irq;
+	int ret;
+
+	if (vector < 0 || vector >= u->nr_efds) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	ret = epoll_wait(u->reapers[vector].epoll_fd, evs, 1, -1);
+	if (ret <= 0)
+		return -1;
+	return eventfd_read(u->efds[vector], &irq);
+}
+
 struct unvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid)
 {
 	struct __unvme_sq *usq = __unvmed_get_sq(u, qid);
@@ -273,6 +360,76 @@ struct unvme_cq *unvmed_get_cq(struct unvme *u, uint32_t qid)
 	if (ucq && ucq->enabled)
 		return __to_cq(ucq);
 	return NULL;
+}
+
+static void __unvmed_free_irqs(struct unvme *u)
+{
+	int vector;
+
+	for (vector = 0; vector < u->nr_efds; vector++) {
+		struct unvme_cq_reaper *r = &u->reapers[vector];
+
+		if (r->th) {
+			/*
+			 * Wake up the blocking threads waiting for the
+			 * interrupt events from the device.
+			 */
+			eventfd_write(r->efd, 1);
+			pthread_join(r->th, NULL);
+		}
+
+		close(r->efd);
+		close(r->epoll_fd);
+	}
+
+	free(u->reapers);
+	u->reapers = NULL;
+
+	free(u->efds);
+	u->efds = NULL;
+	u->nr_efds = 0;
+}
+
+static int unvmed_init_irqs(struct unvme *u)
+{
+	int nr_irqs = u->ctrl.pci.dev.irq_info.count;
+	int vector;
+
+	u->efds = malloc(sizeof(int) * nr_irqs);
+	if (!u->efds)
+		return -1;
+
+	u->nr_efds = nr_irqs;
+	u->reapers = calloc(u->nr_efds, sizeof(struct unvme_cq_reaper));
+
+	for (vector = 0; vector < nr_irqs; vector++) {
+		struct unvme_cq_reaper *r = &u->reapers[vector];
+		struct epoll_event e;
+
+		u->efds[vector] = eventfd(0, EFD_CLOEXEC | EFD_SEMAPHORE);
+		r->epoll_fd = epoll_create1(0);
+		r->efd = u->efds[vector];
+
+		e.events = EPOLLIN;
+		e.data.fd = r->efd;
+		epoll_ctl(r->epoll_fd, EPOLL_CTL_ADD, r->efd, &e);
+	}
+
+	if (vfio_set_irq(&u->ctrl.pci.dev, u->efds, nr_irqs)) {
+		__unvmed_free_irqs(u);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int unvmed_free_irqs(struct unvme *u)
+{
+	if (vfio_disable_irq(&u->ctrl.pci.dev))
+		return -1;
+
+	__unvmed_free_irqs(u);
+	return 0;
 }
 
 /*
@@ -301,6 +458,15 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 		free(u);
 		return NULL;
 	}
+
+	if (unvmed_init_irqs(u)) {
+		unvmed_log_err("failed to initialize IRQs");
+
+		nvme_close(&u->ctrl);
+		free(u);
+		return NULL;
+	}
+
 
 	assert(u->ctrl.opts.nsqr == opts.nsqr);
 	assert(u->ctrl.opts.ncqr == opts.ncqr);
@@ -332,6 +498,7 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	pthread_rwlock_init(&u->cq_list_lock, NULL);
 	list_head_init(&u->ns_list);
 	list_add(&unvme_list, &u->list);
+
 	return u;
 }
 
@@ -465,6 +632,9 @@ void unvmed_free_ctrl(struct unvme *u)
 	struct __unvme_ns *ns, *next_ns;
 	struct __unvme_sq *usq, *next_usq;
 	struct __unvme_cq *ucq, *next_ucq;
+
+	u->state = UNVME_TEARDOWN;
+	unvmed_free_irqs(u);
 
 	nvme_close(&u->ctrl);
 
@@ -693,7 +863,66 @@ void unvmed_reset_ctrl(struct unvme *u)
 	unvmed_cancel_sq_all(u);
 
 	unvmed_unquiesce_sq_all(u);
-	u->enabled = false;
+	u->state = UNVME_DISABLED;
+}
+
+static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
+					      struct unvme_cq *ucq);
+static void *unvmed_rcq_run(void *opaque)
+{
+	struct unvme_cq *ucq = opaque;
+	struct unvme *u = ucq->u;
+	struct nvme_cqe *cqe;
+	struct unvme_rcq *rcq = unvmed_rcq_from_ucq(ucq);
+	int vector = unvmed_cq_iv(ucq);
+	int ret;
+
+	unvmed_log_info("%s: reaped CQ thread started (vector=%d, tid=%d)",
+			unvmed_bdf(u), vector, gettid());
+
+	while (true) {
+		if (unvmed_cq_wait_irq(u, vector))
+			goto out;
+
+		if (u->state == UNVME_TEARDOWN)
+			goto out;
+
+		while (true) {
+			cqe = unvmed_get_completion(u, ucq);
+			if (!cqe)
+				break;
+
+			do {
+				ret = unvmed_rcq_push(rcq, cqe);
+			} while (ret == -EAGAIN);
+
+			nvme_cq_update_head(ucq->q);
+		}
+	}
+
+out:
+	unvmed_log_info("%s: reaped CQ thread terminated (vector=%d, tid=%d)",
+			unvmed_bdf(u), vector, gettid());
+
+	pthread_exit(NULL);
+}
+
+static void unvmed_rcq_init(struct unvme_cq *ucq)
+{
+	struct unvme *u = ucq->u;
+	int vector = unvmed_cq_iv(ucq);
+	struct unvme_cq_reaper *r = &u->reapers[vector];
+	const int qsize = 256;  /* XXX: Currently 256 qsize is supported */
+
+	/*
+	 * Initialize once for each vector even CQ is different.
+	 */
+	if (!r->th) {
+		r->rcq.cqe = malloc(sizeof(struct nvme_cqe) * qsize);
+		r->rcq.qsize = qsize;
+
+		pthread_create(&r->th, NULL, unvmed_rcq_run, (void *)ucq);
+	}
 }
 
 int unvmed_create_adminq(struct unvme *u)
@@ -701,7 +930,7 @@ int unvmed_create_adminq(struct unvme *u)
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 
-	if (u->enabled) {
+	if (unvme_is_enabled(u)) {
 		errno = EPERM;
 		return -1;
 	}
@@ -731,8 +960,12 @@ int unvmed_create_adminq(struct unvme *u)
 	usq->ucq = __to_cq(ucq);
 	usq->enabled = true;
 
+	ucq->u = u;
 	ucq->q = &u->ctrl.cq[0];
 	ucq->enabled = true;
+
+	if (unvmed_cq_irq_enabled(ucq))
+		unvmed_rcq_init(ucq);
 
 	return 0;
 }
@@ -760,16 +993,15 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 			break;
 	}
 
-	u->enabled = true;
+	u->state = UNVME_ENABLED;
 	return 0;
 }
 
-int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
-		    uint32_t vector)
+int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 {
 	struct unvme_cq *ucq;
 
-	if (!u->enabled) {
+	if (!unvme_is_enabled(u)) {
 		errno = EPERM;
 		return -1;
 	}
@@ -783,8 +1015,13 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
+	ucq->u = u;
 	ucq->q = &u->ctrl.cq[qid];
 	ucq->enabled = true;
+
+	if (unvmed_cq_irq_enabled(ucq))
+		unvmed_rcq_init(ucq);
+
 	return 0;
 }
 
@@ -827,7 +1064,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 
-	if (!u->enabled) {
+	if (!unvme_is_enabled(u)) {
 		errno = EPERM;
 		return -1;
 	}
@@ -984,16 +1221,28 @@ struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd)
 int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 		      struct nvme_cqe *cqes, int nr_cqes, bool nowait)
 {
-	struct nvme_cqe *cqe;
+	struct unvme_rcq *rcq = unvmed_rcq_from_ucq(ucq);
+	struct nvme_cqe __cqe;
+	struct nvme_cqe *cqe = &__cqe;
 	int nr_cmds;
 	int nr = 0;
+	int ret;
 
 	while (nr < nr_cqes) {
-		cqe = unvmed_get_completion(u, ucq);
-		if (!cqe) {
-			if (nowait)
+		if (unvmed_cq_irq_enabled(ucq)) {
+			do {
+				ret = unvmed_rcq_pop(rcq, &__cqe);
+			} while (ret == -ENOENT && !nowait);
+
+			if (ret)
 				break;
-			continue;
+		} else  {
+			cqe = unvmed_get_completion(u, ucq);
+			if (!cqe) {
+				if (nowait)
+					break;
+				continue;
+			}
 		}
 
 		memcpy(&cqes[nr++], cqe, sizeof(*cqe));
@@ -1027,15 +1276,18 @@ int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 	ret = n;
 
 	if (ret >= max) {
-		nvme_cq_update_head(ucq->q);
+		if (!unvmed_cq_irq_enabled(ucq))
+			nvme_cq_update_head(ucq->q);
 		return ret;
 	}
 
 	n = __unvmed_cq_run_n(u, ucq, cqes + n, max - n, true);
 	if (n < 0)
 		return -1;
-	else if (n > 0)
-		nvme_cq_update_head(ucq->q);
+	else if (n > 0) {
+		if (!unvmed_cq_irq_enabled(ucq))
+			nvme_cq_update_head(ucq->q);
+	}
 
 	return ret + n;
 }
