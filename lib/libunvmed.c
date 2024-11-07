@@ -921,7 +921,9 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	nvme_rq_post(cmd->rq, (union nvme_cmd *)sqe);
 
 	cmd->state = UNVME_CMD_S_SUBMITTED;
+#ifdef UNVME_DEBUG
 	unvmed_log_cmd_post(unvmed_bdf(cmd->u), cmd->rq->sq->id, sqe);
+#endif
 
 	if (!(flags & UNVMED_CMD_F_NODB))
 		nvme_sq_update_tail(cmd->rq->sq);
@@ -972,7 +974,9 @@ struct nvme_cqe *unvmed_cmd_cmpl(struct unvme_cmd *cmd)
 	nvme_rq_spin(cmd->rq, &cmd->cqe);
 
 	cmd->state = UNVME_CMD_S_COMPLETED;
+#ifdef UNVME_DEBUG
 	unvmed_log_cmd_cmpl(unvmed_bdf(cmd->u), &cmd->cqe);
+#endif
 
 	return &cmd->cqe;
 }
@@ -993,7 +997,9 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 		}
 
 		memcpy(&cqes[nr++], cqe, sizeof(*cqe));
+#ifdef UNVME_DEBUG
 		unvmed_log_cmd_cmpl(unvmed_bdf(u), cqe);
+#endif
 	}
 
 	do {
