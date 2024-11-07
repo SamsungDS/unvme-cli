@@ -1124,9 +1124,14 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_print_help(__stdout, argv[1], desc, argtable);
 
 	libfio = unvmed_get_libfio();
-	if (!libfio)
-		unvme_err_return(EINVAL, "failed to get fio shared object. "
-				"'unvme start --with-fio=<fio>' required.");
+	if (!libfio) {
+		/*
+		 * If user does not give --with-fio=<path> option to 'unvme
+		 * start' command, it will find out available 'fio.so' shared
+		 * object in the current system by default.
+		 */
+		libfio = strdup("fio.so");
+	}
 
 	return unvmed_run_fio(argc - 1, &argv[1], libfio, unvme_msg_pwd(msg));
 }
