@@ -1,6 +1,6 @@
 project('unvme-cli', 'c',
         version: '0.1',
-        license: 'GPL-2.0-or-later',
+        license: 'GPL-2.0-only',
         )
 
 static = get_option('static')
