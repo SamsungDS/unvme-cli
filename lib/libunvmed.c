@@ -534,6 +534,7 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 		format_idx = ((id_ns->flbas & 0xf) +
 		       (((id_ns->flbas >> 5) & 0x3) << 4));
 
+	ns->u = u;
 	ns->nsid = nsid;
 	ns->lba_size = 1 << id_ns->lbaf[format_idx].ds;
 	ns->nr_lbas = le64_to_cpu((uint64_t)id_ns->nsze);
