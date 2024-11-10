@@ -241,10 +241,17 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		return ret;
 	}
 
-	ret = unvmed_map_vaddr(u, td->orig_buffer, ld->orig_buffer_size,
-			&ld->orig_buffer_iova, 0);
-	if (ret)
-		libunvmed_log("failed to map io_u buffers to iommu\n");
+	/*
+	 * .open_file() is not called in trim-only workloads at all.  To avoid
+	 * 0-sized memory allocation, we should check the orig_buffer_size
+	 * here.
+	 */
+	if (ld->orig_buffer_size) {
+		ret = unvmed_map_vaddr(u, td->orig_buffer, ld->orig_buffer_size,
+				&ld->orig_buffer_iova, 0);
+		if (ret)
+			libunvmed_log("failed to map io_u buffers to iommu\n");
+	}
 
 	pthread_mutex_unlock(&g_serialize);
 	return ret;
@@ -262,9 +269,11 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 		return ret;
 	}
 
-	ret = unvmed_unmap_vaddr(ld->u, td->orig_buffer);
-	if (ret)
-		libunvmed_log("failed to unmap io_u buffers from iommu\n");
+	if (td->orig_buffer) {
+		ret = unvmed_unmap_vaddr(ld->u, td->orig_buffer);
+		if (ret)
+			libunvmed_log("failed to unmap io_u buffers from iommu\n");
+	}
 
 	free(ld->cqes);
 	free(ld);
