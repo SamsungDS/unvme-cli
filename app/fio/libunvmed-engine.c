@@ -401,8 +401,11 @@ static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 static int fio_libunvmed_commit(struct thread_data *td)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
+	int nr_sqes;
 
-	unvmed_sq_update_tail(ld->u, ld->usq);
+	nr_sqes = unvmed_sq_update_tail(ld->u, ld->usq);
+	io_u_mark_submit(td, nr_sqes);
+
 	return 0;
 }
 
