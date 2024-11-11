@@ -45,7 +45,7 @@ executable(
    'unvme-cmds.c',],
   dependencies: [vfn_lib, nvme_lib, unvmed_dep],
   link_with: [ccan_lib, argtable3_lib],
-  link_whole: [fio_lib, perf_lib, libunvmed],
+  link_whole: [fio_lib, perf_lib],
   include_directories: [ccan_inc, libunvmed_inc],
   install: true,
   install_dir: get_option('bindir'),
