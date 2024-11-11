@@ -22,3 +22,10 @@ unvmed_dep = declare_dependency(
   include_directories:  [ccan_inc, libunvmed_inc],
   link_with: libunvmed_so
 )
+
+pkgconfig = import('pkgconfig')
+pkgconfig.generate(
+  libunvmed_so,
+  version: '0.1',
+  description: 'unvme-cli daemon process library',
+)
