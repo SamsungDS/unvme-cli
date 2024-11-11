@@ -121,6 +121,7 @@ struct libunvmed_data {
 	unsigned int nr_queued;
 	struct nvme_cqe *cqes;
 
+	uint32_t cdw12_flags[DDIR_RWDIR_CNT];
 	uint8_t write_opcode;
 };
 
@@ -416,7 +417,8 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	sqe.opcode = (io_u->ddir == DDIR_READ) ? nvme_cmd_read : ld->write_opcode;
 	sqe.nsid = cpu_to_le32(ns->nsid);
 	sqe.slba = cpu_to_le64(slba);
-	sqe.nlb = cpu_to_le16(nlb);
+	((union nvme_cmd *)&sqe)->cdw12 =
+		cpu_to_le32(ld->cdw12_flags[io_u->ddir] | nlb);
 
 	/*
 	 * XXX: Making a decision whether PRP or SGL is to be used should be
