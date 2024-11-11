@@ -131,7 +131,7 @@ struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe)
 int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes, int nr_cqes, bool nowait);
 int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
 int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes, int min, int max);
-void unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq);
+int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq);
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid, struct nvme_cqe **cqes);
 int __unvmed_map_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, uint64_t iova, size_t len);
 

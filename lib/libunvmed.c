@@ -1306,20 +1306,21 @@ static int unvmed_nr_pending_sqes(struct unvme_sq *usq)
 	return nr_sqes;
 }
 
-void unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
+int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
 {
 	int nr_sqes;
 	int nr_cmds;
 
 	nr_sqes = unvmed_nr_pending_sqes(usq);
 	if (!nr_sqes)
-		return;
+		return 0;
 
 	do {
 		nr_cmds = u->nr_cmds;
 	} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds + nr_sqes));
 
 	nvme_sq_update_tail(usq->q);
+	return nr_sqes;
 }
 
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
