@@ -332,17 +332,9 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	uint64_t slba;
 	uint32_t nlb;
 
-	int ret = FIO_Q_QUEUED;
-
-	if (unvmed_sq_try_enter(ld->usq))
-		return FIO_Q_BUSY;
-
-	if (!ld->usq->enabled)
-		goto retry;
-
 	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq));
 	if (!cmd)
-		goto retry;
+		return FIO_Q_BUSY;
 
 	slba = io_u->offset >> ilog2(ns->lba_size);
 	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
@@ -360,18 +352,12 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	if (__unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, iova,
 				io_u->xfer_buflen)) {
 		unvmed_cmd_free(cmd);
-		ret = -errno;
-		goto out;
+		return -errno;
 	}
 
 	unvmed_cmd_set_opaque(cmd, io_u);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
-out:
-	unvmed_sq_exit(ld->usq);
-	return ret;
-retry:
-	unvmed_sq_exit(ld->usq);
-	return FIO_Q_BUSY;
+	return FIO_Q_QUEUED;
 }
 
 static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
@@ -383,6 +369,14 @@ static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 	if (ld->nr_queued == td->o.iodepth)
 		return FIO_Q_BUSY;
 
+	if (unvmed_sq_try_enter(ld->usq))
+		return FIO_Q_BUSY;
+
+	if (!ld->usq->enabled) {
+		unvmed_sq_exit(ld->usq);
+		return FIO_Q_BUSY;
+	}
+
 	fio_ro_check(td, io_u);
 
 	switch (io_u->ddir) {
@@ -391,10 +385,13 @@ static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 		ret = fio_libunvmed_rw(td, io_u);
 		break;
 	default:
+		unvmed_sq_exit(ld->usq);
 		return -ENOTSUP;
 	}
 
 	ld->nr_queued++;
+
+	unvmed_sq_exit(ld->usq);
 	return ret;
 }
 
