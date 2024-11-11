@@ -6,7 +6,6 @@ fio_inc += libunvmed_inc
 
 fio_src = [
   'fio.c',
-  'libunvmed-engine.c',
 ]
 
 fio_lib = static_library(
@@ -14,4 +13,20 @@ fio_lib = static_library(
   [fio_src],
   dependencies: [vfn_lib, nvme_lib, unvmed_dep],
   include_directories: fio_inc,
+)
+
+ioengine_lib = shared_library(
+  'unvmed-ioengine',
+  ['libunvmed-engine.c'],
+  override_options: ['b_lundef=false'],  # To remove -Wl,--no-undefined
+  dependencies: [nvme_lib, unvmed_dep],
+  include_directories: fio_inc,
+  install: true,
+)
+
+pkgconfig = import('pkgconfig')
+pkgconfig.generate(
+  ioengine_lib,
+  version: '0.1',
+  description: 'fio ioengine plugin for unvme-cli daemon process',
 )

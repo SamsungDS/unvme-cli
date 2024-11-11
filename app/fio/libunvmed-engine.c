@@ -486,7 +486,12 @@ static struct ioengine_ops ioengine_libunvmed_cmd = {
 	.getevents = fio_libunvmed_getevents,
 };
 
-void *fio_libunvmed(void)
+static void fio_init fio_libunvmed_register(void)
 {
-	return &ioengine_libunvmed_cmd;
+	register_ioengine(&ioengine_libunvmed_cmd);
+}
+
+static void fio_exit fio_libunvmed_unregister(void)
+{
+	unregister_ioengine(&ioengine_libunvmed_cmd);
 }
