@@ -1153,6 +1153,16 @@ void unvmed_cmd_set_opaque(struct unvme_cmd *cmd, void *opaque)
 	cmd->opaque = opaque;
 }
 
+void *unvmed_cmd_buf(struct unvme_cmd *cmd)
+{
+	return cmd->vaddr;
+}
+
+void unvmed_cmd_set_buf(struct unvme_cmd *cmd, void *buf)
+{
+	cmd->vaddr = buf;
+}
+
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags)
 {
