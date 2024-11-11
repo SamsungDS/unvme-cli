@@ -26,6 +26,18 @@ struct libunvmed_options {
 	struct thread_data *td;
 	unsigned int nsid;
 	unsigned int sqid;
+	unsigned int write_mode;
+};
+
+/*
+ * write_mode type ported from io_uring_cmd with cmd_type=nvme.  We don't
+ * rename the enum values for the future merge in upstream.
+ */
+enum uring_cmd_write_mode {
+	FIO_URING_CMD_WMODE_WRITE = 1,
+	FIO_URING_CMD_WMODE_UNCOR,
+	FIO_URING_CMD_WMODE_ZEROES,
+	FIO_URING_CMD_WMODE_VERIFY,
 };
 
 static struct fio_option options[] = {
@@ -48,6 +60,35 @@ static struct fio_option options[] = {
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
+	},
+	/* --ioengine=io_uring_cmd --cmd_type=nvme options */
+	{
+		.name	= "write_mode",
+		.lname	= "Additional Write commands support (Write Uncorrectable, Write Zeores)",
+		.type	= FIO_OPT_STR,
+		.off1	= offsetof(struct libunvmed_options, write_mode),
+		.help	= "Issue Write Uncorrectable or Zeroes command instead of Write command",
+		.def	= "write",
+		.posval = {
+			  { .ival = "write",
+			    .oval = FIO_URING_CMD_WMODE_WRITE,
+			    .help = "Issue Write commands for write operations"
+			  },
+			  { .ival = "uncor",
+			    .oval = FIO_URING_CMD_WMODE_UNCOR,
+			    .help = "Issue Write Uncorrectable commands for write operations"
+			  },
+			  { .ival = "zeroes",
+			    .oval = FIO_URING_CMD_WMODE_ZEROES,
+			    .help = "Issue Write Zeroes commands for write operations"
+			  },
+			  { .ival = "verify",
+			    .oval = FIO_URING_CMD_WMODE_VERIFY,
+			    .help = "Issue Verify commands for write operations"
+			  },
+		},
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_INVALID,
 	},
 	{
 		.name = NULL,
@@ -79,6 +120,8 @@ struct libunvmed_data {
 
 	unsigned int nr_queued;
 	struct nvme_cqe *cqes;
+
+	uint8_t write_opcode;
 };
 
 static pthread_mutex_t g_serialize = PTHREAD_MUTEX_INITIALIZER;
@@ -196,6 +239,8 @@ out:
 
 static int fio_libunvmed_init(struct thread_data *td)
 {
+	struct libunvmed_data *ld;
+	struct libunvmed_options *o = td->eo;
 	int ret;
 
 	ret = libunvmed_check_constraints(td);
@@ -209,6 +254,25 @@ static int fio_libunvmed_init(struct thread_data *td)
 	ret = libunvmed_init_data(td);
 	if (ret)
 		goto unlock;
+
+	ld = td->io_ops_data;
+
+	if (td_write(td)) {
+		switch (o->write_mode) {
+		case FIO_URING_CMD_WMODE_UNCOR:
+			ld->write_opcode = nvme_cmd_write_uncor;
+			break;
+		case FIO_URING_CMD_WMODE_ZEROES:
+			ld->write_opcode = nvme_cmd_write_zeroes;
+			break;
+		case FIO_URING_CMD_WMODE_VERIFY:
+			ld->write_opcode = nvme_cmd_verify;
+			break;
+		default:
+			ld->write_opcode = nvme_cmd_write;
+			break;
+		}
+	}
 
 	pthread_mutex_unlock(&g_serialize);
 	return 0;
@@ -259,6 +323,11 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 				&ld->orig_buffer_iova, 0);
 		if (ret)
 			libunvmed_log("failed to map io_u buffers to iommu\n");
+	}
+
+	if (o->write_mode != FIO_URING_CMD_WMODE_WRITE && !td_write(td)) {
+		libunvmed_log("'readwrite=|rw=' has no write\n");
+		return -1;
 	}
 
 	pthread_mutex_unlock(&g_serialize);
@@ -344,7 +413,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	slba = io_u->offset >> ilog2(ns->lba_size);
 	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
 
-	sqe.opcode = (io_u->ddir == DDIR_READ) ? nvme_cmd_read : nvme_cmd_write;
+	sqe.opcode = (io_u->ddir == DDIR_READ) ? nvme_cmd_read : ld->write_opcode;
 	sqe.nsid = cpu_to_le32(ns->nsid);
 	sqe.slba = cpu_to_le64(slba);
 	sqe.nlb = cpu_to_le16(nlb);
