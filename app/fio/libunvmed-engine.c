@@ -32,6 +32,8 @@ struct libunvmed_options {
 	 */
 	unsigned int write_mode;
 	unsigned int deac;
+	unsigned int readfua;
+	unsigned int writefua;
 };
 
 /*
@@ -67,6 +69,26 @@ static struct fio_option options[] = {
 		.group = FIO_OPT_G_INVALID,
 	},
 	/* --ioengine=io_uring_cmd --cmd_type=nvme options */
+	{
+		.name	= "readfua",
+		.lname	= "Read fua flag support",
+		.type	= FIO_OPT_BOOL,
+		.off1	= offsetof(struct libunvmed_options, readfua),
+		.help	= "Set FUA flag (force unit access) for all Read operations",
+		.def	= "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_INVALID,
+	},
+	{
+		.name	= "writefua",
+		.lname	= "Write fua flag support",
+		.type	= FIO_OPT_BOOL,
+		.off1	= offsetof(struct libunvmed_options, writefua),
+		.help	= "Set FUA flag (force unit access) for all Write operations",
+		.def	= "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_INVALID,
+	},
 	{
 		.name	= "write_mode",
 		.lname	= "Additional Write commands support (Write Uncorrectable, Write Zeores)",
@@ -291,6 +313,11 @@ static int fio_libunvmed_init(struct thread_data *td)
 			break;
 		}
 	}
+
+	if (o->readfua)
+		ld->cdw12_flags[DDIR_READ] = NVME_IO_FUA << 16;
+	if (o->writefua)
+		ld->cdw12_flags[DDIR_WRITE] = NVME_IO_FUA << 16;
 
 	pthread_mutex_unlock(&g_serialize);
 	return 0;
