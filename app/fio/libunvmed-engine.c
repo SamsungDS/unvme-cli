@@ -360,6 +360,65 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	return FIO_Q_QUEUED;
 }
 
+static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
+					    struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+
+	struct unvme_ns *ns = ld->ns;
+	struct unvme_cmd *cmd;
+	union nvme_cmd sqe = {0, };
+
+	const size_t dsm_range_size = 4096;
+	struct nvme_dsm_range *range;
+	uint64_t iova;
+	uint64_t slba;
+	uint32_t nlb;
+	void *buf;
+
+	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq));
+	if (!cmd)
+		return FIO_Q_BUSY;
+
+	buf = aligned_alloc(getpagesize(), dsm_range_size);
+	if (!buf) {
+		unvmed_cmd_free(cmd);
+		return FIO_Q_BUSY;
+	}
+
+	unvmed_cmd_set_buf(cmd, buf);
+	range = buf;
+
+	slba = io_u->offset >> ilog2(ns->lba_size);
+	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size));
+
+	sqe.opcode = nvme_cmd_dsm;
+	sqe.nsid = cpu_to_le32(ns->nsid);
+	sqe.cdw10 = 0;  /* XXX: Currently single-region of DSM is supported */
+	sqe.cdw11 = NVME_DSMGMT_AD;
+
+	range->cattr = 0;
+	range->nlb = cpu_to_le16(nlb);
+	range->slba = cpu_to_le64(slba);
+
+	if (unvmed_map_vaddr(ns->u, buf, dsm_range_size, &iova, 0x0)) {
+		free(buf);
+		unvmed_cmd_free(cmd);
+		return -errno;
+	}
+
+	if (__unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, iova,
+				io_u->xfer_buflen)) {
+		free(buf);
+		unvmed_cmd_free(cmd);
+		return -errno;
+	}
+
+	unvmed_cmd_set_opaque(cmd, io_u);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
+	return FIO_Q_QUEUED;
+}
+
 static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 					  struct io_u *io_u)
 {
@@ -383,6 +442,9 @@ static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 	case DDIR_READ:
 	case DDIR_WRITE:
 		ret = fio_libunvmed_rw(td, io_u);
+		break;
+	case DDIR_TRIM:
+		ret = fio_libunvmed_trim(td, io_u);
 		break;
 	default:
 		unvmed_sq_exit(ld->usq);
@@ -412,6 +474,7 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	struct unvme *u = ld->u;
 	struct nvme_cqe *cqe = &ld->cqes[event];
 	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
+	void *buf = unvmed_cmd_buf(cmd);
 	struct io_u *io_u;
 
 	assert(cmd != NULL);
@@ -423,7 +486,16 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	else
 		io_u->error = le16_to_cpu(cqe->sfp) >> 1;
 
-	__unvmed_cmd_free(cmd);
+	if (io_u->ddir == DDIR_TRIM) {
+		/*
+		 * TRIM workloads does not use td->orig_buffer, so we should
+		 * free up the command instance entirely with freeing the
+		 * buffer from here in ioengine, not the library.
+		 */
+		unvmed_cmd_free(cmd);
+		free(buf);
+	} else
+		__unvmed_cmd_free(cmd);
 
 	ld->nr_queued--;
 	return io_u;
