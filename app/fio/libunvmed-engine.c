@@ -26,7 +26,12 @@ struct libunvmed_options {
 	struct thread_data *td;
 	unsigned int nsid;
 	unsigned int sqid;
+
+	/*
+	 * io_uring_cmd ioengine options
+	 */
 	unsigned int write_mode;
+	unsigned int deac;
 };
 
 /*
@@ -87,6 +92,16 @@ static struct fio_option options[] = {
 			    .help = "Issue Verify commands for write operations"
 			  },
 		},
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_INVALID,
+	},
+	{
+		.name	= "deac",
+		.lname	= "Deallocate bit for write zeroes command",
+		.type	= FIO_OPT_BOOL,
+		.off1	= offsetof(struct libunvmed_options, deac),
+		.help	= "Set DEAC (deallocate) flag for write zeroes command",
+		.def	= "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group	= FIO_OPT_G_INVALID,
 	},
@@ -265,6 +280,8 @@ static int fio_libunvmed_init(struct thread_data *td)
 			break;
 		case FIO_URING_CMD_WMODE_ZEROES:
 			ld->write_opcode = nvme_cmd_write_zeroes;
+			if (o->deac)
+				ld->cdw12_flags[DDIR_WRITE] = NVME_IO_DEAC << 16;
 			break;
 		case FIO_URING_CMD_WMODE_VERIFY:
 			ld->write_opcode = nvme_cmd_verify;
