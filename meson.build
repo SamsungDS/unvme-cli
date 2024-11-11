@@ -15,9 +15,6 @@ endif
 
 conf = configuration_data()
 
-args += ['-g']
-link_args += ['-g']
-
 if buildtype == 'debug'
   args += ['-p']
   link_args += ['-p']
