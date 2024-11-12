@@ -218,6 +218,14 @@ unlock:
 	return ret;
 }
 
+static void fio_libunvmed_cleanup(struct thread_data *td)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+
+	free(ld->cqes);
+	free(ld);
+}
+
 static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
@@ -274,9 +282,6 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 		if (ret)
 			libunvmed_log("failed to unmap io_u buffers from iommu\n");
 	}
-
-	free(ld->cqes);
-	free(ld);
 
 	pthread_mutex_unlock(&g_serialize);
 	return ret;
@@ -545,6 +550,7 @@ static struct ioengine_ops ioengine_libunvmed_cmd = {
 			FIO_MEMALIGN | FIO_RAWIO,
 
 	.init = fio_libunvmed_init,
+	.cleanup = fio_libunvmed_cleanup,
 	.open_file = fio_libunvmed_open_file,
 	.close_file = fio_libunvmed_close_file,
 	.get_file_size = fio_libunvmed_get_file_size,
