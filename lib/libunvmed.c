@@ -338,9 +338,18 @@ int unvmed_cq_wait_irq(struct unvme *u, int vector)
 		return -1;
 	}
 
-	ret = epoll_wait(u->reapers[vector].epoll_fd, evs, 1, -1);
-	if (ret <= 0)
+	/*
+	 * epoll_wait might wake up due to signal received with errno EINTR.
+	 * To prevent abnormal exit out of epoll_wait, we should continue
+	 * if errno == EINTR.
+	 */
+	do {
+		ret = epoll_wait(u->reapers[vector].epoll_fd, evs, 1, -1);
+	} while (ret < 0 && errno == EINTR);
+
+	if (ret < 0)
 		return -1;
+
 	return eventfd_read(u->efds[vector], &irq);
 }
 
