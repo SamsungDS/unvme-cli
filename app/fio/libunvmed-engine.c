@@ -618,6 +618,10 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 		__unvmed_cmd_free(cmd);
 
 	ld->nr_queued--;
+
+	if ((int)io_u->error > 0)
+		io_u_set(td, io_u, IO_U_F_DEVICE_ERROR);
+
 	return io_u;
 }
 
@@ -656,6 +660,35 @@ static int fio_libunvmed_get_file_size(struct thread_data *td, struct fio_file *
 
 	return 0;
 }
+
+static char *fio_libunvmed_errdetails(struct thread_data *td, struct io_u *io_u)
+{
+	unsigned int sct = (io_u->error >> 8) & 0x7;
+	unsigned int sc = io_u->error & 0xff;
+#define MAXERRDETAIL 1024
+#define MAXMSGCHUNK 128
+	char *msg, msgchunk[MAXMSGCHUNK];
+
+	if (!(io_u->flags & IO_U_F_DEVICE_ERROR))
+		return NULL;
+
+	msg = calloc(1, MAXERRDETAIL);
+	strcpy(msg, "io_uring_cmd: ");
+
+	snprintf(msgchunk, MAXMSGCHUNK, "%s: ", io_u->file->file_name);
+	strlcat(msg, msgchunk, MAXERRDETAIL);
+
+	strlcat(msg, "cq entry status (", MAXERRDETAIL);
+
+	snprintf(msgchunk, MAXMSGCHUNK, "sct=0x%02x; ", sct);
+	strlcat(msg, msgchunk, MAXERRDETAIL);
+
+	snprintf(msgchunk, MAXMSGCHUNK, "sc=0x%02x)", sc);
+	strlcat(msg, msgchunk, MAXERRDETAIL);
+
+	return msg;
+}
+
 static struct ioengine_ops ioengine_libunvmed_cmd = {
 	.name = "libunvmed",
 	.version = FIO_IOOPS_VERSION,
@@ -677,6 +710,7 @@ static struct ioengine_ops ioengine_libunvmed_cmd = {
 	.commit = fio_libunvmed_commit,
 	.event = fio_libunvmed_event,
 	.getevents = fio_libunvmed_getevents,
+	.errdetails = fio_libunvmed_errdetails,
 };
 
 static void fio_init fio_libunvmed_register(void)
