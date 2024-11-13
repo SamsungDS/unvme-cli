@@ -429,6 +429,15 @@ static void __unvmed_free_irqs(struct unvme *u)
 	u->nr_efds = 0;
 }
 
+static int unvmed_init_irq(struct unvme *u, int vector)
+{
+	if (vfio_set_irq(&u->ctrl.pci.dev, &u->efds[vector], vector, 1)) {
+		unvmed_log_err("failed to set IRQ for vector %d", vector);
+		return -1;
+	}
+	return 0;
+}
+
 static int unvmed_init_irqs(struct unvme *u)
 {
 	int nr_irqs = u->ctrl.pci.dev.irq_info.count;
@@ -454,17 +463,12 @@ static int unvmed_init_irqs(struct unvme *u)
 		epoll_ctl(r->epoll_fd, EPOLL_CTL_ADD, r->efd, &e);
 	}
 
-	if (vfio_set_irq(&u->ctrl.pci.dev, u->efds, nr_irqs)) {
-		__unvmed_free_irqs(u);
-		return -1;
-	}
-
 	return 0;
 }
 
 static int unvmed_free_irqs(struct unvme *u)
 {
-	if (vfio_disable_irq(&u->ctrl.pci.dev))
+	if (vfio_disable_irq_all(&u->ctrl.pci.dev))
 		return -1;
 
 	__unvmed_free_irqs(u);
@@ -1112,6 +1116,11 @@ int unvmed_create_adminq(struct unvme *u)
 	if (!ucq)
 		return -1;
 
+	if (unvmed_init_irq(u, 0)) {
+		unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
+		return -1;
+	}
+
 	/*
 	 * Do not free() allocated usq and ucq instances unless user gives
 	 * 'unvme del <bdf>' to the daemon process.
@@ -1172,6 +1181,11 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	ucq = unvmed_init_ucq(u, qid);
 	if (!ucq)
 		return -1;
+
+	if (vector >= 0 && unvmed_init_irq(u, vector)) {
+		unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
+		return -1;
+	}
 
 	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector)) {
 		unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
