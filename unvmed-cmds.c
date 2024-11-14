@@ -1213,7 +1213,15 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 	if (!nr_sqes)
 		return 0;
 
-	unvme_pr_err("waiting for %d CQ entries ...\n", nr_sqes);
+	for (int i = 0; i < nr_sqes; i++) {
+		struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, &cqes[i]);
+
+		if (cmd->vaddr)
+			pgunmap(cmd->vaddr, cmd->len);
+
+		unvmed_cmd_free(cmd);
+	}
+
 	for (int i = 0; i < nr_sqes; i++) {
 		unvme_pr_cqe(&cqes[i]);
 	}

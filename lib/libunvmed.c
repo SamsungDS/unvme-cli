@@ -1381,8 +1381,6 @@ int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
 
 	nvme_sq_update_tail(usq->q);
 	ret = unvmed_cq_run_n(u, usq->ucq, *cqes, nr_sqes, nr_sqes);
-	for (int i = 0; ret > 0 && i < ret; i++)
-		unvmed_cmd_free(unvmed_get_cmd_from_cqe(u, *cqes + i));
 
 	if (ret != nr_sqes)
 		return -1;
@@ -1407,6 +1405,7 @@ static int unvmed_map_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, void *vadd
 		return -1;
 
 	cmd->vaddr = vaddr;
+	cmd->len = len;
 
 	return __unvmed_map_prp(cmd, sqe, iova, len);
 }

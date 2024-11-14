@@ -119,6 +119,7 @@ struct unvme_cmd {
 	 * replaced to iommu_dmabuf in libvfn.
 	 */
 	void *vaddr;
+	ssize_t len;
 
 	void *opaque;
 };
