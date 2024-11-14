@@ -439,7 +439,7 @@ int main(int argc, char *argv[])
 	msg.msg.argc = argc;
 	for (int i = 0; i < msg.msg.argc; i++)
 		strcpy(msg.msg.argv[i], argv[i]);
-	strncpy(msg.msg.bdf, bdf, UNVME_BDF_STRLEN);
+	memcpy(msg.msg.bdf, bdf, sizeof(bdf));
 	if (!getcwd(msg.msg.pwd, UNVME_PWD_STRLEN))
 		unvme_pr_return(1, "ERROR: failed to copy current working dir\n");
 
