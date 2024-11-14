@@ -26,6 +26,8 @@ enum unvme_state {
 	UNVME_TEARDOWN,
 };
 
+struct unvme_ctx;
+
 struct unvme {
 	/* `ctrl` member must be the first member of `struct unvme` */
 	struct nvme_ctrl ctrl;
@@ -47,6 +49,8 @@ struct unvme {
 	int *efds;
 	int nr_efds;
 	struct unvme_cq_reaper *reapers;
+
+	struct list_head ctx_list;
 
 	struct list_node list;
 };
@@ -93,6 +97,52 @@ struct unvme_cq_reaper {
 	int efd;
 	pthread_t th;
 	struct unvme_rcq rcq;
+};
+
+/*
+ * Driver context
+ */
+enum unvme_ctx_type {
+	UNVME_CTX_T_CTRL,
+	UNVME_CTX_T_SQ,
+	UNVME_CTX_T_CQ,
+	UNVME_CTX_T_NS,
+};
+
+struct unvme_ctx_ctrl {
+	uint8_t iosqes;
+	uint8_t iocqes;
+	uint8_t mps;
+	uint8_t css;
+};
+
+struct unvme_ctx_sq {
+	uint32_t qid;
+	uint32_t qsize;
+	uint32_t cqid;
+};
+
+struct unvme_ctx_cq {
+	uint32_t qid;
+	uint32_t qsize;
+	int vector;
+};
+
+struct unvme_ctx_ns {
+	uint32_t nsid;
+};
+
+struct unvme_ctx {
+	enum unvme_ctx_type type;
+
+	union {
+		struct unvme_ctx_ctrl ctrl;
+		struct unvme_ctx_sq sq;
+		struct unvme_ctx_cq cq;
+		struct unvme_ctx_ns ns;
+	};
+
+	struct list_node list;
 };
 
 static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
@@ -507,6 +557,7 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	pthread_rwlock_init(&u->cq_list_lock, NULL);
 	list_head_init(&u->ns_list);
 	list_add(&unvme_list, &u->list);
+	list_head_init(&u->ctx_list);
 
 	return u;
 }
@@ -1569,4 +1620,124 @@ int unvmed_passthru(struct unvme *u, uint32_t sqid, void *buf, size_t size,
 
 	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(cqe);
+}
+
+int unvmed_ctx_init(struct unvme *u)
+{
+	struct __unvme_sq *usq;
+	struct __unvme_cq *ucq;
+	struct __unvme_ns *ns;
+	struct unvme_ctx *ctx;
+	uint32_t cc;
+
+	if (!list_empty(&u->ctx_list)) {
+		unvmed_log_err("driver context has already been initialized");
+		errno = EEXIST;
+		return -1;
+	}
+
+	/*
+	 * XXX: Driver context for the controller should be managed in a single
+	 * rwlock instance for simplicity.
+	 */
+	ctx = malloc(sizeof(struct unvme_ctx));
+	ctx->type = UNVME_CTX_T_CTRL;
+
+	cc = unvmed_read32(u, NVME_REG_CC);
+	ctx->ctrl.iosqes = NVME_CC_IOSQES(cc);
+	ctx->ctrl.iocqes = NVME_CC_IOCQES(cc);
+	ctx->ctrl.mps = NVME_CC_MPS(cc);
+	ctx->ctrl.css = NVME_CC_CSS(cc);
+
+	list_add_tail(&u->ctx_list, &ctx->list);
+
+	list_for_each(&u->ns_list, ns, list) {
+		ctx = malloc(sizeof(struct unvme_ctx));
+
+		ctx->type = UNVME_CTX_T_NS;
+		ctx->ns.nsid = ns->nsid;
+
+		list_add_tail(&u->ctx_list, &ctx->list);
+	}
+
+	pthread_rwlock_rdlock(&u->cq_list_lock);
+	list_for_each(&u->cq_list, ucq, list) {
+		if (!unvmed_cq_id(ucq))
+			continue;
+
+		ctx = malloc(sizeof(struct unvme_ctx));
+
+		ctx->type = UNVME_CTX_T_CQ;
+		ctx->cq.qid = unvmed_cq_id(__to_cq(ucq));
+		ctx->cq.qsize = unvmed_cq_size(__to_cq(ucq));
+		ctx->cq.vector = unvmed_cq_iv(__to_cq(ucq));
+
+		list_add_tail(&u->ctx_list, &ctx->list);
+	}
+	pthread_rwlock_unlock(&u->cq_list_lock);
+
+	pthread_rwlock_rdlock(&u->sq_list_lock);
+	list_for_each(&u->sq_list, usq, list) {
+		if (!unvmed_sq_id(usq))
+			continue;
+
+		ctx = malloc(sizeof(struct unvme_ctx));
+
+		ctx->type = UNVME_CTX_T_SQ;
+		ctx->sq.qid = unvmed_sq_id(__to_sq(usq));
+		ctx->sq.qsize = unvmed_sq_size(__to_sq(usq));
+		ctx->sq.cqid = unvmed_sq_cqid(__to_sq(usq));
+
+		list_add_tail(&u->ctx_list, &ctx->list);
+	}
+	pthread_rwlock_unlock(&u->sq_list_lock);
+
+	return 0;
+}
+
+static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
+{
+	switch (ctx->type) {
+		case UNVME_CTX_T_CTRL:
+			if (unvmed_create_adminq(u))
+				return -1;
+			return unvmed_enable_ctrl(u, ctx->ctrl.iosqes,
+					ctx->ctrl.iocqes, ctx->ctrl.mps,
+					ctx->ctrl.css);
+		case UNVME_CTX_T_NS:
+			return unvmed_init_ns(u, ctx->ns.nsid, NULL);
+		case UNVME_CTX_T_CQ:
+			return unvmed_create_cq(u, ctx->cq.qid, ctx->cq.qsize,
+					ctx->cq.vector);
+		case UNVME_CTX_T_SQ:
+			return unvmed_create_sq(u, ctx->sq.qid, ctx->sq.qsize,
+					ctx->sq.cqid);
+		default:
+			return -1;
+	}
+}
+
+void unvmed_ctx_free(struct unvme *u)
+{
+	struct unvme_ctx *ctx, *next_ctx;
+
+	list_for_each_safe(&u->ctx_list, ctx, next_ctx, list) {
+		list_del(&ctx->list);
+		free(ctx);
+	}
+}
+
+int unvmed_ctx_restore(struct unvme *u)
+{
+	struct unvme_ctx *ctx;
+
+	list_for_each(&u->ctx_list, ctx, list) {
+		if (__unvmed_ctx_restore(u, ctx)) {
+			unvmed_ctx_free(u);
+			return -1;
+		}
+	}
+
+	unvmed_ctx_free(u);
+	return 0;
 }

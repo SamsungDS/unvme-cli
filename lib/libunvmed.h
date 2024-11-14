@@ -48,8 +48,10 @@ unvme_declare_cq(unvme_cq);
 unvme_declare_sq(unvme_sq);
 
 #define unvmed_cq_id(ucq)	((ucq)->q->id)
+#define unvmed_cq_size(ucq)	((ucq)->q->qsize)
 #define unvmed_cq_iv(ucq)	((ucq)->q->vector)
 #define unvmed_sq_id(usq)	((usq)->q->id)
+#define unvmed_sq_size(usq)	((usq)->q->qsize)
 #define unvmed_sq_cqid(usq)	(unvmed_cq_id((usq)->ucq))
 
 static inline void unvmed_sq_enter(struct unvme_sq *usq)
@@ -150,6 +152,10 @@ int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid, uint64_t slba,
 		 uint16_t nlb, void *buf, size_t size, unsigned long flags, void *opaque);
 int unvmed_passthru(struct unvme *u, uint32_t sqid, void *buf, size_t size,
 		    union nvme_cmd *sqe, bool read, unsigned long flags);
+
+int unvmed_ctx_init(struct unvme *u);
+int unvmed_ctx_restore(struct unvme *u);
+void unvmed_ctx_free(struct unvme *u);
 
 /*
  * `struct unvme` starts with `struct nvme_ctrl`, so convert easily.

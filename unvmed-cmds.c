@@ -1004,6 +1004,7 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_lit *reinit;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -1014,6 +1015,7 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		reinit = arg_lit0(NULL, "reinit", "[O] Re-initialize the controller with the current driver context (e.g., I/O queues)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -1024,7 +1026,18 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 	if (!u)
 		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
 
+	/*
+	 * If --reinit is given, we should gather all the driver context here
+	 * to restore them back when enabling the controller back again.
+	 */
+	if (arg_boolv(reinit))
+		unvmed_ctx_init(u);
+
 	unvmed_reset_ctrl(u);
+
+	if (arg_boolv(reinit))
+		unvmed_ctx_restore(u);
+
 	return 0;
 }
 
