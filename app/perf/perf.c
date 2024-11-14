@@ -31,7 +31,7 @@ struct iod {
 
 static int unvmed_perf_issue(struct unvme_cmd *cmd)
 {
-	struct iod *iod = (struct iod *)unvmed_cmd_opaque(cmd);
+	struct iod *iod = (struct iod *)cmd->opaque;
 
 	if (io_rand)
 		slba = rand() % nsze;
@@ -51,7 +51,7 @@ static int unvmed_perf_issue(struct unvme_cmd *cmd)
 
 static void unvmed_perf_complete(struct unvme_cmd *cmd)
 {
-	struct iod *iod = (struct iod *)unvmed_cmd_opaque(cmd);
+	struct iod *iod = (struct iod *)cmd->opaque;
 	uint64_t diff;
 
 	stats.completed_quantum++;
@@ -179,7 +179,7 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 
 		iova += data_size;
 
-		unvmed_cmd_set_opaque(cmd, iod);
+		cmd->opaque = iod;
 
 		unvmed_perf_issue(cmd);
 	} while (true && --to_submit > 0);

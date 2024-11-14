@@ -475,7 +475,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 		return -errno;
 	}
 
-	unvmed_cmd_set_opaque(cmd, io_u);
+	cmd->opaque = io_u;
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
 	return FIO_Q_QUEUED;
 }
@@ -506,7 +506,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 		return FIO_Q_BUSY;
 	}
 
-	unvmed_cmd_set_buf(cmd, buf);
+	cmd->vaddr = buf;
 	range = buf;
 
 	slba = io_u->offset >> ilog2(ns->lba_size);
@@ -534,7 +534,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 		return -errno;
 	}
 
-	unvmed_cmd_set_opaque(cmd, io_u);
+	cmd->opaque = io_u;
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
 	return FIO_Q_QUEUED;
 }
@@ -594,12 +594,12 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	struct unvme *u = ld->u;
 	struct nvme_cqe *cqe = &ld->cqes[event];
 	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
-	void *buf = unvmed_cmd_buf(cmd);
+	void *buf = cmd->vaddr;
 	struct io_u *io_u;
 
 	assert(cmd != NULL);
 
-	io_u = (struct io_u *)unvmed_cmd_opaque(cmd);
+	io_u = (struct io_u *)cmd->opaque;
 
 	if (nvme_cqe_ok(cqe))
 		io_u->error = 0;

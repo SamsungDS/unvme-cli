@@ -95,6 +95,33 @@ struct nvme_cqe;
  */
 struct nvme_sq;
 struct nvme_cq;
+struct nvme_rq;
+
+enum unvme_cmd_state {
+	UNVME_CMD_S_INIT		= 0,
+	UNVME_CMD_S_SUBMITTED,
+	UNVME_CMD_S_COMPLETED,
+	UNVME_CMD_S_TO_BE_COMPLETED,
+};
+
+struct unvme_cmd {
+	struct unvme *u;
+
+	enum unvme_cmd_state state;
+
+	/*
+	 * rq->opaque will point to the current structure pointer.
+	 */
+	struct nvme_rq *rq;
+
+	/*
+	 * Data buffer for the corresponding NVMe command, this should be
+	 * replaced to iommu_dmabuf in libvfn.
+	 */
+	void *vaddr;
+
+	void *opaque;
+};
 
 void unvmed_init(const char *logfile);
 
@@ -125,10 +152,6 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t cqi
 int unvmed_delete_sq(struct unvme *u, uint32_t qid);
 int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len, uint64_t *iova, unsigned long flags);
 int unvmed_unmap_vaddr(struct unvme *u, void *buf);
-void *unvmed_cmd_opaque(struct unvme_cmd *cmd);
-void unvmed_cmd_set_opaque(struct unvme_cmd *cmd, void *opaque);
-void *unvmed_cmd_buf(struct unvme_cmd *cmd);
-void unvmed_cmd_set_buf(struct unvme_cmd *cmd, void *buf);
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe, unsigned long flags);
 void unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe);
