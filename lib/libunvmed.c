@@ -513,11 +513,12 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 
 int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 {
-	struct nvme_id_ns id_ns_local;
+	struct nvme_id_ns *id_ns_local = NULL;
 	struct nvme_id_ns *id_ns = identify;
 	struct __unvme_ns *ns;
 	unsigned long flags = 0;
 	uint8_t format_idx;
+	ssize_t size;
 	int ret;
 
 	if (unvmed_get_ns(u, nsid)) {
@@ -526,16 +527,22 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	}
 
 	if (!id_ns) {
-		ret = unvmed_id_ns(u, nsid, &id_ns_local, flags);
+		size = pgmap((void **)&id_ns_local, NVME_IDENTIFY_DATA_SIZE);
+		assert(size == NVME_IDENTIFY_DATA_SIZE);
+
+		ret = unvmed_id_ns(u, nsid, id_ns_local, flags);
 		if (ret)
 			return ret;
 
-		id_ns = &id_ns_local;
+		id_ns = id_ns_local;
 	}
 
 	ns = zmalloc(sizeof(struct __unvme_ns));
-	if (!ns)
+	if (!ns) {
+		if (id_ns_local)
+			pgunmap(id_ns_local, size);
 		return -1;
+	}
 
 	if (id_ns->nlbaf < 16)
 		format_idx = id_ns->flbas & 0xf;
@@ -551,6 +558,8 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	list_add_tail(&u->ns_list, &ns->list);
 	u->nr_ns++;
 
+	if (id_ns_local)
+		pgunmap(id_ns_local, size);
 	return 0;
 }
 
