@@ -634,12 +634,19 @@ static void unvmed_free_ucq(struct unvme *u, struct __unvme_cq *ucq)
 	pthread_rwlock_unlock(&u->cq_list_lock);
 }
 
+static void unvmed_free_ns_all(struct unvme *u)
+{
+	struct __unvme_ns *ns, *next_ns;
+
+	list_for_each_safe(&u->ns_list, ns, next_ns, list)
+		unvmed_free_ns(ns);
+}
+
 /*
  * Free NVMe controller instance from libvfn and the libunvmed.
  */
 void unvmed_free_ctrl(struct unvme *u)
 {
-	struct __unvme_ns *ns, *next_ns;
 	struct __unvme_sq *usq, *next_usq;
 	struct __unvme_cq *ucq, *next_ucq;
 
@@ -658,8 +665,7 @@ void unvmed_free_ctrl(struct unvme *u)
 		__unvmed_free_ucq(ucq);
 	pthread_rwlock_unlock(&u->cq_list_lock);
 
-	list_for_each_safe(&u->ns_list, ns, next_ns, list)
-		unvmed_free_ns(ns);
+	unvmed_free_ns_all(u);
 
 	list_del(&u->list);
 	free(u);
