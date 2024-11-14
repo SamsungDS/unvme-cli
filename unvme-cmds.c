@@ -46,8 +46,10 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
-	if (unvme_is_daemon_running())
-		unvme_pr_return(1, "unvme: unvmed is already running\n");
+	if (unvme_is_daemon_running()) {
+		unvme_pr_err("unvmed is already running\n");
+		goto out;
+	}
 
 	if (arg_boolv(with_fio) && access(arg_strv(with_fio), F_OK))
 		arg_strv(with_fio) = NULL;
@@ -63,6 +65,8 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 			;
 	}
 
+out:
+	unvme_free_args(argtable);
 	return ret;
 }
 
@@ -130,6 +134,7 @@ int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(all))
 		__unvme_stop("unvme");
 
+	unvme_free_args(argtable);
 	return 0;
 }
 
@@ -149,15 +154,18 @@ int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	char *line = NULL;
-	ssize_t nread;
 	size_t len;
 	FILE *file;
+	int ret;
 
 	file = fopen(UNVME_DAEMON_LOG, "r");
-	if (!file)
-	        unvme_pr_return(errno, "failed to open unvme log file");
+	if (!file) {
+		unvme_pr_err("failed to open unvme log file\n");
+		ret = ENOENT;
+		goto out;
+	}
 
-	while ((nread = getline(&line, &len, file)) != -1) {
+	while ((ret = getline(&line, &len, file)) != -1) {
 		if (arg_boolv(nvme) > 0) {
 			if (strstarts(line, "NVME"))
 				unvme_pr("%s", line);
@@ -168,5 +176,8 @@ int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
 	fclose(file);
 	if (line)
 		free(line);
-	return nread;
+
+out:
+	unvme_free_args(argtable);
+	return ret;
 }

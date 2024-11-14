@@ -24,12 +24,6 @@
 
 #include "argtable3/argtable3.h"
 
-#define unvme_err_return(err, fmt, ...)					\
-	do {								\
-		unvme_pr_err("ERROR: "fmt"\n\n", ##__VA_ARGS__);	\
-		return err;						\
-	} while(0)
-
 extern __thread struct unvme_msg *__msg;
 
 /*
@@ -165,12 +159,16 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	dfd = opendir("/sys/bus/pci/devices");
-	if (!dfd)
-		unvme_pr_return(ENOENT, "unvme: failed to open sysfs\n");
+	if (!dfd) {
+		unvme_pr_err("failed to open sysfs\n");
+		ret = ENOENT;
+		goto out;
+	}
 
 	unvme_pr("NVMe device    \tAttached\tDriver      \n");
         unvme_pr("---------------\t--------\t------------\n");
@@ -188,8 +186,9 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	closedir(dfd);
-
-	return 0;
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
@@ -211,6 +210,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	/* Set default argument values prior to parsing */
 	arg_intv(nrioqs) = get_nprocs();
@@ -219,18 +219,29 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 
 	u = unvmed_get(arg_strv(dev));
 	if (u)
-		unvme_err_return(EPERM, "Do 'unvme del %s' first", arg_strv(dev));
+		goto out;
 
-	if (arg_intv(nrioqs) < 1)
-		unvme_err_return(EINVAL, "'--nr-ioqs=' should be greater than 0");
+	if (arg_intv(nrioqs) < 1) {
+		unvme_pr_err("'--nr-ioqs=' should be greater than 0\n");
+		ret = EINVAL;
+		goto out;
+	}
 
-	if (unvmed_pci_bind(arg_strv(dev)))
-		unvme_err_return(errno, "failed to bind PCI device");
+	if (unvmed_pci_bind(arg_strv(dev))) {
+		unvme_pr_err("failed to bind PCI device to vfio-pci driver\n");
+		ret = errno;
+		goto out;
+	}
 
-	if (!unvmed_init_ctrl(arg_strv(dev), arg_intv(nrioqs)))
-		unvme_err_return(errno, "failed to initialize unvme");
+	if (!unvmed_init_ctrl(arg_strv(dev), arg_intv(nrioqs))) {
+		unvme_pr_err("failed to initialize unvme\n");
+		ret = errno;
+		goto out;
+	}
 
-	return 0;
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
@@ -249,19 +260,24 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+		goto out;
 
 	unvmed_free_ctrl(u);
 
-	if (unvmed_pci_unbind(arg_strv(dev)))
-		unvme_err_return(errno, "failed to unbind %s\n", arg_strv(dev));
+	if (unvmed_pci_unbind(arg_strv(dev))) {
+		unvme_pr_err("failed to unbind PCI device from vfio-pci driver\n");
+		ret = errno;
+	}
 
-	return 0;
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
@@ -279,15 +295,21 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
 	unvme_pr_show_regs(u);
-	return 0;
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
@@ -306,16 +328,21 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
 	unvme_pr_status(u);
-
-	return 0;
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
@@ -344,6 +371,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	/* Set default argument values prior to parsing */
 	arg_intv(iosqes) = 6;
@@ -354,32 +382,57 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (arg_intv(iosqes) > 0xf)
-		unvme_err_return(EINVAL, "invalid -s|--iosqes");
+	if (arg_intv(iosqes) > 0xf) {
+		unvme_pr_err("invalid -s|--iosqes\n");
+		ret = EINVAL;
+		goto out;
+	}
 
-	if (arg_intv(iocqes) > 0xf)
-		unvme_err_return(EINVAL, "invalid -c|--iocqes");
+	if (arg_intv(iocqes) > 0xf) {
+		unvme_pr_err("invalid -c|--iocqes\n");
+		ret = EINVAL;
+		goto out;
+	}
 
-	if (arg_intv(mps) > 0xf)
-		unvme_err_return(EINVAL, "invalid -m|--mps");
+	if (arg_intv(mps) > 0xf) {
+		unvme_pr_err("invalid -m|--mps\n");
+		ret = EINVAL;
+		goto out;
+	}
 
-	if (arg_intv(css) > 0x7)
-		unvme_err_return(EINVAL, "invalid -i|--css");
+	if (arg_intv(css) > 0x7) {
+		unvme_pr_err("invalid -i|--css\n");
+		ret = EINVAL;
+		goto out;
+	}
 
-	if (!arg_boolv(no_adminq) && unvmed_create_adminq(u))
-		unvme_err_return(errno, "failed to create adminq");
+	if (!arg_boolv(no_adminq) && unvmed_create_adminq(u)) {
+		unvme_pr_err("failed to create adminq\n");
+		ret = errno;
+		goto out;
+	}
 
-	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes), arg_intv(mps),
-			arg_intv(css)))
-		unvme_err_return(errno, "failed to enable controller");
+	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes),
+				arg_intv(mps), arg_intv(css))) {
+		unvme_pr_err("failed to enable controller\n");
+		ret = errno;
+		goto out;
+	}
 
-	if (arg_boolv(no_adminq))
-		unvme_pr_err("Warning: Admin queues are not created.  The following admin commands will not work\n");
+	if (arg_boolv(no_adminq)) {
+		unvme_pr_err("Warning: Admin queues are not created.  "
+				"The following admin commands will not work\n");
+	}
 
-	return 0;
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
@@ -405,6 +458,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	/* Set default argument values prior to parsing */
 	arg_intv(vector) = -1;
@@ -412,23 +466,40 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, 0))
-		unvme_err_return(EPERM, "'enable' must be executed first");
+	if (!unvmed_get_sq(u, 0)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
-	if (arg_intv(qid) > unvmed_get_max_qid(u))
-		unvme_err_return(EINVAL, "QID should not be higher than %d",
-				unvmed_get_max_qid(u));
+	if (arg_intv(qid) > unvmed_get_max_qid(u)) {
+		unvme_pr_err("invalid -q|--qid\n");
+		ret = EINVAL;
+		goto out;
+	}
 
 	if (arg_intv(vector) < 0)
 		arg_intv(vector) = -1;
 
-	if (unvmed_get_cq(u, arg_intv(qid)))
-		unvme_err_return(EEXIST, "CQ (qid=%u) already exists", arg_intv(qid));
+	if (unvmed_get_cq(u, arg_intv(qid))) {
+		unvme_pr_err("failed to create cq (qid=%u) (exists)", arg_intv(qid));
+		ret = EEXIST;
+		goto out;
+	}
 
-	return unvmed_create_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector));
+	if (unvmed_create_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector))) {
+		unvme_pr_err("failed to create cq\n");
+		ret = errno;
+	}
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
@@ -448,20 +519,36 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, 0))
-		unvme_err_return(EPERM, "'enable' must be executed first");
+	if (!unvmed_get_sq(u, 0)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
-	if (!unvmed_get_cq(u, arg_intv(qid)))
-		unvme_err_return(ENODEV, "CQ (qid=%u) does not exist", arg_intv(qid));
+	if (!unvmed_get_cq(u, arg_intv(qid))) {
+		unvme_pr_err("failed to delete cq (qid=%u) (not exists)", arg_intv(qid));
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
-	return unvmed_delete_cq(u, arg_intv(qid));
+	if (unvmed_delete_cq(u, arg_intv(qid))) {
+		unvme_pr_err("failed to delete iocq\n");
+		ret = errno;
+	}
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
@@ -487,24 +574,42 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, 0))
-		unvme_err_return(EPERM, "'enable' must be executed first");
+	if (!unvmed_get_sq(u, 0)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
-	if (arg_intv(qid) > unvmed_get_max_qid(u))
-		unvme_err_return(EINVAL, "QID should not be higher than %d",
-				unvmed_get_max_qid(u));
+	if (arg_intv(qid) > unvmed_get_max_qid(u)) {
+		unvme_pr_err("invalid -q|--qid\n");
+		ret = EINVAL;
+		goto out;
+	}
 
-	if (unvmed_get_sq(u, arg_intv(qid)))
-		unvme_err_return(EEXIST, "SQ (qid=%u) already exists", arg_intv(qid));
+	if (unvmed_get_sq(u, arg_intv(qid))) {
+		unvme_pr_err("failed to create iosq (qid=%u) (exists)", arg_intv(qid));
+		ret = EEXIST;
+		goto out;
+	}
 
-	return unvmed_create_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid));
+	if (unvmed_create_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid))) {
+		unvme_pr_err("failed to create iosq\n");
+		ret = errno;
+	}
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
@@ -524,20 +629,36 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, 0))
-		unvme_err_return(EPERM, "'enable' must be executed first");
+	if (!unvmed_get_sq(u, 0)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, arg_intv(qid)))
-		unvme_err_return(ENODEV, "SQ (qid=%u) does not exist", arg_intv(qid));
+	if (!unvmed_get_sq(u, arg_intv(qid))) {
+		unvme_pr_err("failed to delete iosq (qid=%u) (not exists)", arg_intv(qid));
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
-	return unvmed_delete_sq(u, arg_intv(qid));
+	if (unvmed_delete_sq(u, arg_intv(qid))) {
+		unvme_pr_err("failed to delete iosq\n");
+		ret = errno;
+	}
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
@@ -574,16 +695,24 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first",
-				arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, 0))
-		unvme_err_return(EPERM, "'enable' must be executed first");
+	if (!unvmed_get_sq(u, 0)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
 	buf = aligned_alloc(getpagesize(), size);
-	if (!buf)
-		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
+	if (!buf) {
+		unvme_pr_err("failed to allocate buffer\n");
+		ret = errno;
+		goto out;
+	}
 
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
@@ -596,6 +725,8 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
+out:
+	unvme_free_args(argtable);
 	return ret;
 }
 
@@ -620,7 +751,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
-	void *buf;
+	__unvme_free void *buf = NULL;
 	int ret;
 
 	/* Set default argument values prior to parsing */
@@ -629,15 +760,24 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, 0))
-		unvme_err_return(EPERM, "'enable' must be executed first");
+	if (!unvmed_get_sq(u, 0)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
 	buf = aligned_alloc(getpagesize(), size);
-	if (!buf)
-		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
+	if (!buf) {
+		unvme_pr_err("failed to allocate buffer\n");
+		ret = errno;
+		goto out;
+	}
 
 	ret = unvmed_id_active_nslist(u, arg_intv(nsid), buf);
 	if (!ret)
@@ -645,6 +785,8 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
+out:
+	unvme_free_args(argtable);
 	return ret;
 }
 
@@ -682,22 +824,31 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
-	void *buf;
+	__unvme_free void *buf = NULL;
 	unsigned long flags = 0;
 	int ret;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, arg_intv(sqid)))
-		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
+	if (!unvmed_get_sq(u, arg_intv(sqid))) {
+		unvme_pr_err("failed to get iosq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
 	buf = aligned_alloc(getpagesize(), arg_intv(data_size));
-	if (!buf)
-		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
+	if (!buf) {
+		unvme_pr_err("failed to allocate buffer\n");
+		ret = errno;
+		goto out;
+	}
 
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
@@ -715,6 +866,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
+out:
+	unvme_free_args(argtable);
 	return ret;
 }
 
@@ -751,22 +904,31 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
-	void *buf;
+	__unvme_free void *buf = NULL;
 	unsigned long flags = 0;
 	int ret;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, arg_intv(sqid)))
-		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
+	if (!unvmed_get_sq(u, arg_intv(sqid))) {
+		unvme_pr_err("failed to get iosq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
 	buf = aligned_alloc(getpagesize(), arg_intv(data_size));
-	if (!buf)
-		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
+	if (!buf) {
+		unvme_pr_err("failed to allocate buffer\n");
+		ret = errno;
+		goto out;
+	}
 
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
@@ -774,14 +936,19 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(data))
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 
-	if (unvme_read_file(filepath, buf, arg_intv(data_size)))
-		unvme_err_return(ENOENT, "failed to read data from file %s", filepath);
+	if (unvme_read_file(filepath, buf, arg_intv(data_size))) {
+		unvme_pr_err("failed to read file %s\n", filepath);
+		ret = ENOENT;
+		goto out;
+	}
 
 	ret = unvmed_write(u, arg_intv(sqid), arg_intv(nsid), arg_dblv(slba),
 			arg_intv(nlb), buf, arg_intv(data_size), flags, NULL);
 	if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
+out:
+	unvme_free_args(argtable);
 	return ret;
 }
 
@@ -865,14 +1032,29 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "do 'unvme add %s' first", arg_strv(dev));
-	if (arg_boolv(sqid) && !arg_boolv(nsid))
-		unvme_err_return(EINVAL, "-n|--namespace-id must be specified when io-passthru command (sqid=%d)", arg_intv(sqid));
-	if (arg_boolv(read) && arg_boolv(write))
-		unvme_err_return(EINVAL, "-r and -w option cannot be set at the same time");
-	if (!unvmed_get_sq(u, arg_intv(sqid)))
-		unvme_err_return(ENOENT, "Submission queue not exists (sqid=%d)", arg_intv(sqid));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (arg_boolv(sqid) && !arg_boolv(nsid)) {
+		unvme_pr_err("invalid -n|--namespace-id\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	if (arg_boolv(read) && arg_boolv(write)) {
+		unvme_pr_err("invalid -r|--read and -w|--write\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	if (!unvmed_get_sq(u, arg_intv(sqid))) {
+		unvme_pr_err("failed to get iosq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
 	_write = arg_boolv(write);
 	_read = arg_boolv(read);
@@ -894,17 +1076,26 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	if (_write && !arg_filev(input))
-		unvme_err_return(EINVAL, "-i|--input-file must be specified");
+	if (_write && !arg_filev(input)) {
+		unvme_pr_err("invalid -i|--input-file\n");
+		ret = EINVAL;
+		goto out;
+	}
 
 	buf = aligned_alloc(getpagesize(), arg_intv(data_len));
-	if (!buf)
-		unvme_err_return(ENOMEM, "failed to malloc() for buffer");
+	if (!buf) {
+		unvme_pr_err("failed to allocate buffer\n");
+		ret = errno;
+		goto out;
+	}
 
 	if (_write) {
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(input));
-		if (unvme_read_file(filepath, buf, arg_intv(data_len)))
-			unvme_err_return(ENOENT, "failed to read data from file %s", filepath);
+		if (unvme_read_file(filepath, buf, arg_intv(data_len))) {
+			unvme_pr_err("failed to read file %s\n", filepath);
+			ret = ENOENT;
+			goto out;
+		}
 	}
 
 	sqe.opcode = (uint8_t)arg_intv(opcode);
@@ -947,6 +1138,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
+out:
+	unvme_free_args(argtable);
 	return ret;
 }
 
@@ -972,6 +1165,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 
 	__unvme_free struct nvme_cqe *cqes = NULL;
 	int nr_sqes;
+	int ret = 0;
 
 	/* Set default argument values prior to parsing */
 	arg_dblv(sqid) = UINT64_MAX;
@@ -979,15 +1173,24 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (!unvmed_get_sq(u, arg_dblv(sqid)))
-		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
+	if (!unvmed_get_sq(u, arg_dblv(sqid))) {
+		unvme_pr_err("failed to get iosq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
 
 	nr_sqes = unvmed_sq_update_tail_and_wait(u, arg_dblv(sqid), &cqes);
-	if (nr_sqes < 0)
-		unvme_err_return(errno, "failed to update sq and wait cq");
+	if (nr_sqes < 0) {
+		unvme_pr_err("failed to update sq and wait cq\n");
+		ret = errno;
+		goto out;
+	}
 
 	if (!nr_sqes)
 		return 0;
@@ -997,7 +1200,9 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_cqe(&cqes[i]);
 	}
 
-	return 0;
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
@@ -1019,12 +1224,16 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
 	/*
 	 * If --reinit is given, we should gather all the driver context here
@@ -1037,8 +1246,9 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (arg_boolv(reinit))
 		unvmed_ctx_restore(u);
-
-	return 0;
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
@@ -1075,6 +1285,7 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	int ret = 0;
 
 	/* Set default argument values prior to parsing */
 	arg_strv(io_pattern) = "read";
@@ -1088,24 +1299,42 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		unvme_err_return(EPERM, "Do 'unvme add %s' first", arg_strv(dev));
-	if (!unvmed_get_sq(u, arg_intv(sqid)))
-		unvme_err_return(ENOENT, "'create-iosq' must be executed first");
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
 
-	if (arg_intv(io_depth) < 1)
-		unvme_err_return(EINVAL, "invalid io-depth");
+	if (!unvmed_get_sq(u, arg_intv(sqid))) {
+		unvme_pr_err("failed to get iosq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
 	qsize = unvmed_get_sq(u, arg_intv(sqid))->q->qsize;
-	if (arg_intv(io_depth) > qsize - 1)
-		unvme_err_return(EINVAL, "io-depth must be less than qsize");
 
-	if (!(streq(arg_strv(io_pattern), "read") || streq(arg_strv(io_pattern), "write")))
-		unvme_err_return(EINVAL, "unsupported i/o pattern");
+	if (arg_intv(io_depth) < 1 || arg_intv(io_depth) > qsize - 1) {
+		unvme_pr_err("invalid -d|--io-depth\n");
+		ret = EINVAL;
+		goto out;
+	}
 
-	return unvmed_perf(u, arg_intv(sqid), arg_intv(nsid),
+	if (!(streq(arg_strv(io_pattern), "read") ||
+				streq(arg_strv(io_pattern), "write"))) {
+		unvme_pr_err("invalid -p|--io-pattern\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	ret = unvmed_perf(u, arg_intv(sqid), arg_intv(nsid),
 			arg_strv(io_pattern), arg_boolv(random),
 			arg_intv(io_depth), arg_intv(sec_runtime),
 			arg_intv(sec_warmup), arg_intv(update_interval));
+	if (ret)
+		unvme_pr_err("failed to run perf\n");
+out:
+	unvme_free_args(argtable);
+	return ret;
 }
 
 #ifdef UNVME_FIO
@@ -1126,6 +1355,7 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	const char *libfio;
+	int ret;
 
 	/*
 	 * We don't care the failure of the parameter parsing since we will
@@ -1146,6 +1376,11 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 		libfio = strdup("fio.so");
 	}
 
-	return unvmed_run_fio(argc - 1, &argv[1], libfio, unvme_msg_pwd(msg));
+	ret = unvmed_run_fio(argc - 1, &argv[1], libfio, unvme_msg_pwd(msg));
+	if (ret)
+		unvme_pr_err("failed to run fio\n");
+
+	unvme_free_args(argtable);
+	return ret;
 }
 #endif
