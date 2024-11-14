@@ -685,7 +685,8 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
-	__unvme_free void *buf = NULL;
+	ssize_t len;
+	void *buf = NULL;
 	unsigned long flags = 0;
 	int ret;
 
@@ -707,7 +708,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	buf = aligned_alloc(getpagesize(), size);
+	len = pgmap(&buf, size);
 	if (!buf) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -724,6 +725,9 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 			unvmed_init_ns(u, arg_intv(nsid), buf);
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
+
+	if (!(flags & UNVMED_CMD_F_NODB))
+		pgunmap(buf, len);
 
 out:
 	unvme_free_args(argtable);
@@ -751,7 +755,8 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
-	__unvme_free void *buf = NULL;
+	ssize_t len;
+	void *buf = NULL;
 	int ret;
 
 	/* Set default argument values prior to parsing */
@@ -772,7 +777,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	buf = aligned_alloc(getpagesize(), size);
+	len = pgmap(&buf, size);
 	if (!buf) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -785,6 +790,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
+	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -824,8 +830,9 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
-	__unvme_free void *buf = NULL;
+	void *buf = NULL;
 	unsigned long flags = 0;
+	ssize_t len;
 	int ret;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
@@ -843,7 +850,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	buf = aligned_alloc(getpagesize(), arg_intv(data_size));
+	len = pgmap(&buf, arg_intv(data_size));
 	if (!buf) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -865,6 +872,9 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_write_file(filepath, buf, arg_intv(data_size));
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
+
+	if (!(flags & UNVMED_CMD_F_NODB))
+		pgunmap(buf, len);
 
 out:
 	unvme_free_args(argtable);
@@ -904,8 +914,9 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
-	__unvme_free void *buf = NULL;
+	void *buf = NULL;
 	unsigned long flags = 0;
+	ssize_t len;
 	int ret;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
@@ -923,7 +934,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	buf = aligned_alloc(getpagesize(), arg_intv(data_size));
+	len = pgmap(&buf, arg_intv(data_size));
 	if (!buf) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -939,7 +950,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvme_read_file(filepath, buf, arg_intv(data_size))) {
 		unvme_pr_err("failed to read file %s\n", filepath);
 		ret = ENOENT;
-		goto out;
+		goto free;
 	}
 
 	ret = unvmed_write(u, arg_intv(sqid), arg_intv(nsid), arg_dblv(slba),
@@ -947,6 +958,9 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
+free:
+	if (ret || (!ret && !(flags & UNVMED_CMD_F_NODB)))
+		pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1020,6 +1034,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	__unvme_free char *filepath = NULL;
 	void *buf;
+	ssize_t len;
 	unsigned long cmd_flags = 0;
 	bool _write = false;
 	bool _read = false;
@@ -1082,7 +1097,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	buf = aligned_alloc(getpagesize(), arg_intv(data_len));
+	len = pgmap(&buf, arg_intv(data_len));
 	if (!buf) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -1094,7 +1109,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		if (unvme_read_file(filepath, buf, arg_intv(data_len))) {
 			unvme_pr_err("failed to read file %s\n", filepath);
 			ret = ENOENT;
-			goto out;
+			goto free;
 		}
 	}
 
@@ -1138,6 +1153,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
+free:
+	if (ret || (!ret && !(cmd_flags & UNVMED_CMD_F_NODB)))
+		pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
 	return ret;
