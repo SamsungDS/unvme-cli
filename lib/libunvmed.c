@@ -880,6 +880,12 @@ void unvmed_reset_ctrl(struct unvme *u)
 
 	unvmed_unquiesce_sq_all(u);
 	u->state = UNVME_DISABLED;
+
+	/*
+	 * Free up all the namespace instances attached to the current
+	 * controller.
+	 */
+	unvmed_free_ns_all(u);
 }
 
 static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
