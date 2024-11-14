@@ -69,7 +69,7 @@ void unvme_pr_status(struct unvme *u)
 {
 	uint32_t cc = unvmed_read32(u, NVME_REG_CC);
 	uint32_t csts = unvmed_read32(u, NVME_REG_CSTS);
-	struct unvme_ns *nslist;
+	struct unvme_ns *nslist = NULL;
 	struct nvme_sq *sqs;
 	struct nvme_cq *cqs;
 	int nr_ns, nr_sqs, nr_cqs;
@@ -85,12 +85,14 @@ void unvme_pr_status(struct unvme *u)
 
 	nr_sqs = unvmed_get_sqs(u, &sqs);
 	if (nr_sqs < 0) {
+		free(nslist);
 		unvme_pr_err("failed to get submission queues\n");
 		return;
 	}
 
 	nr_cqs = unvmed_get_cqs(u, &cqs);
 	if (nr_cqs < 0) {
+		free(nslist);
 		free(sqs);
 		unvme_pr_err("failed to get completion queues\n");
 		return;
@@ -139,6 +141,7 @@ void unvme_pr_status(struct unvme *u)
 	}
 	unvme_pr("\n");
 
+	free(nslist);
 	free(cqs);
 	free(sqs);
 }
