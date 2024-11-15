@@ -401,32 +401,27 @@ struct unvme_cq *unvmed_get_cq(struct unvme *u, uint32_t qid)
 	return NULL;
 }
 
-static void __unvmed_free_irqs(struct unvme *u)
+static int unvmed_free_irq(struct unvme *u, int vector)
 {
-	int vector;
+	struct unvme_cq_reaper *r = &u->reapers[vector];
+	int ret;
 
-	for (vector = 0; vector < u->nr_efds; vector++) {
-		struct unvme_cq_reaper *r = &u->reapers[vector];
-
-		if (r->th) {
-			/*
-			 * Wake up the blocking threads waiting for the
-			 * interrupt events from the device.
-			 */
-			eventfd_write(r->efd, 1);
-			pthread_join(r->th, NULL);
-		}
-
-		close(r->efd);
-		close(r->epoll_fd);
+	if (r->th) {
+		/*
+		 * Wake up the blocking threads waiting for the interrupt
+		 * events from the device.
+		 */
+		eventfd_write(r->efd, 1);
+		pthread_join(r->th, NULL);
 	}
 
-	free(u->reapers);
-	u->reapers = NULL;
+	ret = vfio_disable_irq(&u->ctrl.pci.dev, vector, 1);
+	if (ret) {
+		unvmed_log_err("failed to disable irq %d", vector);
+		return -1;
+	}
 
-	free(u->efds);
-	u->efds = NULL;
-	u->nr_efds = 0;
+	return 0;
 }
 
 static int unvmed_init_irq(struct unvme *u, int vector)
@@ -468,10 +463,20 @@ static int unvmed_init_irqs(struct unvme *u)
 
 static int unvmed_free_irqs(struct unvme *u)
 {
+	int vector;
+
 	if (vfio_disable_irq_all(&u->ctrl.pci.dev))
 		return -1;
 
-	__unvmed_free_irqs(u);
+	for (vector = 0; vector < u->nr_efds; vector++)
+		unvmed_free_irq(u, vector);
+
+	free(u->reapers);
+	u->reapers = NULL;
+
+	free(u->efds);
+	u->efds = NULL;
+	u->nr_efds = 0;
 	return 0;
 }
 
@@ -1207,8 +1212,18 @@ static void __unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	struct unvme_cq *ucq;
 
 	ucq = unvmed_get_cq(u, qid);
-	if (ucq)
+	if (ucq) {
+		ucq->enabled = false;
+
+		/*
+		 * XXX: we should free IRQ only when the last owner for the
+		 * corresponding irq is to be freed (refcnt) when it supports
+		 * multiple CQ with a single irq vector.
+		 */
+		if (unvmed_cq_irq_enabled(ucq))
+			unvmed_free_irq(u, unvmed_cq_iv(ucq));
 		nvme_discard_cq(&u->ctrl, ucq->q);
+	}
 }
 
 int unvmed_delete_cq(struct unvme *u, uint32_t qid)
