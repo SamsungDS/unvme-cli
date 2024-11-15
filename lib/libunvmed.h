@@ -168,8 +168,8 @@ enum unvmed_cmd_flags {
 	UNVMED_CMD_F_NODB	= 1 << 0,
 };
 
-int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, unsigned long flags);
-int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf);
+int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, size_t len, unsigned long flags);
+int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf, size_t len);
 int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid, uint64_t slba,
 		uint16_t nlb, void *buf, size_t size, unsigned long flags, void *opaque);
 int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid, uint64_t slba,

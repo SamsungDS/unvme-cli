@@ -553,7 +553,7 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 		size = pgmap((void **)&id_ns_local, NVME_IDENTIFY_DATA_SIZE);
 		assert(size == NVME_IDENTIFY_DATA_SIZE);
 
-		ret = unvmed_id_ns(u, nsid, id_ns_local, flags);
+		ret = unvmed_id_ns(u, nsid, id_ns_local, size, flags);
 		if (ret)
 			return ret;
 
@@ -1410,7 +1410,8 @@ static int unvmed_map_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, void *vadd
 	return __unvmed_map_prp(cmd, sqe, iova, len);
 }
 
-int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, unsigned long flags)
+int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, size_t len,
+		 unsigned long flags)
 {
 	struct unvme_cmd *cmd;
 
@@ -1425,7 +1426,7 @@ int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, unsigned long flags)
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.cns = cpu_to_le32(0x0);
 
-	if (unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, buf, NVME_IDENTIFY_DATA_SIZE))
+	if (unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, buf, len))
 		return -1;
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
@@ -1439,7 +1440,8 @@ int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, unsigned long flags)
 	return unvmed_cqe_status(&cqe);
 }
 
-int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf)
+int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf,
+			    size_t len)
 {
 	struct unvme_cmd *cmd;
 
@@ -1454,7 +1456,7 @@ int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf)
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.cns = cpu_to_le32(0x2);
 
-	if (unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, buf, NVME_IDENTIFY_DATA_SIZE))
+	if (unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, buf, len))
 		return -1;
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);

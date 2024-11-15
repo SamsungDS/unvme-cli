@@ -718,7 +718,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 
-	ret = unvmed_id_ns(u, arg_intv(nsid), buf, flags);
+	ret = unvmed_id_ns(u, arg_intv(nsid), buf, len, flags);
 	if (!ret && !arg_boolv(nodb)) {
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ns);
 		if (arg_boolv(init))
@@ -784,7 +784,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	ret = unvmed_id_active_nslist(u, arg_intv(nsid), buf);
+	ret = unvmed_id_active_nslist(u, arg_intv(nsid), buf, len);
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_active_nslist);
 	else if (ret > 0)
@@ -864,7 +864,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 
 	ret = unvmed_read(u, arg_intv(sqid), arg_intv(nsid), arg_dblv(slba),
-			arg_intv(nlb), buf, arg_intv(data_size), flags, NULL);
+			arg_intv(nlb), buf, len, flags, NULL);
 	if (!ret && !arg_boolv(nodb)) {
 		if (!filepath)
 			unvme_cmd_pr_raw(buf, arg_intv(data_size));
@@ -954,7 +954,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	ret = unvmed_write(u, arg_intv(sqid), arg_intv(nsid), arg_dblv(slba),
-			arg_intv(nlb), buf, arg_intv(data_size), flags, NULL);
+			arg_intv(nlb), buf, len, flags, NULL);
 	if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
@@ -1145,7 +1145,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(nodb))
 		cmd_flags |= UNVMED_CMD_F_NODB;
 
-	ret = unvmed_passthru(u, arg_intv(sqid), buf, arg_intv(data_len), &sqe,
+	ret = unvmed_passthru(u, arg_intv(sqid), buf, len, &sqe,
 			_read, cmd_flags);
 	if (!ret && !arg_boolv(nodb)) {
 		if (_read)
