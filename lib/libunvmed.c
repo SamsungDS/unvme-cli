@@ -93,6 +93,9 @@ struct unvme_rcq {
 };
 
 struct unvme_cq_reaper {
+	struct unvme *u;
+
+	int vector;
 	int epoll_fd;
 	int efd;
 	pthread_t th;
@@ -1005,36 +1008,50 @@ void unvmed_reset_ctrl(struct unvme *u)
 
 static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 					      struct unvme_cq *ucq);
-static void *unvmed_rcq_run(void *opaque)
+static void __unvmed_rcq_run(struct unvme_cq *ucq, struct unvme_rcq *rcq)
 {
-	struct unvme_cq *ucq = opaque;
 	struct unvme *u = ucq->u;
 	struct nvme_cqe *cqe;
-	struct unvme_rcq *rcq = unvmed_rcq_from_ucq(ucq);
-	int vector = unvmed_cq_iv(ucq);
 	int ret;
+
+	while (true) {
+		cqe = unvmed_get_completion(u, ucq);
+		if (!cqe)
+			break;
+
+		do {
+			ret = unvmed_rcq_push(rcq, cqe);
+		} while (ret == -EAGAIN);
+
+		nvme_cq_update_head(ucq->q);
+	}
+}
+
+static void *unvmed_rcq_run(void *opaque)
+{
+	struct unvme_cq_reaper *r = opaque;
+	struct unvme *u = r->u;
+	struct unvme_rcq *rcq = &r->rcq;
+	int vector = r->vector;
 
 	unvmed_log_info("%s: reaped CQ thread started (vector=%d, tid=%d)",
 			unvmed_bdf(u), vector, gettid());
 
 	while (true) {
+		struct __unvme_cq *ucq;
+
 		if (unvmed_cq_wait_irq(u, vector))
 			goto out;
 
 		if (u->state == UNVME_TEARDOWN)
 			goto out;
 
-		while (true) {
-			cqe = unvmed_get_completion(u, ucq);
-			if (!cqe)
-				break;
-
-			do {
-				ret = unvmed_rcq_push(rcq, cqe);
-			} while (ret == -EAGAIN);
-
-			nvme_cq_update_head(ucq->q);
+		pthread_rwlock_rdlock(&u->cq_list_lock);
+		list_for_each(&u->cq_list, ucq, list) {
+			if (unvmed_cq_iv(__to_cq(ucq)) == r->vector)
+				__unvmed_rcq_run(__to_cq(ucq), rcq);
 		}
+		pthread_rwlock_unlock(&u->cq_list_lock);
 	}
 
 out:
@@ -1044,10 +1061,8 @@ out:
 	pthread_exit(NULL);
 }
 
-static void unvmed_rcq_init(struct unvme_cq *ucq)
+static void unvmed_rcq_init(struct unvme *u, int vector)
 {
-	struct unvme *u = ucq->u;
-	int vector = unvmed_cq_iv(ucq);
 	struct unvme_cq_reaper *r = &u->reapers[vector];
 	const int qsize = 256;  /* XXX: Currently 256 qsize is supported */
 
@@ -1055,10 +1070,12 @@ static void unvmed_rcq_init(struct unvme_cq *ucq)
 	 * Initialize once for each vector even CQ is different.
 	 */
 	if (!r->th) {
+		r->u = u;
+		r->vector = vector;
 		r->rcq.cqe = malloc(sizeof(struct nvme_cqe) * qsize);
 		r->rcq.qsize = qsize;
 
-		pthread_create(&r->th, NULL, unvmed_rcq_run, (void *)ucq);
+		pthread_create(&r->th, NULL, unvmed_rcq_run, (void *)r);
 	}
 }
 
@@ -1102,7 +1119,7 @@ int unvmed_create_adminq(struct unvme *u)
 	ucq->enabled = true;
 
 	if (unvmed_cq_irq_enabled(ucq))
-		unvmed_rcq_init(ucq);
+		unvmed_rcq_init(u, 0);
 
 	return 0;
 }
@@ -1157,7 +1174,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	ucq->enabled = true;
 
 	if (unvmed_cq_irq_enabled(ucq))
-		unvmed_rcq_init(ucq);
+		unvmed_rcq_init(u, vector);
 
 	return 0;
 }
