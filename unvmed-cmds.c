@@ -685,9 +685,12 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
+	const uint16_t sqid = 0;
+	struct unvme_cmd *cmd;
 	ssize_t len;
 	void *buf = NULL;
 	unsigned long flags = 0;
+	struct iovec iov;
 	int ret;
 
 	/* Set default argument values prior to parsing */
@@ -708,17 +711,30 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if (arg_boolv(nodb))
+		flags |= UNVMED_CMD_F_NODB;
+
+	/* allocate a buffer with a consieration of --prp1-offset=<n> */
 	len = pgmap(&buf, size);
 	if (!buf) {
-		unvme_pr_err("failed to allocate buffer\n");
+		unvme_pr_err("failed to allocate user data buffer\n");
 		ret = errno;
 		goto out;
 	}
 
-	if (arg_boolv(nodb))
-		flags |= UNVMED_CMD_F_NODB;
+	cmd = unvmed_alloc_cmd(u, sqid, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
 
-	ret = unvmed_id_ns(u, arg_intv(nsid), buf, len, flags);
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
+	iov.iov_base = buf;
+	iov.iov_len = size;
+
+	ret = unvmed_id_ns(u, cmd, arg_intv(nsid), &iov, 1, flags);
 	if (!ret && !arg_boolv(nodb)) {
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ns);
 		if (arg_boolv(init))
@@ -726,9 +742,10 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-	if (!(flags & UNVMED_CMD_F_NODB))
-		pgunmap(buf, len);
-
+	if (!(flags & UNVMED_CMD_F_NODB)) {
+		pgunmap(cmd->buf.va, cmd->buf.len);
+		unvmed_cmd_free(cmd);
+	}
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -755,6 +772,9 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
+	const uint16_t sqid = 0;
+	struct unvme_cmd *cmd;
+	struct iovec iov;
 	ssize_t len;
 	void *buf = NULL;
 	int ret;
@@ -784,13 +804,26 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	ret = unvmed_id_active_nslist(u, arg_intv(nsid), buf, len);
+	cmd = unvmed_alloc_cmd(u, sqid, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
+	iov.iov_base = buf;
+	iov.iov_len = size;
+
+	ret = unvmed_id_active_nslist(u, cmd, arg_intv(nsid), &iov, 1);
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_active_nslist);
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-	pgunmap(buf, len);
+	pgunmap(cmd->buf.va, cmd->buf.len);
+	unvmed_cmd_free(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -830,6 +863,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
+	struct unvme_cmd *cmd;
+	struct iovec iov;
 	void *buf = NULL;
 	unsigned long flags = 0;
 	ssize_t len;
@@ -863,8 +898,20 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(data))
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 
-	ret = unvmed_read(u, arg_intv(sqid), arg_intv(nsid), arg_dblv(slba),
-			arg_intv(nlb), buf, len, flags, NULL);
+	cmd = unvmed_alloc_cmd(u, arg_intv(sqid), buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
+	iov.iov_base = buf;
+	iov.iov_len = arg_intv(data_size);
+
+	ret = unvmed_read(u, cmd, arg_intv(nsid), arg_dblv(slba),
+			arg_intv(nlb), &iov, 1, flags, NULL);
 	if (!ret && !arg_boolv(nodb)) {
 		if (!filepath)
 			unvme_cmd_pr_raw(buf, arg_intv(data_size));
@@ -873,9 +920,10 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-	if (!(flags & UNVMED_CMD_F_NODB))
-		pgunmap(buf, len);
-
+	if (!(flags & UNVMED_CMD_F_NODB)) {
+		pgunmap(cmd->buf.va, cmd->buf.len);
+		unvmed_cmd_free(cmd);
+	}
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -914,6 +962,8 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
+	struct unvme_cmd *cmd;
+	struct iovec iov;
 	void *buf = NULL;
 	unsigned long flags = 0;
 	ssize_t len;
@@ -934,13 +984,6 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, arg_intv(data_size));
-	if (!buf) {
-		unvme_pr_err("failed to allocate buffer\n");
-		ret = errno;
-		goto out;
-	}
-
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 
@@ -950,17 +993,39 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvme_read_file(filepath, buf, arg_intv(data_size))) {
 		unvme_pr_err("failed to read file %s\n", filepath);
 		ret = ENOENT;
-		goto free;
+		goto out;
 	}
 
-	ret = unvmed_write(u, arg_intv(sqid), arg_intv(nsid), arg_dblv(slba),
-			arg_intv(nlb), buf, len, flags, NULL);
+	len = pgmap(&buf, arg_intv(data_size));
+	if (!buf) {
+		unvme_pr_err("failed to allocate buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd(u, arg_intv(sqid), buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = arg_intv(data_size),
+	};
+
+	ret = unvmed_write(u, cmd, arg_intv(nsid), arg_dblv(slba),
+			arg_intv(nlb), &iov, 1, flags, NULL);
 	if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-free:
-	if (ret || (!ret && !(flags & UNVMED_CMD_F_NODB)))
+	if (!(flags & UNVMED_CMD_F_NODB)) {
 		pgunmap(buf, len);
+		unvmed_cmd_free(cmd);
+	}
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1033,6 +1098,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
+	struct unvme_cmd *cmd;
+	struct iovec iov;
 	void *buf;
 	ssize_t len;
 	unsigned long cmd_flags = 0;
@@ -1104,12 +1171,23 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd = unvmed_alloc_cmd(u, arg_intv(sqid), buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
 	if (_write) {
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(input));
 		if (unvme_read_file(filepath, buf, arg_intv(data_len))) {
 			unvme_pr_err("failed to read file %s\n", filepath);
+
+			unvmed_cmd_free(cmd);
 			ret = ENOENT;
-			goto free;
+			goto out;
 		}
 	}
 
@@ -1139,23 +1217,32 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		for (int dw = 0; dw < 16; dw++)
 			unvme_pr("cdw%d\t\t: 0x%08x\n", dw, *(entry + dw));
 	}
-	if (arg_boolv(dry_run))
-		return 0;
+
+	if (arg_boolv(dry_run)) {
+		unvmed_cmd_free(cmd);
+		ret = 0;
+		goto out;
+	}
 
 	if (arg_boolv(nodb))
 		cmd_flags |= UNVMED_CMD_F_NODB;
 
-	ret = unvmed_passthru(u, arg_intv(sqid), buf, len, &sqe,
-			_read, cmd_flags);
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = arg_intv(data_len),
+	};
+
+	ret = unvmed_passthru(u, cmd, &sqe, _read, &iov, 1, cmd_flags);
 	if (!ret && !arg_boolv(nodb)) {
 		if (_read)
 			unvme_cmd_pr_raw(buf, arg_intv(data_len));
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-free:
-	if (ret || (!ret && !(cmd_flags & UNVMED_CMD_F_NODB)))
-		pgunmap(buf, len);
+	if (!(cmd_flags & UNVMED_CMD_F_NODB)) {
+		pgunmap(cmd->buf.va, cmd->buf.len);
+		unvmed_cmd_free(cmd);
+	}
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1215,9 +1302,6 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 
 	for (int i = 0; i < nr_sqes; i++) {
 		struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, &cqes[i]);
-
-		if (cmd->vaddr)
-			pgunmap(cmd->vaddr, cmd->len);
 
 		unvmed_cmd_free(cmd);
 	}

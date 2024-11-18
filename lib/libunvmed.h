@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <sys/uio.h>
 #include <sys/time.h>
 
 /*
@@ -114,12 +115,23 @@ struct unvme_cmd {
 	 */
 	struct nvme_rq *rq;
 
-	/*
-	 * Data buffer for the corresponding NVMe command, this should be
-	 * replaced to iommu_dmabuf in libvfn.
-	 */
-	void *vaddr;
-	ssize_t len;
+	struct {
+		void *va;
+		size_t len;
+/* Unmap user data buffer in unvmed_cmd_free() */
+#define UNVME_CMD_BUF_F_VA_UNMAP	(1 << 0)
+/* Unmap I/O VA for user data buffer in unvmed_cmd_free() */
+#define UNVME_CMD_BUF_F_IOVA_UNMAP	(1 << 1)
+		unsigned int flags;
+
+		/*
+		 * Inlined single iovec representing the entire buffer.  If
+		 * user wants to define their own iovec list, this can be
+		 * no-used.  If user wants to issue a single iovec, user also
+		 * can user this instance by updating the value inside of it.
+		 */
+		struct iovec iov;
+	} buf;
 
 	void *opaque;
 };
@@ -141,7 +153,8 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
 int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
 void unvmed_free_ctrl(struct unvme *u);
 void unvmed_free_ctrl_all(void);
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid);
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf, size_t len);
+struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, uint16_t sqid);
 void __unvmed_cmd_free(struct unvme_cmd *cmd);
 void unvmed_cmd_free(struct unvme_cmd *cmd);
 void unvmed_reset_ctrl(struct unvme *u);
@@ -151,6 +164,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector);
 int unvmed_delete_cq(struct unvme *u, uint32_t qid);
 int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t cqid);
 int unvmed_delete_sq(struct unvme *u, uint32_t qid);
+int unvmed_to_iova(struct unvme *u, void *buf, uint64_t *iova);
 int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len, uint64_t *iova, unsigned long flags);
 int unvmed_unmap_vaddr(struct unvme *u, void *buf);
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe, unsigned long flags);
@@ -161,21 +175,26 @@ int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
 int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes, int min, int max);
 int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq);
 int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid, struct nvme_cqe **cqes);
-int __unvmed_map_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, uint64_t iova, size_t len);
+int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe);
+int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, struct iovec *iov, int nr_iov);
 
 enum unvmed_cmd_flags {
 	/* No doorbell update after posting one or more commands */
 	UNVMED_CMD_F_NODB	= 1 << 0,
 };
 
-int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, size_t len, unsigned long flags);
-int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf, size_t len);
-int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid, uint64_t slba,
-		uint16_t nlb, void *buf, size_t size, unsigned long flags, void *opaque);
-int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid, uint64_t slba,
-		 uint16_t nlb, void *buf, size_t size, unsigned long flags, void *opaque);
-int unvmed_passthru(struct unvme *u, uint32_t sqid, void *buf, size_t size,
-		    union nvme_cmd *sqe, bool read, unsigned long flags);
+int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		 struct iovec *iov, int nr_iov, unsigned long flags);
+int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
+			    uint32_t nsid, struct iovec *iov, int nr_iov);
+int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
+		unsigned long flags, void *opaque);
+int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		 uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
+		 unsigned long flags, void *opaque);
+int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		    bool read, struct iovec *iov, int nr_iov, unsigned long flags);
 
 int unvmed_ctx_init(struct unvme *u);
 int unvmed_ctx_restore(struct unvme *u);

@@ -447,11 +447,11 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_rw sqe = {0, };
 
-	uint64_t iova;
 	uint64_t slba;
 	uint32_t nlb;
 
-	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq));
+	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq), io_u->xfer_buf,
+			io_u->xfer_buflen);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
@@ -468,9 +468,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	 * XXX: Making a decision whether PRP or SGL is to be used should be
 	 * done in the driver library in sometime later.
 	 */
-	iova = libunvmed_to_iova(td, io_u->xfer_buf);
-	if (__unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, iova,
-				io_u->xfer_buflen)) {
+	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, &cmd->buf.iov, 1)) {
 		unvmed_cmd_free(cmd);
 		return -errno;
 	}
@@ -491,23 +489,14 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 
 	const size_t dsm_range_size = 4096;
 	struct nvme_dsm_range *range;
-	uint64_t iova;
 	uint64_t slba;
 	uint32_t nlb;
-	void *buf;
 
-	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq));
+	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq), NULL, dsm_range_size);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
-	buf = aligned_alloc(getpagesize(), dsm_range_size);
-	if (!buf) {
-		unvmed_cmd_free(cmd);
-		return FIO_Q_BUSY;
-	}
-
-	cmd->vaddr = buf;
-	range = buf;
+	range = cmd->buf.va;
 
 	slba = io_u->offset >> ilog2(ns->lba_size);
 	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size));
@@ -521,15 +510,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	range->nlb = cpu_to_le16(nlb);
 	range->slba = cpu_to_le64(slba);
 
-	if (unvmed_map_vaddr(ns->u, buf, dsm_range_size, &iova, 0x0)) {
-		free(buf);
-		unvmed_cmd_free(cmd);
-		return -errno;
-	}
-
-	if (__unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, iova,
-				io_u->xfer_buflen)) {
-		free(buf);
+	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, &cmd->buf.iov, 1)) {
 		unvmed_cmd_free(cmd);
 		return -errno;
 	}
@@ -594,7 +575,6 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	struct unvme *u = ld->u;
 	struct nvme_cqe *cqe = &ld->cqes[event];
 	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
-	void *buf = cmd->vaddr;
 	struct io_u *io_u;
 
 	assert(cmd != NULL);
@@ -606,16 +586,7 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	else
 		io_u->error = le16_to_cpu(cqe->sfp) >> 1;
 
-	if (io_u->ddir == DDIR_TRIM) {
-		/*
-		 * TRIM workloads does not use td->orig_buffer, so we should
-		 * free up the command instance entirely with freeing the
-		 * buffer from here in ioengine, not the library.
-		 */
-		unvmed_cmd_free(cmd);
-		free(buf);
-	} else
-		__unvmed_cmd_free(cmd);
+	unvmed_cmd_free(cmd);
 
 	ld->nr_queued--;
 

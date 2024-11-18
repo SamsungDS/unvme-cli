@@ -67,7 +67,7 @@ static void unvmed_perf_complete(struct unvme_cmd *cmd)
 		stats.tmax = diff;
 
 	if (unlikely(draining)) {
-		__unvmed_cmd_free(cmd);
+		unvmed_cmd_free(cmd);
 		return;
 	}
 
@@ -141,6 +141,7 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 
 	uint64_t iova;
 	void *mem;
+	void *mem_per_cmd;
 	int ret;
 
 	ns = unvmed_get_ns(u, nsid);
@@ -163,10 +164,12 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		goto out;
 	}
 
+	mem_per_cmd = mem;
+
 	do {
 		struct iod *iod;
 
-		cmd = unvmed_alloc_cmd(u, sqid);
+		cmd = unvmed_alloc_cmd(u, sqid, mem_per_cmd, data_size);
 		if (!cmd)
 			return -1;
 
@@ -177,6 +180,7 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		iod->sqe.dptr.prp1 = cpu_to_le64(iova);
 		iod->sqe.nlb = cpu_to_le16((data_size / ns->lba_size) - 1);
 
+		mem_per_cmd += data_size;
 		iova += data_size;
 
 		cmd->opaque = iod;

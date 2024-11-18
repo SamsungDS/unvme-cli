@@ -550,10 +550,25 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	}
 
 	if (!id_ns) {
+		struct unvme_cmd *cmd;
+		struct iovec iov;
+
 		size = pgmap((void **)&id_ns_local, NVME_IDENTIFY_DATA_SIZE);
 		assert(size == NVME_IDENTIFY_DATA_SIZE);
 
-		ret = unvmed_id_ns(u, nsid, id_ns_local, size, flags);
+		cmd = unvmed_alloc_cmd(u, 0, id_ns_local, size);
+		if (!cmd) {
+			pgunmap(id_ns_local, size);
+
+			unvmed_log_err("failed to allocate a command instance");
+			ret = errno;
+			return -1;
+		}
+
+		iov.iov_base = id_ns_local;
+		iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
+
+		ret = unvmed_id_ns(u, cmd, nsid, &iov, 1, flags);
 		if (ret)
 			return ret;
 
@@ -718,39 +733,107 @@ void __unvmed_cmd_free(struct unvme_cmd *cmd)
 {
 	nvme_rq_release(cmd->rq);
 
-	cmd->rq = NULL;
-	cmd->state = UNVME_CMD_S_INIT;
+	memset(cmd, 0, sizeof(*cmd));
 }
 
 void unvmed_cmd_free(struct unvme_cmd *cmd)
 {
-	if (cmd->vaddr)
-		unvmed_unmap_vaddr(cmd->u, cmd->vaddr);
+	if (cmd->buf.flags & UNVME_CMD_BUF_F_IOVA_UNMAP)
+		unvmed_unmap_vaddr(cmd->u, cmd->buf.va);
+
+	if (cmd->buf.flags & UNVME_CMD_BUF_F_VA_UNMAP)
+		pgunmap(cmd->buf.va, cmd->buf.len);
+
 	__unvmed_cmd_free(cmd);
 }
 
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, int sqid)
+static struct unvme_cmd* __unvmed_cmd_alloc(struct unvme *u, uint16_t sqid)
 {
 	struct unvme_cmd *cmd;
-	struct __unvme_sq *usq;
+	struct unvme_sq *usq;
 	struct nvme_rq *rq;
 
-	usq = (struct __unvme_sq *)__unvmed_get_sq(u, sqid);
+	usq = unvmed_get_sq(u, sqid);
 	if (!usq) {
+		unvmed_log_err("failed to find sq %d", sqid);
 		errno = EINVAL;
 		return NULL;
 	}
 
 	rq = nvme_rq_acquire(usq->q);
-	if (!rq)
+	if (!rq) {
+		unvmed_log_err("failed to acquire nvme request instance");
 		return NULL;
+	}
 
 	cmd = &usq->cmds[rq->cid];
 	cmd->u = u;
 	cmd->rq = rq;
+
 	rq->opaque = cmd;
 
 	return cmd;
+}
+
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
+				   size_t len)
+{
+	struct unvme_cmd *cmd;
+
+	void *__buf = NULL;
+	ssize_t __len;
+
+	cmd = __unvmed_cmd_alloc(u, sqid);
+	if (!cmd)
+		return NULL;
+
+	/*
+	 * If caller gives NULL buf and non-zero len, it will allocate a user
+	 * data buffer and keep the pointer and the size allocated in
+	 * cmd->buf.va and cmd->buf.len.  They will be freed up in
+	 * unvmed_cmd_free().  But, if caller gives non-NULL buf and non-zero
+	 * len, caller *must* free up the user data buffer before or after
+	 * unvmed_cmd_free().
+	 */
+	if (!buf && len) {
+		__len = pgmap(&__buf, len);
+		if (!__buf) {
+			unvmed_log_err("failed to mmap() for data buffer");
+			return NULL;
+		}
+
+		buf = __buf;
+		len = __len;  /* Update length with a newly aligned size */
+
+		cmd->buf.flags |= UNVME_CMD_BUF_F_VA_UNMAP;
+	}
+
+	if (buf && len) {
+		uint64_t iova;
+
+		if (unvmed_to_iova(u, buf, &iova)) {
+			if (unvmed_map_vaddr(u, buf, len, &iova, 0x0)) {
+				unvmed_log_err("failed to map vaddr for data buffer");
+
+				if (__buf)
+					pgunmap(buf, len);
+				__unvmed_cmd_free(cmd);
+				return NULL;
+			}
+			cmd->buf.flags |= UNVME_CMD_BUF_F_IOVA_UNMAP;
+		}
+	}
+
+	cmd->buf.va = buf;
+	cmd->buf.len = len;
+	cmd->buf.iov = (struct iovec) {.iov_base = buf, .iov_len = len};
+
+	return cmd;
+}
+
+struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, uint16_t sqid)
+{
+	return __unvmed_cmd_alloc(u, sqid);
 }
 
 static void __unvme_reset_ctrl(struct unvme *u)
@@ -1094,7 +1177,7 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	struct nvme_cmd_delete_q sqe = {0, };
 	struct nvme_cqe cqe;
 
-	cmd = unvmed_alloc_cmd(u, 0);
+	cmd = unvmed_alloc_cmd_nodata(u, 0);
 	if (!cmd)
 		return -1;
 
@@ -1159,7 +1242,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	struct nvme_cmd_delete_q sqe = {0, };
 	struct nvme_cqe cqe;
 
-	cmd = unvmed_alloc_cmd(u, 0);
+	cmd = unvmed_alloc_cmd_nodata(u, 0);
 	if (!cmd)
 		return -1;
 
@@ -1174,6 +1257,13 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 
 	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(&cqe);
+}
+
+int unvmed_to_iova(struct unvme *u, void *buf, uint64_t *iova)
+{
+	struct iommu_ctx *ctx = __iommu_ctx(&u->ctrl);
+
+	return !iommu_translate_vaddr(ctx, buf, iova);
 }
 
 int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len,
@@ -1388,46 +1478,33 @@ int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
 	return nr_sqes;
 }
 
-int __unvmed_map_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-		     uint64_t iova, size_t len)
+int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		      struct iovec *iov, int nr_iov)
 {
-	if (nvme_rq_map_prp(&cmd->u->ctrl, cmd->rq, sqe, iova, len))
+	if (nvme_rq_mapv_prp(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov))
 		return -1;
 	return 0;
 }
 
-static int unvmed_map_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, void *vaddr,
-			  size_t len)
+int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe)
 {
-	uint64_t iova;
-
-	if (unvmed_map_vaddr(cmd->u, vaddr, len, &iova, 0x0))
-		return -1;
-
-	cmd->vaddr = vaddr;
-	cmd->len = len;
-
-	return __unvmed_map_prp(cmd, sqe, iova, len);
+	return __unvmed_mapv_prp(cmd, sqe, &cmd->buf.iov, 1);
 }
 
-int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, size_t len,
-		 unsigned long flags)
+int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		 struct iovec *iov, int nr_iov, unsigned long flags)
 {
-	struct unvme_cmd *cmd;
-
 	struct nvme_cmd_identify sqe = {0, };
 	struct nvme_cqe cqe;
-
-	cmd = unvmed_alloc_cmd(u, 0);
-	if (!cmd)
-		return -1;
 
 	sqe.opcode = nvme_admin_identify;
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.cns = cpu_to_le32(0x0);
 
-	if (unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, buf, len))
+	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, 1)) {
+		unvmed_log_err("failed to map iovec for prp");
 		return -1;
+	}
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
 
@@ -1435,58 +1512,46 @@ int unvmed_id_ns(struct unvme *u, uint32_t nsid, void *buf, size_t len,
 		return 0;
 
 	unvmed_cmd_cmpl(cmd, &cqe);
-
-	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(&cqe);
 }
 
-int unvmed_id_active_nslist(struct unvme *u, uint32_t nsid, void *buf,
-			    size_t len)
+int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
+			    uint32_t nsid, struct iovec *iov, int nr_iov)
 {
-	struct unvme_cmd *cmd;
-
-	struct nvme_cmd_identify sqe;
+	struct nvme_cmd_identify sqe = {0, };
 	struct nvme_cqe cqe;
-
-	cmd = unvmed_alloc_cmd(u, 0);
-	if (!cmd)
-		return -1;
 
 	sqe.opcode = nvme_admin_identify;
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.cns = cpu_to_le32(0x2);
 
-	if (unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, buf, len))
+	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, 1)) {
+		unvmed_log_err("failed to map iovec for prp");
 		return -1;
+	}
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
 
 	unvmed_cmd_cmpl(cmd, &cqe);
-
-	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(&cqe);
 }
 
-int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid,
-		uint64_t slba, uint16_t nlb,
-		void *buf, size_t size, unsigned long flags, void *opaque)
+int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
+		unsigned long flags, void *opaque)
 {
-	struct unvme_cmd *cmd;
-
 	struct nvme_cmd_rw sqe = {0, };
 	struct nvme_cqe cqe;
-
-	cmd = unvmed_alloc_cmd(u, sqid);
-	if (!cmd)
-		return -1;
 
 	sqe.opcode = nvme_cmd_read;
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.slba = cpu_to_le64(slba);
 	sqe.nlb = cpu_to_le16(nlb);
 
-	if (unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, buf, size))
+	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for prp");
 		return -1;
+	}
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
 
@@ -1496,31 +1561,25 @@ int unvmed_read(struct unvme *u, uint32_t sqid, uint32_t nsid,
 	}
 
 	unvmed_cmd_cmpl(cmd, &cqe);
-
-	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(&cqe);
 }
 
-int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid,
-		 uint64_t slba, uint16_t nlb,
-		 void *buf, size_t size, unsigned long flags, void *opaque)
+int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		 uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
+		 unsigned long flags, void *opaque)
 {
-	struct unvme_cmd *cmd;
-
-	struct nvme_cmd_rw sqe;
+	struct nvme_cmd_rw sqe = {0, };
 	struct nvme_cqe cqe;
-
-	cmd = unvmed_alloc_cmd(u, sqid);
-	if (!cmd)
-		return -1;
 
 	sqe.opcode = nvme_cmd_write;
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.slba = cpu_to_le64(slba);
 	sqe.nlb = cpu_to_le16(nlb);
 
-	if (unvmed_map_prp(cmd, (union nvme_cmd *)&sqe, buf, size))
+	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for prp");
 		return -1;
+	}
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
 
@@ -1530,24 +1589,19 @@ int unvmed_write(struct unvme *u, uint32_t sqid, uint32_t nsid,
 	}
 
 	unvmed_cmd_cmpl(cmd, &cqe);
-
-	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(&cqe);
 }
 
-int unvmed_passthru(struct unvme *u, uint32_t sqid, void *buf, size_t size,
-		    union nvme_cmd *sqe, bool read, unsigned long flags)
+int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		    bool read, struct iovec *iov, int nr_iov, unsigned long flags)
 {
-	struct unvme_cmd *cmd;
 	struct nvme_cqe cqe;
 
-	cmd = unvmed_alloc_cmd(u, sqid);
-	if (!cmd)
-		return -1;
-
 	if (!sqe->dptr.prp1 && !sqe->dptr.prp2) {
-		if (unvmed_map_prp(cmd, sqe, buf, size))
+		if (__unvmed_mapv_prp(cmd, sqe, iov, nr_iov)) {
+			unvmed_log_err("failed to map iovec for prp");
 			return -1;
+		}
 	}
 
 	unvmed_cmd_post(cmd, (union nvme_cmd *)sqe, flags);
@@ -1556,8 +1610,6 @@ int unvmed_passthru(struct unvme *u, uint32_t sqid, void *buf, size_t size,
 		return 0;
 
 	unvmed_cmd_cmpl(cmd, &cqe);
-
-	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(&cqe);
 }
 
