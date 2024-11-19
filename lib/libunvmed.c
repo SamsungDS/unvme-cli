@@ -695,10 +695,10 @@ static void __unvmed_free_ucq(struct __unvme_cq *ucq)
 	free(ucq);
 }
 
-static void unvmed_free_ucq(struct unvme *u, struct __unvme_cq *ucq)
+static void unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
 {
 	pthread_rwlock_wrlock(&u->cq_list_lock);
-	__unvmed_free_ucq(ucq);
+	__unvmed_free_ucq((struct __unvme_cq *)ucq);
 	pthread_rwlock_unlock(&u->cq_list_lock);
 }
 
@@ -1122,7 +1122,7 @@ int unvmed_create_adminq(struct unvme *u)
 		return -1;
 
 	if (unvmed_init_irq(u, 0)) {
-		unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
+		unvmed_free_ucq(u, ucq);
 		return -1;
 	}
 
@@ -1188,12 +1188,12 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		return -1;
 
 	if (vector >= 0 && unvmed_init_irq(u, vector)) {
-		unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
+		unvmed_free_ucq(u, ucq);
 		return -1;
 	}
 
 	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector)) {
-		unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
+		unvmed_free_ucq(u, ucq);
 		return -1;
 	}
 
