@@ -26,6 +26,7 @@ struct libunvmed_options {
 	struct thread_data *td;
 	unsigned int nsid;
 	unsigned int sqid;
+	uint64_t prp1_offset;
 
 	/*
 	 * io_uring_cmd ioengine options
@@ -64,6 +65,16 @@ static struct fio_option options[] = {
 		.type = FIO_OPT_INT,
 		.off1 = offsetof(struct libunvmed_options, sqid),
 		.help = "Submission queue ID",
+		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "prp1_offset",
+		.lname = "Offset value (< MPS) of PRP1 in case of PRP mode",
+		.type = FIO_OPT_INT,
+		.off1 = offsetof(struct libunvmed_options, prp1_offset),
+		.help = "Configure offset value (< MPS) to PRP1 to introduce unaligned PRP1",
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
@@ -146,6 +157,15 @@ struct libunvmed_data {
 	 */
 	ssize_t orig_buffer_size;
 	uint64_t orig_buffer_iova;
+
+	/*
+	 * iomem buffers for prp1_offset (unaligned case)
+	 */
+	void *prp_iomem;
+	size_t prp_iomem_size;
+	size_t prp_iomem_usize;  /* unit size in bytes */
+#define libunvmed_prp_iomem(ld, io_u)  \
+	((ld)->prp_iomem + ((io_u)->index * (ld)->prp_iomem_usize))
 
 	/*
 	 * Target I/O submission queue instance per a thread.  A submission
@@ -370,11 +390,22 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 			libunvmed_log("failed to map io_u buffers to iommu\n");
 	}
 
+	if (ld->prp_iomem) {
+		uint64_t iova;
+
+		ret = unvmed_map_vaddr(u, ld->prp_iomem, ld->prp_iomem_size,
+				&iova, 0);
+		if (ret)
+			libunvmed_log("failed to map prp iomem to iommu\n");
+		goto out;
+	}
+
 	if (o->write_mode != FIO_URING_CMD_WMODE_WRITE && !td_write(td)) {
 		libunvmed_log("'readwrite=|rw=' has no write\n");
 		return -1;
 	}
 
+out:
 	pthread_mutex_unlock(&g_serialize);
 	return ret;
 }
@@ -391,6 +422,12 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 		return ret;
 	}
 
+	if (ld->prp_iomem) {
+		ret = unvmed_unmap_vaddr(ld->u, ld->prp_iomem);
+		if (ret)
+			libunvmed_log("failed to unmap prp iomem from iommu\n");
+	}
+
 	if (td->orig_buffer) {
 		ret = unvmed_unmap_vaddr(ld->u, td->orig_buffer);
 		if (ret)
@@ -404,6 +441,11 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+
+	uint64_t max_bs = td_max_bs(td);
+	uint64_t max_units = td->o.iodepth;
+
 	ssize_t size;
 	void *ptr;
 	int ret;
@@ -424,6 +466,12 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 	td->orig_buffer = (char *)ptr;
 	ld->orig_buffer_size = size;
 
+	if (o->prp1_offset) {
+		ld->prp_iomem_usize = max_bs + getpagesize();
+		ld->prp_iomem_size = pgmap(&ld->prp_iomem,
+				ld->prp_iomem_usize * max_units);
+	}
+
 	pthread_mutex_unlock(&g_serialize);
 	return 0;
 }
@@ -433,8 +481,13 @@ static void fio_libunvmed_iomem_free(struct thread_data *td)
 	struct libunvmed_data *ld = td->io_ops_data;
 
 	pthread_mutex_lock(&g_serialize);
+
+	if (ld->prp_iomem)
+		pgunmap(ld->prp_iomem, ld->prp_iomem_size);
+
 	if (td->orig_buffer)
 		pgunmap(td->orig_buffer, ld->orig_buffer_size);
+
 	pthread_mutex_unlock(&g_serialize);
 }
 
@@ -442,6 +495,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 					  struct io_u *io_u)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
 
 	struct unvme_ns *ns = ld->ns;
 	struct unvme_cmd *cmd;
@@ -450,10 +504,21 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	uint64_t slba;
 	uint32_t nlb;
 
-	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq), io_u->xfer_buf,
-			io_u->xfer_buflen);
+	void *buf = io_u->xfer_buf;
+	size_t len = io_u->xfer_buflen;
+
+	if (o->prp1_offset)
+		buf = libunvmed_prp_iomem(ld, io_u);
+
+	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq), buf, len);
 	if (!cmd)
 		return FIO_Q_BUSY;
+
+	/*
+	 * Copy the original write data buffer to the newly allocated buffer.
+	 */
+	if (o->prp1_offset && io_u->ddir == DDIR_WRITE)
+		memcpy(buf + o->prp1_offset, io_u->xfer_buf, io_u->xfer_buflen);
 
 	slba = io_u->offset >> ilog2(ns->lba_size);
 	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
@@ -468,7 +533,12 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	 * XXX: Making a decision whether PRP or SGL is to be used should be
 	 * done in the driver library in sometime later.
 	 */
-	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, &cmd->buf.iov, 1)) {
+	cmd->buf.iov = (struct iovec) {
+		.iov_base = buf + o->prp1_offset,
+		.iov_len = io_u->xfer_buflen,
+	};
+
+	if (unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe)) {
 		unvmed_cmd_free(cmd);
 		return -errno;
 	}
@@ -572,6 +642,8 @@ static int fio_libunvmed_commit(struct thread_data *td)
 static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+
 	struct unvme *u = ld->u;
 	struct nvme_cqe *cqe = &ld->cqes[event];
 	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
@@ -585,6 +657,12 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 		io_u->error = 0;
 	else
 		io_u->error = le16_to_cpu(cqe->sfp) >> 1;
+
+	/*
+	 * Copy read data to the original buffer for verify phase
+	 */
+	if (o->prp1_offset && io_u->ddir == DDIR_READ)
+		memcpy(io_u->xfer_buf, cmd->buf.iov.iov_base, io_u->xfer_buflen);
 
 	unvmed_cmd_free(cmd);
 
