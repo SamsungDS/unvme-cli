@@ -488,7 +488,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		arg_intv(vector) = -1;
 
 	if (unvmed_get_cq(u, arg_intv(qid))) {
-		unvme_pr_err("failed to create cq (qid=%u) (exists)", arg_intv(qid));
+		unvme_pr_err("failed to create cq (qid=%u) (exists)\n", arg_intv(qid));
 		ret = EEXIST;
 		goto out;
 	}
@@ -537,7 +537,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (!unvmed_get_cq(u, arg_intv(qid))) {
-		unvme_pr_err("failed to delete cq (qid=%u) (not exists)", arg_intv(qid));
+		unvme_pr_err("failed to delete cq (qid=%u) (not exists)\n", arg_intv(qid));
 		ret = ENOMEDIUM;
 		goto out;
 	}
@@ -598,7 +598,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (unvmed_get_sq(u, arg_intv(qid))) {
-		unvme_pr_err("failed to create iosq (qid=%u) (exists)", arg_intv(qid));
+		unvme_pr_err("failed to create iosq (qid=%u) (exists)\n", arg_intv(qid));
 		ret = EEXIST;
 		goto out;
 	}
@@ -647,7 +647,7 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (!unvmed_get_sq(u, arg_intv(qid))) {
-		unvme_pr_err("failed to delete iosq (qid=%u) (not exists)", arg_intv(qid));
+		unvme_pr_err("failed to delete iosq (qid=%u) (not exists)\n", arg_intv(qid));
 		ret = ENOMEDIUM;
 		goto out;
 	}
