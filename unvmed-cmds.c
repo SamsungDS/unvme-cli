@@ -1403,8 +1403,6 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	ret = unvmed_run_fio(argc - 1, &argv[1], libfio, unvme_msg_pwd(msg));
-	if (ret)
-		unvme_pr_err("failed to run fio\n");
 
 	unvme_free_args(argtable);
 	return ret;
