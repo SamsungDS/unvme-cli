@@ -28,7 +28,7 @@ last_lba=$(expr $totalsize / $lbasize)
 unvme start
 unvme add $bdf
 unvme enable $bdf
-unvme create-iocq $bdf -q 1 -z $(($nr * 2)) -v 0
+unvme create-iocq $bdf -q 1 -z $(($nr * 2)) -v 1
 unvme create-iosq $bdf -q 1 -z $(($nr * 2)) -c 1
 
 for ((i=0; i<$nr; i++))

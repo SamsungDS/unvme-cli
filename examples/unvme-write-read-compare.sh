@@ -15,7 +15,7 @@ bdf="$1"
 unvme start
 unvme add $bdf
 unvme enable $bdf
-unvme create-iocq $bdf -q 1 -z 32 -v 0
+unvme create-iocq $bdf -q 1 -z 32 -v 1
 unvme create-iosq $bdf -q 1 -z 32 -c 1
 
 dd if=/dev/urandom of=/tmp/wdata.bin bs=4096 count=1 2> /dev/null
