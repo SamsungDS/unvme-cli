@@ -664,10 +664,10 @@ static void __unvmed_free_usq(struct __unvme_sq *usq)
 	free(usq);
 }
 
-static void unvmed_free_usq(struct unvme *u, struct __unvme_sq *usq)
+static void unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 {
 	pthread_rwlock_wrlock(&u->sq_list_lock);
-	__unvmed_free_usq(usq);
+	__unvmed_free_usq((struct __unvme_sq *)usq);
 	pthread_rwlock_unlock(&u->sq_list_lock);
 }
 
@@ -1207,30 +1207,32 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	return 0;
 }
 
-static void __unvmed_delete_cq(struct unvme *u, uint32_t qid)
+static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 {
-	struct unvme_cq *ucq;
 
-	ucq = unvmed_get_cq(u, qid);
-	if (ucq) {
-		ucq->enabled = false;
+	/*
+	 * XXX: we should free IRQ only when the last owner for the
+	 * corresponding irq is to be freed (refcnt) when it supports
+	 * multiple CQ with a single irq vector.
+	 */
+	if (unvmed_cq_irq_enabled(ucq))
+		unvmed_free_irq(u, unvmed_cq_iv(ucq));
 
-		/*
-		 * XXX: we should free IRQ only when the last owner for the
-		 * corresponding irq is to be freed (refcnt) when it supports
-		 * multiple CQ with a single irq vector.
-		 */
-		if (unvmed_cq_irq_enabled(ucq))
-			unvmed_free_irq(u, unvmed_cq_iv(ucq));
-		nvme_discard_cq(&u->ctrl, ucq->q);
-	}
+	nvme_discard_cq(&u->ctrl, ucq->q);
 }
 
 int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
+	struct unvme_cq *ucq;
 	struct nvme_cmd_delete_q sqe = {0, };
 	struct nvme_cqe cqe;
+
+	ucq = unvmed_get_cq(u, qid);
+	if (!ucq) {
+		errno = EINVAL;
+		return -1;
+	}
 
 	cmd = unvmed_alloc_cmd_nodata(u, 0);
 	if (!cmd)
@@ -1243,7 +1245,7 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	unvmed_cmd_cmpl(cmd, &cqe);
 
 	if (nvme_cqe_ok(&cqe))
-		__unvmed_delete_cq(u, qid);
+		__unvmed_delete_cq(u, ucq);
 
 	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(&cqe);
@@ -1271,7 +1273,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 
 	if (nvme_create_iosq(&u->ctrl, qid, qsize, ucq->q, 0)) {
-		unvmed_free_usq(u, (struct __unvme_sq *)usq);
+		unvmed_free_usq(u, usq);
 		return -1;
 	}
 
@@ -1282,20 +1284,23 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	return 0;
 }
 
-static void __unvmed_delete_sq(struct unvme *u, uint32_t qid)
+static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq)
 {
-	struct unvme_sq *usq;
-
-	usq = unvmed_get_sq(u, qid);
-	if (usq)
-		nvme_discard_sq(&u->ctrl, usq->q);
+	nvme_discard_sq(&u->ctrl, usq->q);
 }
 
 int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq;
 	struct nvme_cmd_delete_q sqe = {0, };
 	struct nvme_cqe cqe;
+
+	usq = unvmed_get_sq(u, qid);
+	if (!usq) {
+		errno = EINVAL;
+		return -1;
+	}
 
 	cmd = unvmed_alloc_cmd_nodata(u, 0);
 	if (!cmd)
@@ -1308,7 +1313,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	unvmed_cmd_cmpl(cmd, &cqe);
 
 	if (nvme_cqe_ok(&cqe))
-		__unvmed_delete_sq(u, qid);
+		__unvmed_delete_sq(u, usq);
 
 	unvmed_cmd_free(cmd);
 	return unvmed_cqe_status(&cqe);
