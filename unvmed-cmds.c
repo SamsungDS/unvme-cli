@@ -1099,8 +1099,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *cdw2;
 	struct arg_int *cdw3;
 	/* To figure out whether --prp1=, --prp2= are given or not */
-	struct arg_str *prp1;
-	struct arg_str *prp2;
+	struct arg_dbl *prp1;
+	struct arg_dbl *prp2;
 	struct arg_int *cdw10;
 	struct arg_int *cdw11;
 	struct arg_int *cdw12;
@@ -1126,7 +1126,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
-                sqid = arg_int0("q", "sqid", "<n>", "[O] Submission queue ID"),
+                sqid = arg_int1("q", "sqid", "<n>", "[M] Submission queue ID"),
                 nsid = arg_int0("n", "namespace-id", "<n>", "[O] Namespace ID, Mandatory if --sqid > 0"),
 		opcode = arg_int1("o", "opcode", "<int>", "[M] Operation code"),
 		flags = arg_int0("f", "flags", "<n>", "[O] Command flags in CDW0[15:8]"),
@@ -1134,8 +1134,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		data_len = arg_int0("l", "data-len", "<n>", "[O] Data length in bytes"),
 		cdw2 = arg_int0("2", "cdw2", "<n>", "[O] Command dword 2"),
 		cdw3 = arg_int0("3", "cdw3", "<n>", "[O] Command dword 3"),
-		prp1 = arg_str0(NULL, "prp1", "<ptr>", "[O] PRP1 in DPTR (for injection)"),
-		prp2 = arg_str0(NULL, "prp2", "<ptr>", "[O] PRP2 in DPTR (for injection)"),
+		prp1 = arg_dbl0(NULL, "prp1", "<ptr>", "[O] PRP1 in DPTR (for injection)"),
+		prp2 = arg_dbl0(NULL, "prp2", "<ptr>", "[O] PRP2 in DPTR (for injection)"),
 		cdw10 = arg_int0("4", "cdw10", "<n>", "[O] Command dword 10"),
 		cdw11 = arg_int0("5", "cdw11", "<n>", "[O] Command dword 11"),
 		cdw12 = arg_int0("6", "cdw12", "<n>", "[O] Command dword 12"),
@@ -1163,8 +1163,20 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	union nvme_cmd sqe = {0, };
 	int ret;
 
-	/* Set default argument values prior to parsing */
-	arg_intv(opcode) = -1;
+	arg_intv(nsid) = 0;
+	arg_intv(flags) = 0;
+	arg_intv(rsvd) = 0;
+	arg_intv(data_len) = 0;
+	arg_intv(cdw2) = 0;
+	arg_intv(cdw3) = 0;
+	arg_dblv(prp1) = 0;
+	arg_dblv(prp2) = 0;
+	arg_intv(cdw10) = 0;
+	arg_intv(cdw11) = 0;
+	arg_intv(cdw12) = 0;
+	arg_intv(cdw13) = 0;
+	arg_intv(cdw14) = 0;
+	arg_intv(cdw15) = 0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
@@ -1255,10 +1267,10 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	/*
 	 * Override prp1 and prp2 if they are given to inject specific values
 	 */
-	if (prp1)
-		sqe.dptr.prp1 = strtoull(arg_strv(prp1), NULL, 0);
-	if (prp2)
-		sqe.dptr.prp2 = strtoull(arg_strv(prp2), NULL, 0);
+	if (arg_boolv(prp1))
+		sqe.dptr.prp1 = cpu_to_le64((uint64_t)arg_dblv(prp1));
+	if (arg_boolv(prp2))
+		sqe.dptr.prp2 = cpu_to_le64((uint64_t)arg_dblv(prp2));
 
 	sqe.cdw10 = cpu_to_le32(arg_intv(cdw10));
 	sqe.cdw11 = cpu_to_le32(arg_intv(cdw11));
