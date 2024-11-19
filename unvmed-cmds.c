@@ -666,6 +666,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *nsid;
+	struct arg_int *prp1_offset;
 	struct arg_str *format;
 	struct arg_lit *nodb;
 	struct arg_lit *init;
@@ -677,6 +678,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		nsid = arg_int1("n", "nsid", "<n>", "[M] Namespace ID"),
+		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		init = arg_lit0(NULL, "init", "[O] Initialize namespace instance and keep it in unvmed driver"),
@@ -695,6 +697,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 
 	/* Set default argument values prior to parsing */
 	arg_strv(format) = "normal";
+	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
@@ -711,11 +714,17 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if (arg_intv(prp1_offset) >= getpagesize()) {
+		unvme_pr_err("invalid --prp1-offset\n");
+		ret = EINVAL;
+		goto out;
+	}
+
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 
 	/* allocate a buffer with a consieration of --prp1-offset=<n> */
-	len = pgmap(&buf, size);
+	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
 	if (!buf) {
 		unvme_pr_err("failed to allocate user data buffer\n");
 		ret = errno;
@@ -731,8 +740,12 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	iov.iov_base = buf;
-	iov.iov_len = size;
+	buf += arg_intv(prp1_offset);
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = size,
+	};
 
 	ret = unvmed_id_ns(u, cmd, arg_intv(nsid), &iov, 1, flags);
 	if (!ret && !arg_boolv(nodb)) {
@@ -756,6 +769,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *nsid;
+	struct arg_int *prp1_offset;
 	struct arg_str *format;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -766,6 +780,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		nsid = arg_int1("n", "nsid", "<n>", "[M] Namespace ID"),
+		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -781,6 +796,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 
 	/* Set default argument values prior to parsing */
 	arg_strv(format) = "normal";
+	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
@@ -797,7 +813,13 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, size);
+	if (arg_intv(prp1_offset) >= getpagesize()) {
+		unvme_pr_err("invalid --prp1-offset\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
 	if (!buf) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -813,8 +835,12 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	iov.iov_base = buf;
-	iov.iov_len = size;
+	buf += arg_intv(prp1_offset);
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = size,
+	};
 
 	ret = unvmed_id_active_nslist(u, cmd, arg_intv(nsid), &iov, 1);
 	if (!ret)
@@ -839,6 +865,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *nlb;
 	struct arg_int *data_size;
 	struct arg_file *data;
+	struct arg_int *prp1_offset;
 	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -857,6 +884,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		nlb = arg_int1("c", "block-count", "<n>", "[M] Number of logical block (0-based)"),
 		data_size = arg_int1("z", "data-size", "<n>", "[M] Read data buffer size in bytes"),
 		data = arg_file0("d", "data", "<output>", "[O] File to write read data"),
+		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -869,6 +897,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	unsigned long flags = 0;
 	ssize_t len;
 	int ret;
+
+	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
@@ -885,7 +915,13 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, arg_intv(data_size));
+	if (arg_intv(prp1_offset) >= getpagesize()) {
+		unvme_pr_err("invalid --prp1-offset\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	len = pgmap(&buf, arg_intv(data_size) + (getpagesize() - arg_intv(prp1_offset)));
 	if (!buf) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -907,8 +943,12 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	iov.iov_base = buf;
-	iov.iov_len = arg_intv(data_size);
+	buf += arg_intv(prp1_offset);
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = arg_intv(data_size),
+	};
 
 	ret = unvmed_read(u, cmd, arg_intv(nsid), arg_dblv(slba),
 			arg_intv(nlb), &iov, 1, flags, NULL);
@@ -939,6 +979,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *nlb;
 	struct arg_int *data_size;
 	struct arg_file *data;
+	struct arg_int *prp1_offset;
 	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -956,6 +997,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		nlb = arg_int1("c", "block-count", "<n>", "[M] Number of logical block (0-based)"),
 		data_size = arg_int1("z", "data-size", "<n>", "[O] Logical block size in bytes"),
 		data = arg_file1("d", "data", "<input>", "[M] File to write as write data"),
+		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -965,9 +1007,12 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme_cmd *cmd;
 	struct iovec iov;
 	void *buf = NULL;
+	void *__buf;
 	unsigned long flags = 0;
 	ssize_t len;
 	int ret;
+
+	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
@@ -984,22 +1029,32 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if (arg_intv(prp1_offset) >= getpagesize()) {
+		unvme_pr_err("invalid --prp1-offset\n");
+		ret = EINVAL;
+		goto out;
+	}
+
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 
 	if (arg_boolv(data))
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 
-	if (unvme_read_file(filepath, buf, arg_intv(data_size))) {
-		unvme_pr_err("failed to read file %s\n", filepath);
-		ret = ENOENT;
-		goto out;
-	}
-
-	len = pgmap(&buf, arg_intv(data_size));
+	len = pgmap(&buf, arg_intv(data_size) + (getpagesize() - arg_intv(prp1_offset)));
 	if (!buf) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
+		goto out;
+	}
+
+	__buf = buf + arg_intv(prp1_offset);
+
+	if (unvme_read_file(filepath, __buf, arg_intv(data_size))) {
+		unvme_pr_err("failed to read file %s\n", filepath);
+
+		pgunmap(buf, len);
+		ret = ENOENT;
 		goto out;
 	}
 
@@ -1013,7 +1068,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	iov = (struct iovec) {
-		.iov_base = buf,
+		.iov_base = __buf,
 		.iov_len = arg_intv(data_size),
 	};
 
@@ -1023,7 +1078,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_cqe_status(ret);
 
 	if (!(flags & UNVMED_CMD_F_NODB)) {
-		pgunmap(buf, len);
+		pgunmap(cmd->buf.va, cmd->buf.len);
 		unvmed_cmd_free(cmd);
 	}
 out:
