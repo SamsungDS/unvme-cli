@@ -1,38 +1,77 @@
-# *unvme-cli*
+# *unvme-cli*: Configure NVMe by CLI, and test it with *fio*!
 
 `unvme-cli` is a command line interface to control NVMe controller without
-kernel NVMe driver on the user-space.  It's based on `libvfn` so that it requires
-`libvfn` libraries to be installed.
+kernel NVMe driver on the user-space.  It also provides I/O benchmarking test
+by `fio` with `libunvmed` ioengine which is bundled within this program.
 
 ## Why unvme-cli?
 - Users can setup user-defined configurations (e.g., IO queues) without kernel driver intervention
+- Users can run *fio* with various testing features based on the
+  user-defined configurations
 - Users can introduce user-defined scenarios (e.g., doorbell update) to test NVMe controller
 - Educational purpose to understand NVMe spec.
 - Do all these with a simple portable program `unvme`
-
-## How to run
-`unvmed` is a daemon service process to handle requests by `unvme-cli`.  To
-communicate with NVMe device in the system, you should run `unvmed` first by
-`unvme start` command.  If you want to kill the running `unvmed` daemon process,
-`unvme stop` is the one to run.
-
-Please refer examples test cases under examples/.
 
 ## How to build
 
 **Requirements**
   - libvfn (>= 5.1.0)
   - libnvme (>= 1.8.0)
+  - fio (optional)
+
+Provide *fio* path with `-Dwith-fio=` option to enable `unvme fio` command,
+otherwise, `unvme fio` command will not be bundled inside of `unvme` executable.
 
 ```bash
-meson setup build
-ninja -C build
+meson setup build -Dwith-fio=</path/to/fio/src>
+meson install -C build
 ```
 
-To install `unvme-cli` on your system,
+## How to run
+`unvme` commands are handled in the `unvmed` daemon service.  To run the daemon
+service in the background:
+
+(*To enable fio, fio should be pre-built.  See details in app/fio/README.md*)
 
 ```bash
-cd build && meson install
+unvme start --with-fio=</path/to/fio.so>
+```
+
+To terminate the daemon service, do simply:
+
+```bash
+unvme stop
+```
+
+Please refer examples test cases under *examples/*.
+
+## Example
+
+Here's an example to create a I/O SQ and CQ and run fio based on the
+configuration.
+
+```bash
+#!/bin/bash
+
+bdf="0000:01:00.0"  # This can be shortend "1:0" or "0:1:0" or ...
+bdf_dot=$(echo $bdf | sed 's/:/./g')  # Convert ':' to '.' for fio
+
+unvme start --with-fio=</path/to/fio>
+
+unvme add $bdf
+unvme enable $bdf
+
+# Create a I/O SQ and CQ with qid=1
+unvme create-iocq $bdf --qid=1 --qsize=256 --vector=1
+unvme create-iosq $bdf --qid=1 --qsize=256 --cqid=1
+
+# Initialize namespace identify data structure
+unvme id-ns $bdf --nsid=1 --init
+
+# Run random read workloads on the specific queue
+unvme fio --ioengine=libunvmed --thread \
+	--filename=$bdf_dot --nsid=1 --sqid=1 \
+	--name=job --rw=randread --bs=4k --iodepth=256 --norandommap
 ```
 
 ## License
