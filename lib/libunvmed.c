@@ -95,6 +95,7 @@ struct unvme_rcq {
 
 struct unvme_cq_reaper {
 	struct unvme *u;
+	int refcnt;
 
 	int vector;
 	int epoll_fd;
@@ -102,6 +103,28 @@ struct unvme_cq_reaper {
 	pthread_t th;
 	struct unvme_rcq rcq;
 };
+
+static inline int unvmed_rcq_get(struct unvme *u, struct unvme_cq *ucq)
+{
+	int vector = unvmed_cq_iv(ucq);
+	struct unvme_cq_reaper *r;
+
+	assert(u->nr_efds > vector);
+	r = &u->reapers[vector];
+
+	return atomic_inc_fetch(&r->refcnt);
+}
+
+static inline int unvmed_rcq_put(struct unvme *u, struct unvme_cq *ucq)
+{
+	int vector = unvmed_cq_iv(ucq);
+	struct unvme_cq_reaper *r;
+
+	assert(u->nr_efds > vector);
+	r = &u->reapers[vector];
+
+	return atomic_dec_fetch(&r->refcnt);
+}
 
 /*
  * Driver context
@@ -406,14 +429,12 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 	struct unvme_cq_reaper *r = &u->reapers[vector];
 	int ret;
 
-	if (r->th) {
-		/*
-		 * Wake up the blocking threads waiting for the interrupt
-		 * events from the device.
-		 */
-		eventfd_write(r->efd, 1);
-		pthread_join(r->th, NULL);
-	}
+	/*
+	 * Wake up the blocking threads waiting for the interrupt
+	 * events from the device.
+	 */
+	eventfd_write(r->efd, 1);
+	pthread_join(r->th, NULL);
 
 	ret = vfio_disable_irq(&u->ctrl.pci.dev, vector, 1);
 	if (ret) {
@@ -1061,6 +1082,9 @@ static void *unvmed_rcq_run(void *opaque)
 		if (unvmed_cq_wait_irq(u, vector))
 			goto out;
 
+		if (!atomic_load_acquire(&r->refcnt))
+			goto out;
+
 		if (u->state == UNVME_TEARDOWN)
 			goto out;
 
@@ -1084,17 +1108,12 @@ static void unvmed_rcq_init(struct unvme *u, int vector)
 	struct unvme_cq_reaper *r = &u->reapers[vector];
 	const int qsize = 256;  /* XXX: Currently 256 qsize is supported */
 
-	/*
-	 * Initialize once for each vector even CQ is different.
-	 */
-	if (!r->th) {
-		r->u = u;
-		r->vector = vector;
-		r->rcq.cqe = malloc(sizeof(struct nvme_cqe) * qsize);
-		r->rcq.qsize = qsize;
+	r->u = u;
+	r->vector = vector;
+	r->rcq.cqe = malloc(sizeof(struct nvme_cqe) * qsize);
+	r->rcq.qsize = qsize;
 
-		pthread_create(&r->th, NULL, unvmed_rcq_run, (void *)r);
-	}
+	pthread_create(&r->th, NULL, unvmed_rcq_run, (void *)r);
 }
 
 int unvmed_create_adminq(struct unvme *u)
@@ -1141,7 +1160,7 @@ int unvmed_create_adminq(struct unvme *u)
 	ucq->q = &u->ctrl.cq[0];
 	ucq->enabled = true;
 
-	if (unvmed_cq_irq_enabled(ucq))
+	if (unvmed_cq_irq_enabled(ucq) && unvmed_rcq_get(u, ucq) == 1)
 		unvmed_rcq_init(u, 0);
 
 	return 0;
@@ -1201,7 +1220,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	ucq->q = &u->ctrl.cq[qid];
 	ucq->enabled = true;
 
-	if (unvmed_cq_irq_enabled(ucq))
+	if (unvmed_cq_irq_enabled(ucq) && unvmed_rcq_get(u, ucq) == 1)
 		unvmed_rcq_init(u, vector);
 
 	return 0;
@@ -1209,13 +1228,12 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 {
-
 	/*
 	 * XXX: we should free IRQ only when the last owner for the
 	 * corresponding irq is to be freed (refcnt) when it supports
 	 * multiple CQ with a single irq vector.
 	 */
-	if (unvmed_cq_irq_enabled(ucq))
+	if (unvmed_cq_irq_enabled(ucq) && !unvmed_rcq_put(u, ucq))
 		unvmed_free_irq(u, unvmed_cq_iv(ucq));
 
 	nvme_discard_cq(&u->ctrl, ucq->q);
