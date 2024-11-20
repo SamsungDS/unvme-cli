@@ -44,6 +44,7 @@ struct unvme {
 	int nr_cmds;
 
 	struct list_head ns_list;
+	pthread_rwlock_t ns_list_lock;
 	int nr_ns;
 
 	int *efds;
@@ -253,10 +254,14 @@ struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid)
 {
 	struct __unvme_ns *ns;
 
+	pthread_rwlock_rdlock(&u->ns_list_lock);
 	list_for_each(&u->ns_list, ns, list) {
-		if (ns->nsid == nsid)
+		if (ns->nsid == nsid) {
+			pthread_rwlock_unlock(&u->ns_list_lock);
 			return (struct unvme_ns *)ns;
+		}
 	}
+	pthread_rwlock_unlock(&u->ns_list_lock);
 
 	return NULL;
 }
@@ -531,10 +536,26 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	list_head_init(&u->cq_list);
 	pthread_rwlock_init(&u->cq_list_lock, NULL);
 	list_head_init(&u->ns_list);
+	pthread_rwlock_init(&u->ns_list_lock, NULL);
 	list_add(&unvme_list, &u->list);
 	list_head_init(&u->ctx_list);
 
 	return u;
+}
+
+static void __unvmed_free_ns(struct __unvme_ns *ns)
+{
+	list_del(&ns->list);
+	free(ns);
+}
+
+static void unvmed_free_ns(struct unvme_ns *ns)
+{
+	struct unvme *u = ns->u;
+
+	pthread_rwlock_wrlock(&u->ns_list_lock);
+	__unvmed_free_ns((struct __unvme_ns *)ns);
+	pthread_rwlock_unlock(&u->ns_list_lock);
 }
 
 int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
@@ -601,18 +622,6 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 
 	if (id_ns_local)
 		pgunmap(id_ns_local, size);
-	return 0;
-}
-
-static int unvmed_free_ns(struct __unvme_ns *ns)
-{
-	if (!ns) {
-		errno = ENODEV;
-		return -1;
-	}
-
-	list_del(&ns->list);
-	free(ns);
 	return 0;
 }
 
@@ -689,7 +698,7 @@ static void unvmed_free_ns_all(struct unvme *u)
 	struct __unvme_ns *ns, *next_ns;
 
 	list_for_each_safe(&u->ns_list, ns, next_ns, list)
-		unvmed_free_ns(ns);
+		__unvmed_free_ns(ns);
 }
 
 /*
