@@ -669,7 +669,6 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *prp1_offset;
 	struct arg_str *format;
 	struct arg_lit *nodb;
-	struct arg_lit *init;
 	struct arg_lit *help;
 	struct arg_end *end;
 	const char *desc =
@@ -681,7 +680,6 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
-		init = arg_lit0(NULL, "init", "[O] Initialize namespace instance and keep it in unvmed driver"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -750,8 +748,11 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	ret = unvmed_id_ns(u, cmd, arg_intv(nsid), &iov, 1, flags);
 	if (!ret && !arg_boolv(nodb)) {
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ns);
-		if (arg_boolv(init))
-			unvmed_init_ns(u, arg_intv(nsid), buf);
+
+		if (unvmed_init_ns(u, arg_intv(nsid), buf)) {
+			unvme_pr_err("failed to initialize ns instance");
+			ret = errno;
+		}
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
