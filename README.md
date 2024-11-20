@@ -66,7 +66,7 @@ unvme create-iocq $bdf --qid=1 --qsize=256 --vector=1
 unvme create-iosq $bdf --qid=1 --qsize=256 --cqid=1
 
 # Initialize namespace identify data structure
-unvme id-ns $bdf --nsid=1 --init
+unvme id-ns $bdf --nsid=1
 
 # Run random read workloads on the specific queue
 unvme fio --ioengine=libunvmed --thread \
