@@ -563,15 +563,11 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	struct nvme_id_ns *id_ns_local = NULL;
 	struct nvme_id_ns *id_ns = identify;
 	struct __unvme_ns *ns;
+	struct unvme_ns *prev;
 	unsigned long flags = 0;
 	uint8_t format_idx;
 	ssize_t size;
 	int ret;
-
-	if (unvmed_get_ns(u, nsid)) {
-		errno = EEXIST;
-		return -1;
-	}
 
 	if (!id_ns) {
 		struct unvme_cmd *cmd;
@@ -605,6 +601,10 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 			pgunmap(id_ns_local, size);
 		return -1;
 	}
+
+	prev = unvmed_get_ns(u, nsid);
+	if (prev)
+		unvmed_free_ns(prev);
 
 	if (id_ns->nlbaf < 16)
 		format_idx = id_ns->flbas & 0xf;
