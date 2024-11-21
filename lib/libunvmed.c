@@ -739,7 +739,11 @@ void unvmed_free_ctrl(struct unvme *u)
 	struct __unvme_sq *usq, *next_usq;
 	struct __unvme_cq *ucq, *next_ucq;
 
-	u->state = UNVME_TEARDOWN;
+	/*
+	 * Make sure rcq thread to read the proper state value.
+	 */
+	STORE(u->state, UNVME_TEARDOWN);
+
 	unvmed_free_irqs(u);
 
 	nvme_close(&u->ctrl);
@@ -1085,7 +1089,7 @@ static void *unvmed_rcq_run(void *opaque)
 		if (!atomic_load_acquire(&r->refcnt))
 			goto out;
 
-		if (u->state == UNVME_TEARDOWN)
+		if (LOAD(u->state) == UNVME_TEARDOWN)
 			goto out;
 
 		pthread_rwlock_rdlock(&u->cq_list_lock);
