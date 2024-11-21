@@ -682,6 +682,8 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 static void __unvmed_free_usq(struct __unvme_sq *usq)
 {
 	list_del(&usq->list);
+
+	free(usq->cmds);
 	free(usq);
 }
 
