@@ -104,28 +104,6 @@ struct unvme_cq_reaper {
 	struct unvme_rcq rcq;
 };
 
-static inline int unvmed_rcq_get(struct unvme *u, struct unvme_cq *ucq)
-{
-	int vector = unvmed_cq_iv(ucq);
-	struct unvme_cq_reaper *r;
-
-	assert(u->nr_efds > vector);
-	r = &u->reapers[vector];
-
-	return atomic_inc_fetch(&r->refcnt);
-}
-
-static inline int unvmed_rcq_put(struct unvme *u, struct unvme_cq *ucq)
-{
-	int vector = unvmed_cq_iv(ucq);
-	struct unvme_cq_reaper *r;
-
-	assert(u->nr_efds > vector);
-	r = &u->reapers[vector];
-
-	return atomic_dec_fetch(&r->refcnt);
-}
-
 /*
  * Driver context
  */
@@ -171,6 +149,8 @@ struct unvme_ctx {
 
 	struct list_node list;
 };
+
+static void *unvmed_rcq_run(void *opaque);
 
 static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
 {
@@ -429,6 +409,9 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 	struct unvme_cq_reaper *r = &u->reapers[vector];
 	int ret;
 
+	if (atomic_dec_fetch(&r->refcnt) > 0)
+		return 0;
+
 	/*
 	 * Wake up the blocking threads waiting for the interrupt
 	 * events from the device.
@@ -447,10 +430,24 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 
 static int unvmed_init_irq(struct unvme *u, int vector)
 {
+	struct unvme_cq_reaper *r = &u->reapers[vector];
+	/* XXX: Currently fixed size of queue is supported */
+	const int qsize = 256;
+
+	if (atomic_inc_fetch(&r->refcnt) > 1)
+		return 0;
+
 	if (vfio_set_irq(&u->ctrl.pci.dev, &u->efds[vector], vector, 1)) {
 		unvmed_log_err("failed to set IRQ for vector %d", vector);
 		return -1;
 	}
+
+	r->u = u;
+	r->vector = vector;
+	r->rcq.cqe = malloc(sizeof(struct nvme_cqe) * qsize);
+	r->rcq.qsize = qsize;
+
+	pthread_create(&r->th, NULL, unvmed_rcq_run, (void *)r);
 	return 0;
 }
 
@@ -656,27 +653,25 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 }
 
 static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
-					uint32_t qsize)
+					uint32_t qsize, struct unvme_cq *ucq)
 {
 	struct __unvme_sq *usq;
 
-	usq = __unvmed_get_sq(u, qid);
-	if (!usq) {
-		usq = calloc(1, sizeof(*usq));
-		if (!usq)
-			return NULL;
+	usq = calloc(1, sizeof(*usq));
+	if (!usq)
+		return NULL;
 
-		/*
-		 * XXX: Not support for different size of qsize
-		 */
-		usq->cmds = calloc(qsize, sizeof(struct unvme_cmd));
-		pthread_spin_init(&usq->lock, 0);
-		pthread_rwlock_wrlock(&u->sq_list_lock);
-		list_add_tail(&u->sq_list, &usq->list);
-		pthread_rwlock_unlock(&u->sq_list_lock);
-	}
+	pthread_spin_init(&usq->lock, 0);
+	usq->q = &u->ctrl.sq[qid];
+	usq->ucq = ucq;
+	usq->cmds = calloc(qsize, sizeof(struct unvme_cmd));
+	usq->enabled = true;
 
-	return (struct unvme_sq *)usq;
+	pthread_rwlock_wrlock(&u->sq_list_lock);
+	list_add_tail(&u->sq_list, &usq->list);
+	pthread_rwlock_unlock(&u->sq_list_lock);
+
+	return __to_sq(usq);
 }
 
 static void __unvmed_free_usq(struct __unvme_sq *usq)
@@ -698,18 +693,20 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 {
 	struct __unvme_cq *ucq;
 
-	ucq = __unvmed_get_cq(u, qid);
-	if (!ucq) {
-		ucq = calloc(1, sizeof(*ucq));
-		if (!ucq)
-			return NULL;
-		pthread_spin_init(&ucq->lock, 0);
-		pthread_rwlock_wrlock(&u->cq_list_lock);
-		list_add_tail(&u->cq_list, &ucq->list);
-		pthread_rwlock_unlock(&u->cq_list_lock);
-	}
+	ucq = calloc(1, sizeof(*ucq));
+	if (!ucq)
+		return NULL;
 
-	return (struct unvme_cq *)ucq;
+	pthread_spin_init(&ucq->lock, 0);
+	ucq->u = u;
+	ucq->q = &u->ctrl.cq[qid];
+	ucq->enabled = true;
+
+	pthread_rwlock_wrlock(&u->cq_list_lock);
+	list_add_tail(&u->cq_list, &ucq->list);
+	pthread_rwlock_unlock(&u->cq_list_lock);
+
+	return __to_cq(ucq);
 }
 
 static void __unvmed_free_ucq(struct __unvme_cq *ucq)
@@ -1109,28 +1106,30 @@ out:
 	pthread_exit(NULL);
 }
 
-static void unvmed_rcq_init(struct unvme *u, int vector)
-{
-	struct unvme_cq_reaper *r = &u->reapers[vector];
-	const int qsize = 256;  /* XXX: Currently 256 qsize is supported */
-
-	r->u = u;
-	r->vector = vector;
-	r->rcq.cqe = malloc(sizeof(struct nvme_cqe) * qsize);
-	r->rcq.qsize = qsize;
-
-	pthread_create(&r->th, NULL, unvmed_rcq_run, (void *)r);
-}
-
 int unvmed_create_adminq(struct unvme *u)
 {
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
+	const uint16_t qid = 0;
+	const uint16_t iv = 0;
 
-	if (unvme_is_enabled(u)) {
-		errno = EPERM;
-		return -1;
+	if (unvmed_get_sq(u, 0) || unvmed_get_cq(u, 0)) {
+		errno = EEXIST;
+		goto out;
 	}
+
+	/*
+	 * XXX: Non-intr mode currently not supported
+	 */
+	if (unvmed_init_irq(u, iv))
+		goto out;
+
+	if (nvme_configure_adminq(&u->ctrl, qid))
+		goto free_irq;
+
+	ucq = unvmed_init_ucq(u, qid);
+	if (!ucq)
+		goto free_sqcq;
 
 	/*
 	 * XXX: libvfn has fixed size of admin queue and it's not exported to
@@ -1138,38 +1137,21 @@ int unvmed_create_adminq(struct unvme *u)
 	 * hard-coded value should be fixed ASAP.
 	 */
 #define NVME_AQ_QSIZE	32
-	usq = unvmed_init_usq(u, 0, NVME_AQ_QSIZE);
+	usq = unvmed_init_usq(u, 0, NVME_AQ_QSIZE, ucq);
 	if (!usq)
-		return -1;
-
-	ucq = unvmed_init_ucq(u, 0);
-	if (!ucq)
-		return -1;
-
-	if (unvmed_init_irq(u, 0)) {
-		unvmed_free_ucq(u, ucq);
-		return -1;
-	}
-
-	/*
-	 * Do not free() allocated usq and ucq instances unless user gives
-	 * 'unvme del <bdf>' to the daemon process.
-	 */
-	if (nvme_configure_adminq(&u->ctrl, 0))
-		return -1;
-
-	usq->q = &u->ctrl.sq[0];
-	usq->ucq = __to_cq(ucq);
-	usq->enabled = true;
-
-	ucq->u = u;
-	ucq->q = &u->ctrl.cq[0];
-	ucq->enabled = true;
-
-	if (unvmed_cq_irq_enabled(ucq) && unvmed_rcq_get(u, ucq) == 1)
-		unvmed_rcq_init(u, 0);
+		goto free_ucq;
 
 	return 0;
+
+free_ucq:
+	unvmed_free_ucq(u, ucq);
+free_sqcq:
+	nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+	nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+free_irq:
+	unvmed_free_irq(u, iv);
+out:
+	return -1;
 }
 
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
@@ -1208,40 +1190,27 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		return -1;
 	}
 
+	if (vector >= 0 && unvmed_init_irq(u, vector))
+		return -1;
+
+	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector))
+		return -1;
+
 	ucq = unvmed_init_ucq(u, qid);
-	if (!ucq)
-		return -1;
-
-	if (vector >= 0 && unvmed_init_irq(u, vector)) {
-		unvmed_free_ucq(u, ucq);
-		return -1;
-	}
-
-	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector)) {
-		unvmed_free_ucq(u, ucq);
+	if (!ucq) {
+		unvmed_log_err("failed to initialize ucq instance. "
+				"discard cq instance from libvfn (qid=%d)",
+				qid);
+		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		return -1;
 	}
-
-	ucq->u = u;
-	ucq->q = &u->ctrl.cq[qid];
-	ucq->enabled = true;
-
-	if (unvmed_cq_irq_enabled(ucq) && unvmed_rcq_get(u, ucq) == 1)
-		unvmed_rcq_init(u, vector);
 
 	return 0;
 }
 
 static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 {
-	/*
-	 * XXX: we should free IRQ only when the last owner for the
-	 * corresponding irq is to be freed (refcnt) when it supports
-	 * multiple CQ with a single irq vector.
-	 */
-	if (unvmed_cq_irq_enabled(ucq) && !unvmed_rcq_put(u, ucq))
-		unvmed_free_irq(u, unvmed_cq_iv(ucq));
-
+	unvmed_free_irq(u, unvmed_cq_iv(ucq));
 	nvme_discard_cq(&u->ctrl, ucq->q);
 	unvmed_free_ucq(u, ucq);
 }
@@ -1293,18 +1262,17 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
-	usq = unvmed_init_usq(u, qid, qsize);
-	if (!usq)
+	if (nvme_create_iosq(&u->ctrl, qid, qsize, ucq->q, 0))
 		return -1;
 
-	if (nvme_create_iosq(&u->ctrl, qid, qsize, ucq->q, 0)) {
-		unvmed_free_usq(u, usq);
+	usq = unvmed_init_usq(u, qid, qsize, ucq);
+	if (!usq) {
+		unvmed_log_err("failed to initialize usq instance. "
+				"discard sq instance from libvfn (qid=%d)",
+				qid);
+		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		return -1;
 	}
-
-	usq->q = &u->ctrl.sq[qid];
-	usq->ucq = ucq;
-	usq->enabled = true;
 
 	return 0;
 }
