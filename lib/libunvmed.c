@@ -1210,9 +1210,14 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 {
-	unvmed_free_irq(u, unvmed_cq_iv(ucq));
-	nvme_discard_cq(&u->ctrl, ucq->q);
+	struct nvme_cq *cq = ucq->q;
+	int vector = unvmed_cq_iv(ucq);
+
 	unvmed_free_ucq(u, ucq);
+	nvme_discard_cq(&u->ctrl, cq);
+
+	if (vector >= 0)
+		unvmed_free_irq(u, vector);
 }
 
 int unvmed_delete_cq(struct unvme *u, uint32_t qid)
