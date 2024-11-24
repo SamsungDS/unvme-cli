@@ -17,74 +17,6 @@
 struct unvme;
 struct unvme_cmd;
 
-#define unvme_declare_ns(name)	\
-struct name {			\
-	struct unvme *u;	\
-				\
-	uint32_t nsid;		\
-	unsigned int lba_size;	\
-	unsigned long nr_lbas;	\
-}
-
-unvme_declare_ns(unvme_ns);
-
-#define unvme_declare_sq(name)	\
-struct name {			\
-	struct nvme_sq *q;	\
-	struct unvme_cq *ucq;	\
-	struct unvme_cmd *cmds; \
-	pthread_spinlock_t lock;\
-	bool enabled;		\
-}
-
-#define unvme_declare_cq(name)	\
-struct name {			\
-	struct unvme *u;	\
-	struct nvme_cq *q;	\
-	pthread_spinlock_t lock;\
-	bool enabled;		\
-}
-
-unvme_declare_cq(unvme_cq);
-unvme_declare_sq(unvme_sq);
-
-#define unvmed_cq_id(ucq)	((ucq)->q->id)
-#define unvmed_cq_size(ucq)	((ucq)->q->qsize)
-#define unvmed_cq_iv(ucq)	((ucq)->q->vector)
-#define unvmed_sq_id(usq)	((usq)->q->id)
-#define unvmed_sq_size(usq)	((usq)->q->qsize)
-#define unvmed_sq_cqid(usq)	(unvmed_cq_id((usq)->ucq))
-
-static inline void unvmed_sq_enter(struct unvme_sq *usq)
-{
-	pthread_spin_lock(&usq->lock);
-}
-
-static inline int unvmed_sq_try_enter(struct unvme_sq *usq)
-{
-	return pthread_spin_trylock(&usq->lock);
-}
-
-static inline void unvmed_sq_exit(struct unvme_sq *usq)
-{
-	pthread_spin_unlock(&usq->lock);
-}
-
-static inline void unvmed_cq_enter(struct unvme_cq *ucq)
-{
-	pthread_spin_lock(&ucq->lock);
-}
-
-static inline void unvmed_cq_exit(struct unvme_cq *ucq)
-{
-	pthread_spin_unlock(&ucq->lock);
-}
-
-static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
-{
-	return unvmed_cq_id(ucq) && ucq->q->vector >= 0;
-}
-
 /*
  * NVMe spec-based data structures defined in `libvfn`
  */
@@ -98,6 +30,52 @@ struct nvme_sq;
 struct nvme_cq;
 struct nvme_rq;
 
+/*
+ * struct unvme_ns - Namespace instance
+ */
+#define unvme_declare_ns(name)	\
+struct name {			\
+	struct unvme *u;	\
+				\
+	uint32_t nsid;		\
+	unsigned int lba_size;	\
+	unsigned long nr_lbas;	\
+}
+
+/*
+ * struct unvme_sq - Submission queue instance
+ */
+#define unvme_declare_sq(name)	\
+struct name {			\
+	struct nvme_sq *q;	\
+	struct unvme_cq *ucq;	\
+	struct unvme_cmd *cmds; \
+	pthread_spinlock_t lock;\
+	bool enabled;		\
+}
+
+/*
+ * struct unvme_cq - Completion queue instance
+ */
+#define unvme_declare_cq(name)	\
+struct name {			\
+	struct unvme *u;	\
+	struct nvme_cq *q;	\
+	pthread_spinlock_t lock;\
+	bool enabled;		\
+}
+
+#define unvmed_cq_id(ucq)	((ucq)->q->id)
+#define unvmed_cq_size(ucq)	((ucq)->q->qsize)
+#define unvmed_cq_iv(ucq)	((ucq)->q->vector)
+#define unvmed_sq_id(usq)	((usq)->q->id)
+#define unvmed_sq_size(usq)	((usq)->q->qsize)
+#define unvmed_sq_cqid(usq)	(unvmed_cq_id((usq)->ucq))
+
+unvme_declare_ns(unvme_ns);
+unvme_declare_cq(unvme_cq);
+unvme_declare_sq(unvme_sq);
+
 enum unvme_cmd_state {
 	UNVME_CMD_S_INIT		= 0,
 	UNVME_CMD_S_SUBMITTED,
@@ -105,6 +83,14 @@ enum unvme_cmd_state {
 	UNVME_CMD_S_TO_BE_COMPLETED,
 };
 
+enum unvmed_cmd_flags {
+	/* No doorbell update after posting one or more commands */
+	UNVMED_CMD_F_NODB	= 1 << 0,
+};
+
+/*
+ * struct unvme_cmd - NVMe command instance
+ */
 struct unvme_cmd {
 	struct unvme *u;
 
@@ -138,67 +124,717 @@ struct unvme_cmd {
 	void *opaque;
 };
 
+/**
+ * unvmed_sq_enter - Acquire a lock for the given @usq
+ * @usq: submission queue instance
+ */
+static inline void unvmed_sq_enter(struct unvme_sq *usq)
+{
+	pthread_spin_lock(&usq->lock);
+}
+
+/**
+ * unvmed_sq_try_enter - Try to acquire a lock for the given @usq
+ * @usq: submission queue instance
+ *
+ * It tries to grab a lock for the given @usq, if fails, return non-zero value.
+ *
+ * Return: ``0`` on success, otherwise non-zero on errors.
+ */
+static inline int unvmed_sq_try_enter(struct unvme_sq *usq)
+{
+	return pthread_spin_trylock(&usq->lock);
+}
+
+/**
+ * unvmed_sq_exit - Release a lock for the given @usq
+ * @usq: submission queue instance
+ */
+static inline void unvmed_sq_exit(struct unvme_sq *usq)
+{
+	pthread_spin_unlock(&usq->lock);
+}
+
+/**
+ * unvmed_cq_enter - Acquire a lock for the given @ucq
+ * @ucq: completion queue instance
+ */
+static inline void unvmed_cq_enter(struct unvme_cq *ucq)
+{
+	pthread_spin_lock(&ucq->lock);
+}
+
+/**
+ * unvmed_cq_exit - Release a lock for the given @ucq
+ * @ucq: completion queue instance
+ */
+static inline void unvmed_cq_exit(struct unvme_cq *ucq)
+{
+	pthread_spin_unlock(&ucq->lock);
+}
+
+/**
+ * unvmed_cq_irq_enabled - Check whether @ucq supports interrupt
+ * @ucq: completion queue instance
+ *
+ * Completion queue vector -1 means no interrupt supported even the actual
+ * vector value is written to any other value in the controller register or
+ * Create I/O CQ command.
+ *
+ * This helper always returns ``false`` if given @ucq is admin completion
+ * queue which does not support interrupt yet.
+ *
+ * Return: ``true`` if given @ucq support interrupt, otherwise ``false``.
+ */
+static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
+{
+	return unvmed_cq_id(ucq) && ucq->q->vector >= 0;
+}
+
+/**
+ * unvmed_init - Initialize libunvmed library
+ * @logfile: logfile path, NULL if no-log mode
+ *
+ * Initialize libunvmed library in the current process context.
+ */
 void unvmed_init(const char *logfile);
 
+/**
+ * unvmed_init_ctrl - Initialize PCI NVMe controller device
+ * @bdf: bus-device-function address of PCI NVMe controller
+ * @max_nr_ioqs: maximum number of I/O queue identifier (QID) to be supported
+ *
+ * Initialize the given @bdf PCI device as a NVMe controller instance (&struct
+ * unvme).  @max_nr_ioqs represents a limitation of the maximum QID to be
+ * supported.
+ *
+ * Return: &struct unvme, otherwise ``NULL`` on error with ``errno`` set.
+ */
+struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
+
+/**
+ * unvmed_free_ctrl - Free a given NVMe controller instance
+ * @u: &struct unvme
+ *
+ * Free all the resources related to the given @u.
+ */
+void unvmed_free_ctrl(struct unvme *u);
+
+/**
+ * unvmed_free_ctrl_all - Free all NVMe controller instances
+ * @u: &struct unvme
+ *
+ * Free all the resources of all the controller instances in the current
+ * process context.
+ */
+void unvmed_free_ctrl_all(void);
+
+/**
+ * unvmed_get - Get an unvme instance
+ * @bdf: bus-device-function address of PCI NVMe controller
+ *
+ * Return: &struct unvme, otherwise NULL.
+ */
 struct unvme *unvmed_get(const char *bdf);
-int unvmed_nr_cmds(struct unvme *u);
-int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist);
+
+/**
+ * unvmed_get_ns - Get a namespace instance (&struct unvme_ns)
+ * @u: &struct unvme
+ * @nsid: namespace identifier
+ *
+ * Get a namespace instance from the given controller @u which has been
+ * identified by unvmed_init_ns().
+ *
+ * Return: &struct unvme_ns, otherwise NULL.
+ */
 struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid);
 
+/**
+ * unvmed_get_nslist - Get attached namespace list to the controller
+ * @u: &struct unvme
+ * @nslist: namespace list to copy to
+ *
+ * It gives namespace list attached to the controller @u.  If user has never
+ * issued an Identify Namespace command by unvmed_init_ns(), the namespace will
+ * won't be included in the @nslist.  Regardless to the namespaces attached to
+ * the actual controller hw, it returns namespaces which have been seen by
+ * unvme driver context.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist);
+
+/**
+ * unvmed_init_ns - Initialize namespace instance and register to driver
+ * @u: &struct unvme
+ * @nsid: namespace identifier
+ * @identify: identify namespace data structure (can be NULL)
+ *
+ * This API registers the given namesapce instance to the controller instance
+ * @u.  Once a namespace is registered to driver context, unvmed_get_ns() and
+ * unvmed_get_nslist() will return the namespace instance.
+ *
+ * If @identify is given with non-NULL, it will skip issuing Identify Namespace
+ * admin command to identify the namespace, instead it assumes that Identify
+ * command has already been issued and the given @identify is the data returned
+ * by the device controller.  Based on the @identify data, it will register a
+ * namespace instance to the given controller @u.
+ *
+ * If @identify is NULL, it will issue an Identify Namespace admin command to
+ * the controller and register a namespace instance to the driver context.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
+
+/**
+ * unvmed_nr_cmds - Get a number of in-flight commands
+ * @u: &struct unvme
+ *
+ * It gives a number of in-flight commands for the corresponding controller @u.
+ * In-flight command menas it's been issued to a sq, but not yet completed by
+ * cq.
+ *
+ * Return: Number of in-flight commands
+ */
+int unvmed_nr_cmds(struct unvme *u);
+
+/**
+ * unvmed_get_max_qid - Get a maximum number of QID supported
+ * @u: &struct unvme
+ *
+ * It returns a maximum number of queue identifier supported for the
+ * corresponding controller @u.  If it returns 8, I/O queues can be created
+ * with qid=8, and no larger qid.
+ *
+ * Return: Maximum number of QID supported
+ */
 int unvmed_get_max_qid(struct unvme *u);
+
+/**
+ * unvmed_get_sqs - Get created SQ list
+ * @u: &struct unvme
+ * @sqs: submission queue instance list
+ *
+ * It gives a list of submission queue instances (&struct nvme_sq) created to
+ * the given controller @u.  @sqs will be allocated in this API and caller
+ * should free up the @sqs after using it.
+ *
+ * Return: Number of sq in the list, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs);
+
+/**
+ * unvmed_get_cqs - Get created CQ list
+ * @u: &struct unvme
+ * @cqs: completion queue instance list
+ *
+ * It gives a list of completion queue instances (&struct nvme_cq) created to
+ * the given controller @u.  @cqs will be allocated in this API and caller
+ * should free up the @cqs after using it.
+ *
+ * Return: Number of cq in the list, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs);
+
+/**
+ * unvmed_get_sq - Get a submission queue instance
+ * @u: &struct unvme
+ * @qid: submission queue identifier
+ *
+ * Return a submission queue instance created in the given controller @u.
+ *
+ * Return: &struct unvme_sq, otherwise ``NULL``.
+ */
 struct unvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid);
+
+/**
+ * unvmed_get_cq - Get a completion queue instance
+ * @u: &struct unvme
+ * @qid: completion queue identifier
+ *
+ * Return a completion queue instance created in the given controller @u.
+ *
+ * Return: &struct unvme_cq, otherwise ``NULL``.
+ */
 struct unvme_cq *unvmed_get_cq(struct unvme *u, uint32_t qid);
 
-struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
-int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
-void unvmed_free_ctrl(struct unvme *u);
-void unvmed_free_ctrl_all(void);
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf, size_t len);
+/**
+ * unvmed_alloc_cmd - Allocate a NVMe command instance.
+ * @u: &struct unvme
+ * @sqid: submission queue identifier
+ * @buf: user data buffer virtual address
+ * @len: size of user data buffer in bytes
+ *
+ * Allocate a NVMe command instance with the given user data buffer poitner. If
+ * @buf != NULL && @len > 0, it will check whether the given buffer address has
+ * already been mapped to IOMMU.  If not, it will automatically map the given
+ * buffer to the IOMMU table and it will be unmapped in unvmed_cmd_free().  If
+ * @buf == NULL && @len > 0, it will allocate a buffer with the specific given
+ * size and map it to the IOMMU table.  The buffer and the mapping of IOMMU will
+ * be freed up in unvmed_cmd_free().  If @buf == NULL && @len == 0, it will not
+ * prepare any data buffer to transfer.
+ *
+ * This API is thread-safe.
+ *
+ * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
+ */
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
+				   size_t len);
+
+/**
+ * unvmed_alloc_cmd_nodata - Allocate a NVMe command instance without data
+ * @u: &struct unvme
+ * @sqid: submission queue identifier
+ *
+ * Allocate a NVMe command instance without data buffer to trasnfer.
+ *
+ * This API is thread-safe.
+ *
+ * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
+ */
 struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, uint16_t sqid);
+
+/**
+ * __unvmed_cmd_free - Destroy a NVMe command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ *
+ * Destroy a given command instance.  @cmd->rq will be destroyed in libvfn and
+ * @cmd itself will completely be zeroed.
+ *
+ * This API is thread-safe.
+ */
 void __unvmed_cmd_free(struct unvme_cmd *cmd);
+
+/**
+ * unvmed_cmd_free - Destroy a NVMe command instance with memory teardown
+ * @cmd: command instance (&struct unvme_cmd)
+ *
+ * Destroy a given command instance after releasing data buffer.  It checks
+ * @cmd->buf.flags to determine whether to unmap or free the buffer or not.
+ * After this, it destroys the given command instance by __unvmed_cmd_free().
+ *
+ * This API is thread-safe.
+ */
 void unvmed_cmd_free(struct unvme_cmd *cmd);
+
+/**
+ * unvmed_reset_ctrl - Reset controller
+ * @u: &struct unvme
+ *
+ * Reset a given NVMe controller.  First it deasserts CC.EN to 0 and wait for
+ * CSTS.RDY to be 0.  And it quiesce all the submission queues to stop
+ * submissions from upper layer (e.g., app) and cancel in-flight commands by
+ * putting artificial CQ entries with Host Aborted status code in NVMe spec.
+ * And it resumes for them to be fetched from the upper layer.  Finally, it
+ * frees up all the namespace instances registered to the controller @u.
+ */
 void unvmed_reset_ctrl(struct unvme *u);
+
+/**
+ * unvmed_create_adminq - Configure admin SQ and CQ
+ * @u: &struct unvme
+ *
+ * Create admin SQ and CQ instances in libvfn and configure admin queue
+ * registers in controller attribute registers accordingly.  This API does not
+ * enable the controller, which should be done explicitly by calling
+ * unvmed_enable_ctrl().
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_create_adminq(struct unvme *u);
-int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes, uint8_t mps, uint8_t css);
+
+/**
+ * unvmed_enable_ctrl - Enable NVMe controller
+ * @u: &struct unvme
+ * @iosqes: I/O Submission Queue Entry Size (specified as 2^n)
+ * @iocqes: I/O Completion Queue Entry Size (specified as 2^n)
+ * @mps: Memory Page Size (specified as (2 ^ (12 + n)))
+ * @css: I/O Command Set Selected
+ *
+ * Enable the given NVMe controller by asserting CC.EN to 1 along with the
+ * given other values to Controller Configuration register.  This API makes
+ * sure that the controller is ready by waiting for CSTS.RDY to be 1.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
+		       uint8_t mps, uint8_t css);
+
+/**
+ * unvmed_create_cq - Create I/O Completion Queue
+ * @u: &struct unvme
+ * @qid: completion queue identifier to create
+ * @qsize: number of queue entries
+ * @vector: interrupt vector.  -1 to disable interrupt
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector);
+
+/**
+ * unvmed_delete_cq - Delete I/O Completion Queue
+ * @u: &struct unvme
+ * @qid: completion queue identifier to create
+ *
+ * Issue a Delete I/O Completion Queue admin command to @u.  If the given CQ
+ * has interrupt enabled, it will also disable irq and free up @ucq instance.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_delete_cq(struct unvme *u, uint32_t qid);
-int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t cqid);
+
+/**
+ * unvmed_create_sq - Create I/O Submission Queue
+ * @u: &struct unvme
+ * @qid: submission queue identifier to create
+ * @qsize: number of queue entries
+ * @cqid: corresponding completion queue identifier
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
+		     uint32_t cqid);
+
+/**
+ * unvmed_delete_sq - Delete I/O Submission Queue
+ * @u: &struct unvme
+ * @qid: completion queue identifier to create
+ *
+ * Issue a Delete I/O Submission Queue admin command to @u.  It will also free
+ * up @usq instance.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_delete_sq(struct unvme *u, uint32_t qid);
+
+/**
+ * unvmed_to_iova - Translate given vaddr to an I/O virtual address (IOVA)
+ * @u: &struct unvme
+ * @buf: virtual address to translate
+ * @iova: output I/O virtual address
+ *
+ * Translate the given @buf to @iova based on IOMMU translation table.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_to_iova(struct unvme *u, void *buf, uint64_t *iova);
-int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len, uint64_t *iova, unsigned long flags);
+
+/**
+ * unvmed_map_vaddr - Map given virtual address to IOMMU table
+ * @u: &struct unvme
+ * @buf: virtual address to translate
+ * @len: size of given buffer @buf in bytes
+ * @iova: output I/O virtual address
+ * @flags: flags defined in (enum iommu_map_flags) of libvfn
+ *
+ * Map the given @buf virtual address for the given size @len to IOMMU
+ * mapping table.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len, uint64_t *iova,
+		     unsigned long flags);
+
+/**
+ * unvmed_unmap_vaddr - Unmap given virtual address from IOMMU table
+ * @u: &struct unvme
+ * @buf: virtual address to translate
+ *
+ * Unmap the given @buf virtual address from IOMMU mapping table.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_unmap_vaddr(struct unvme *u, void *buf);
-void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe, unsigned long flags);
+
+/**
+ * unvmed_cmd_post - Post a command to a corresponding submission queue
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @flags: control flags (enum unvmed_cmd_flags)
+ *
+ * Post a given @sqe to the corresponding submission queue @cmd->usq.  If
+ * @flags has UNVMED_CMD_F_NODB, it won't update the submission queue tail
+ * doorbell.  By default, it updates the tail doorbell register after posting
+ * the given @sqe to the @cmd->usq.
+ *
+ * After posting @sqe, @cmd->state will be set to UNVME_CMD_S_SUBMITTED.
+ *
+ * This API is not thread-safe.  Caller should acquire a lock by calling
+ * unvmed_sq_enter() for the corresponding submission queue.
+ */
+void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		     unsigned long flags);
+
+/**
+ * unvmed_cmd_cmpl - Wait and reap a command completion
+ * @cmd: command instance (&struct unvme_cmd)
+ * @cqe: completion queue entry (&struct nvme_cqe)
+ *
+ * Wait for a @cqe from a corresponding completion queue and fetch it and copy
+ * to @cqe.  This API reaps a single @cqe.
+ *
+ * While another thread is submitting a command to a specific submission queue
+ * whose completion queue's vector is the same one which this function is
+ * looking at, it might fetch an invalid cq entry.  Caller should make sure
+ * that the @cqe must be for the given @cmd in @cmd->usq->ucq.
+ *
+ * This API is not thread-safe.  Caller should acquire a lock by calling
+ * unvmed_cq_enter() for the corresponding completion queue.
+ */
 void unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
-struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe);
-int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes, int nr_cqes, bool nowait);
+
+/**
+ * unvmed_get_cmd_from_cqe - Convert &struct nvme_cqe to &struct unvme_cmd
+ * @u: &struct unvme
+ * @cqe: completion queue entry (&struct nvme_cqe)
+ *
+ * Convert a given @cqe to &struct unvme_cmd for uppser layer translation.
+ *
+ * Return: &struct unvme_cmd, otherwise ``NULL`` on error.
+ */
+struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
+					  struct nvme_cqe *cqe);
+
+/**
+ * __unvmed_cq_run_n - Reap CQ entries from a completion queue
+ * @u: &struct unvme
+ * @ucq: completion queue (&struct unvme_cq)
+ * @cqes: output completion queue entry list array
+ * @nr_cqes: number of cq entries to fetch
+ * @nowait: whether to wait for @nr_cqes or return immedietly
+ *
+ * Reap @nr_cqes CQ entries from the given @ucq.  If @nowait is true, if CQ
+ * is empty, return immedietly even if it has not yet fetched @cqes for
+ * @nr_cqes.
+ *
+ * Return: Number of cq entries fetched.
+ */
+int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
+		      struct nvme_cqe *cqes, int nr_cqes, bool nowait);
+
+/**
+ * unvmed_cq_run - Reap all CQ entries from a completion queue
+ * @u: &struct unvme
+ * @ucq: completion queue (&struct unvme_cq)
+ * @cqes: output completion queue entry list array
+ *
+ * Reap all CQ entries from @ucq as many as possible until the @ucq to be
+ * empty.
+ *
+ * Return: Number of cq entries fetched.
+ */
 int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
-int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes, int min, int max);
+
+/**
+ * unvmed_cq_run_n - Reap ``N`` CQ entries from a completion queue
+ * @u: &struct unvme
+ * @ucq: completion queue (&struct unvme_cq)
+ * @cqes: output completion queue entry list array
+ * @min: minimum number of to fetch (mandatory)
+ * @max: maximum number of to fetch (best effort)
+ *
+ * Reap @min ~ @max CQ entries from @ucq.
+ *
+ * Return: Number of cq entries fetched.
+ */
+int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
+		    struct nvme_cqe *cqes, int min, int max);
+
+/**
+ * unvmed_sq_update_tail - Update tail pointer of the given submission queue.
+ * @u: &struct unvme
+ * @usq: submission queue (&struct unvme_sq)
+ *
+ * Update tail pointer, which are advanced by unvmed_cmd_post() with @flags
+ * UNVMED_CMD_F_NODB, to controller doorbell register.  This is used to update
+ * tail doorbell at once to issue one or more multiple commands.
+ *
+ * This API is thread-safe for the given @usq, no lock is required.
+ *
+ * Return: The number of SQ entries issued and 0 if no SQ entry is issued.
+ */
 int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq);
+
+
+/**
+ * __unvmed_mapv_prp - Map and configure iovecs as PRP to command
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Make a PRP data structure for data pointer in @sqe with @iov for number of
+ * @nr_iov vectors.  libvfn prepares PRP data structure and map it to the given
+ * @sqe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		      struct iovec *iov, int nr_iov);
+
+/**
+ * __unvmed_mapv_prp - Map and configure iovecs as PRP to command
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ *
+ * Make a PRP data structure for data pointer in @sqe with @cmd->buf.iov which
+ * is an inline iovec structure.  It's same with __unvmed_mapv_prp(@cmd, @sqe,
+ * &@cmd->buf.iov, 1);
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe);
-int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, struct iovec *iov, int nr_iov);
 
-enum unvmed_cmd_flags {
-	/* No doorbell update after posting one or more commands */
-	UNVMED_CMD_F_NODB	= 1 << 0,
-};
-
+/**
+ * unvmed_id_ns - Identify Namespace (CNS 0h)
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ * @flags: control flags (enum unvmed_cmd_flags)
+ *
+ * Issue an Identify Namespace command to the controller @u.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+ */
 int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		 struct iovec *iov, int nr_iov, unsigned long flags);
+
+/**
+ * unvmed_id_active_nslist - Identify Active Namespace ID list (CNS 2h)
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Issue an Identify Active Namespace ID list to the controller @u.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+ */
 int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
 			    uint32_t nsid, struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_read - Read I/O command
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @slba: start logical block address
+ * @nlb: number of logical blocks (0-based)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ * @flags: control flags (enum unvmed_cmd_flags)
+ * @opaque: opaque private data for asynchronous completion
+ *
+ * Issue an Read I/O command to the given namespace.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+ */
 int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
 		unsigned long flags, void *opaque);
+
+/**
+ * unvmed_write - Write I/O command
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @slba: start logical block address
+ * @nlb: number of logical blocks (0-based)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ * @flags: control flags (enum unvmed_cmd_flags)
+ * @opaque: opaque private data for asynchronous completion
+ *
+ * Issue an Write I/O command to the given namespace.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+ */
 int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		 uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
 		 unsigned long flags, void *opaque);
-int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
-		    bool read, struct iovec *iov, int nr_iov, unsigned long flags);
 
+/**
+ * unvmed_passthru - Passthru command
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @read: true if data transfer is device to host, otherwise false
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ * @flags: control flags (enum unvmed_cmd_flags)
+ *
+ * Issue an user-given custom command to the controller @u.  Caller should form
+ * @sqe to issue.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+ */
+int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		    bool read, struct iovec *iov, int nr_iov,
+		    unsigned long flags);
+
+/**
+ * unvmed_ctx_init - Snapshot current driver context
+ * @u: &struct unvme
+ *
+ * Driver context includes controller register status with admin queues,
+ * namespace instances and I/O queues.  It stores all the current driver
+ * context status and keep it to restore after reset by unvmed_ctx_restore().
+ *
+ * This can be freed up by unvmed_ctx_free().
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_ctx_init(struct unvme *u);
+
+/**
+ * unvmed_ctx_restore - Restore controller status to kept driver context
+ * @u: &struct unvme
+ *
+ * Re-initialize the given controller @u to a state which is snapshot before by
+ * unvmed_ctx_init().  This will revive admin queues, I/O queues and namespace
+ * instances.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
 int unvmed_ctx_restore(struct unvme *u);
+
+/**
+ * unvmed_ctx_free - Free up driver context stored
+ * @u: &struct unvme
+ *
+ * Free up driver context data structure.  This does not affect any hardware
+ * status at all.
+ */
 void unvmed_ctx_free(struct unvme *u);
 
 /*
@@ -211,9 +847,11 @@ void unvmed_ctx_free(struct unvme *u);
  */
 #define unvmed_bdf(u)		(__unvmed_ctrl(u)->pci.bdf)
 #define unvmed_reg(u)		(__unvmed_ctrl(u)->regs)
-
 #define unvmed_cqe_status(cqe)	(le16_to_cpu((cqe)->sfp) >> 1)
 
+/*
+ * PCI MMIO access helpers
+ */
 #define unvmed_read32(u, offset)	\
 	le32_to_cpu(mmio_read32(unvmed_reg(u) + (offset)))
 #define unvmed_read64(u, offset)	\
