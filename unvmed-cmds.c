@@ -24,6 +24,40 @@
 
 #include "argtable3/argtable3.h"
 
+static pthread_spinlock_t __arglock;
+
+static void __attribute__((constructor)) unvmed_cmds_init(void)
+{
+	pthread_spin_init(&__arglock, 0);
+}
+
+#define unvme_parse_args_locked(argc, argv, argtable, help, end, desc)			\
+	do {										\
+		int nerror;								\
+											\
+		pthread_spin_lock(&__arglock);						\
+		nerror = arg_parse(argc - 1, &argv[1], argtable);			\
+		pthread_spin_unlock(&__arglock);					\
+											\
+		if (arg_boolv(help)) {							\
+			unvme_print_help(__stdout, argv[1], desc, argtable);		\
+											\
+			pthread_spin_unlock(&__arglock);				\
+			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
+			return 0;							\
+		}									\
+											\
+		if (nerror > 0) {							\
+			arg_print_errors(__stdout, end, "unvme");                       \
+			unvme_print_help(__stdout, argv[1], desc, argtable);		\
+											\
+			pthread_spin_unlock(&__arglock);				\
+			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
+			return EINVAL;							\
+		}									\
+											\
+	} while (0)
+
 extern __thread struct unvme_msg *__msg;
 
 /*
@@ -161,7 +195,7 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	int ret = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	dfd = opendir("/sys/bus/pci/devices");
 	if (!dfd) {
@@ -215,7 +249,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	/* Set default argument values prior to parsing */
 	arg_intv(nrioqs) = get_nprocs();
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (u)
@@ -262,7 +296,7 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	int ret = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u)
@@ -297,7 +331,7 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	int ret = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -330,7 +364,7 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	int ret = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -379,7 +413,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	arg_intv(mps) = 0;
 	arg_intv(css) = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -463,7 +497,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	/* Set default argument values prior to parsing */
 	arg_intv(vector) = -1;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -521,7 +555,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	int ret = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -576,7 +610,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	int ret = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -631,7 +665,7 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	int ret = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -697,7 +731,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	arg_strv(format) = "normal";
 	arg_intv(prp1_offset) = 0x0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -800,7 +834,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	arg_strv(format) = "normal";
 	arg_intv(prp1_offset) = 0x0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -902,7 +936,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 
 	arg_intv(prp1_offset) = 0x0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -1016,7 +1050,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 	arg_intv(prp1_offset) = 0x0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -1180,7 +1214,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	arg_intv(cdw14) = 0;
 	arg_intv(cdw15) = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -1344,7 +1378,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 	/* Set default argument values prior to parsing */
 	arg_dblv(sqid) = UINT64_MAX;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -1405,7 +1439,7 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	int ret = 0;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -1475,7 +1509,7 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 
 	int qsize;
 
-	unvme_parse_args(argc, argv, argtable, help, end, desc);
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -1540,7 +1574,9 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 	 * We don't care the failure of the parameter parsing since we will
 	 * have fio arguments in this command.
 	 */
+	pthread_spin_lock(&__arglock);
 	arg_parse(argc, argv, argtable);
+	pthread_spin_unlock(&__arglock);
 
 	if (arg_boolv(help))
 		unvme_print_help(__stdout, argv[1], desc, argtable);

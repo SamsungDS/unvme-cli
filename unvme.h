@@ -176,22 +176,6 @@ static inline void unvme_print_help(FILE *fp, char *cmd, const char *desc, void 
 		return ret;				\
 	} while(0)
 
-#define unvme_parse_args(argc, argv, argtable, help, end, desc)				\
-	do {										\
-		int nerror = arg_parse(argc - 1, &argv[1], argtable);			\
-		if (arg_boolv(help)) {							\
-			unvme_print_help(__stdout, argv[1], desc, argtable);		\
-			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
-			return -ENOEXEC;						\
-		}									\
-		if (nerror > 0) {							\
-			arg_print_errors(__stdout, end, "unvme");			\
-			unvme_print_help(__stdout, argv[1], desc, argtable);		\
-			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
-			return -EINVAL;							\
-		}									\
-	} while (0)
-
 #define unvme_free_args(argtable)	\
 	arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable))
 

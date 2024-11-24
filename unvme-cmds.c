@@ -27,6 +27,26 @@ static void __attribute__((constructor)) __unvme_cmd_init(void) {
 	__stderr = stderr;
 }
 
+#define unvme_parse_args(argc, argv, argtable, help, end, desc)				\
+	do {										\
+		int nerror = arg_parse(argc - 1, &argv[1], argtable);			\
+											\
+		if (arg_boolv(help)) {							\
+			unvme_print_help(__stdout, argv[1], desc, argtable);		\
+											\
+			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
+			return 0;							\
+		}									\
+											\
+		if (nerror > 0) {							\
+			arg_print_errors(__stdout, end, "unvme");                       \
+			unvme_print_help(__stdout, argv[1], desc, argtable);		\
+											\
+			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
+			return EINVAL;							\
+		}									\
+	} while (0)
+
 int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 {
 	pid_t pid;
