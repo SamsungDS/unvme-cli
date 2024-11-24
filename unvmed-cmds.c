@@ -780,7 +780,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
-		nsid = arg_int1("n", "nsid", "<n>", "[M] Namespace ID"),
+		nsid = arg_int0("n", "nsid", "<n>", "[O] Starting NSID for retrieving active NS with NSID greater than this (default: 0)"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
 		help = arg_lit0("h", "help", "Show help message"),
@@ -796,6 +796,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	int ret;
 
 	/* Set default argument values prior to parsing */
+	arg_intv(nsid) = 0;
 	arg_strv(format) = "normal";
 	arg_intv(prp1_offset) = 0x0;
 
