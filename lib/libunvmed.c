@@ -776,7 +776,7 @@ void unvmed_free_ctrl_all(void)
 
 void __unvmed_cmd_free(struct unvme_cmd *cmd)
 {
-	nvme_rq_release(cmd->rq);
+	nvme_rq_release_atomic(cmd->rq);
 
 	memset(cmd, 0, sizeof(*cmd));
 }
@@ -805,7 +805,7 @@ static struct unvme_cmd* __unvmed_cmd_alloc(struct unvme *u, uint16_t sqid)
 		return NULL;
 	}
 
-	rq = nvme_rq_acquire(usq->q);
+	rq = nvme_rq_acquire_atomic(usq->q);
 	if (!rq) {
 		unvmed_log_err("failed to acquire nvme request instance");
 		return NULL;
