@@ -82,7 +82,7 @@ static inline void unvmed_cq_exit(struct unvme_cq *ucq)
 
 static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 {
-	return ucq->q->vector >= 0;
+	return unvmed_cq_id(ucq) && ucq->q->vector >= 0;
 }
 
 /*

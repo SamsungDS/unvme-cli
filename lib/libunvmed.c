@@ -1111,21 +1111,14 @@ int unvmed_create_adminq(struct unvme *u)
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	const uint16_t qid = 0;
-	const uint16_t iv = 0;
 
 	if (unvmed_get_sq(u, 0) || unvmed_get_cq(u, 0)) {
 		errno = EEXIST;
 		goto out;
 	}
 
-	/*
-	 * XXX: Non-intr mode currently not supported
-	 */
-	if (unvmed_init_irq(u, iv))
-		goto out;
-
 	if (nvme_configure_adminq(&u->ctrl, qid))
-		goto free_irq;
+		goto out;
 
 	ucq = unvmed_init_ucq(u, qid);
 	if (!ucq)
@@ -1148,8 +1141,6 @@ free_ucq:
 free_sqcq:
 	nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 	nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-free_irq:
-	unvmed_free_irq(u, iv);
 out:
 	return -1;
 }
