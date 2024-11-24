@@ -1377,28 +1377,28 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
-	struct arg_dbl *sqid;
+	struct arg_int *sqid;
 	struct arg_lit *help;
 	struct arg_end *end;
 
 	const char *desc =
 		"Update submission queue tail doorbell to issue all the pending written\n"
 		"submission queue entries by `--nodb` options.  This command will wait for\n"
-		"the pending commands in the submission queue to complete.";
+		"the pending commands in the submission queue to complete.\n"
+		"\n"
+		"Note that this command should not be executed while other app (e.g., fio) is running.";
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
-		sqid = arg_dbl1("q", "sqid", "<n>", "[M] Submission queue ID"),
+		sqid = arg_int1("q", "sqid", "<n>", "[M] Submission queue ID"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
 	__unvme_free struct nvme_cqe *cqes = NULL;
+	struct unvme_sq *usq;
 	int nr_sqes;
 	int ret = 0;
-
-	/* Set default argument values prior to parsing */
-	arg_dblv(sqid) = UINT64_MAX;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -1409,21 +1409,30 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, arg_dblv(sqid))) {
+	usq = unvmed_get_sq(u, arg_intv(sqid));
+	if (!usq) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	nr_sqes = unvmed_sq_update_tail_and_wait(u, arg_dblv(sqid), &cqes);
-	if (nr_sqes < 0) {
-		unvme_pr_err("failed to update sq and wait cq\n");
-		ret = errno;
+	nr_sqes = unvmed_sq_update_tail(u, usq);
+	if (!nr_sqes)
+		goto out;
+
+	unvme_pr("Updated SQ%d doorbell for %d entries\n", arg_intv(sqid), nr_sqes);
+
+	cqes = malloc(sizeof(struct nvme_cqe) * nr_sqes);
+	if (!cqes) {
+		unvme_pr_err("failed to allocate memory for cq entreis\n");
 		goto out;
 	}
 
-	if (!nr_sqes)
-		return 0;
+	unvme_pr("Reaping for %d CQ entries..\n", nr_sqes);
+	if (unvmed_cq_run_n(u, usq->ucq, cqes, nr_sqes, nr_sqes) < 0) {
+		unvme_pr_err("failed to fetch CQ entries\n");
+		goto out;
+	}
 
 	for (int i = 0; i < nr_sqes; i++) {
 		struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, &cqes[i]);

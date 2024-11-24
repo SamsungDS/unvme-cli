@@ -1527,33 +1527,6 @@ int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
 	return nr_sqes;
 }
 
-int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid,
-				  struct nvme_cqe **cqes)
-{
-	struct unvme_sq *usq = unvmed_get_sq(u, sqid);
-	int nr_sqes;
-	int ret;
-
-	if (!usq) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	nr_sqes = unvmed_nr_pending_sqes(usq);
-	if (!nr_sqes)
-		return 0;
-
-	*cqes = malloc(sizeof(struct nvme_cqe) * nr_sqes);
-
-	nvme_sq_update_tail(usq->q);
-	ret = unvmed_cq_run_n(u, usq->ucq, *cqes, nr_sqes, nr_sqes);
-
-	if (ret != nr_sqes)
-		return -1;
-
-	return nr_sqes;
-}
-
 int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		      struct iovec *iov, int nr_iov)
 {

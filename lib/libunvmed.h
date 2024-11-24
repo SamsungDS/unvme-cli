@@ -176,7 +176,6 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cq
 int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
 int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes, int min, int max);
 int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq);
-int unvmed_sq_update_tail_and_wait(struct unvme *u, uint32_t sqid, struct nvme_cqe **cqes);
 int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe);
 int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe, struct iovec *iov, int nr_iov);
 
