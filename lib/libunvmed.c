@@ -813,6 +813,7 @@ static struct unvme_cmd* __unvmed_cmd_alloc(struct unvme *u, uint16_t sqid)
 
 	cmd = &usq->cmds[rq->cid];
 	cmd->u = u;
+	cmd->usq = usq;
 	cmd->rq = rq;
 
 	rq->opaque = cmd;
@@ -1174,9 +1175,11 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 
 int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 {
+	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 
-	if (!unvme_is_enabled(u)) {
+	usq = unvmed_get_sq(u, 0);
+	if (!usq) {
 		errno = EPERM;
 		return -1;
 	}
@@ -1184,8 +1187,12 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	if (vector >= 0 && unvmed_init_irq(u, vector))
 		return -1;
 
-	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector))
+	unvmed_sq_enter(usq);
+	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector)) {
+		unvmed_sq_exit(usq);
 		return -1;
+	}
+	unvmed_sq_exit(usq);
 
 	ucq = unvmed_init_ucq(u, qid);
 	if (!ucq) {
@@ -1231,8 +1238,10 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	sqe.opcode = nvme_admin_delete_cq;
 	sqe.qid = cpu_to_le16(qid);
 
+	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
 	unvmed_cmd_cmpl(cmd, &cqe);
+	unvmed_sq_exit(cmd->usq);
 
 	if (nvme_cqe_ok(&cqe))
 		__unvmed_delete_cq(u, ucq);
@@ -1252,14 +1261,24 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
+	usq = unvmed_get_sq(u, 0);
+	if (!usq) {
+		errno = EPERM;
+		return -1;
+	}
+
 	ucq = unvmed_get_cq(u, cqid);
 	if (!ucq) {
 		errno = ENODEV;
 		return -1;
 	}
 
-	if (nvme_create_iosq(&u->ctrl, qid, qsize, ucq->q, 0))
+	unvmed_sq_enter(usq);
+	if (nvme_create_iosq(&u->ctrl, qid, qsize, ucq->q, 0)) {
+		unvmed_sq_exit(usq);
 		return -1;
+	}
+	unvmed_sq_exit(usq);
 
 	usq = unvmed_init_usq(u, qid, qsize, ucq);
 	if (!usq) {
@@ -1299,8 +1318,10 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	sqe.opcode = nvme_admin_delete_sq;
 	sqe.qid = cpu_to_le16(qid);
 
+	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
 	unvmed_cmd_cmpl(cmd, &cqe);
+	unvmed_sq_exit(cmd->usq);
 
 	if (nvme_cqe_ok(&cqe))
 		__unvmed_delete_sq(u, usq);
@@ -1556,12 +1577,17 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		return -1;
 	}
 
+	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
 
-	if (flags & UNVMED_CMD_F_NODB)
+	if (flags & UNVMED_CMD_F_NODB) {
+		unvmed_sq_exit(cmd->usq);
 		return 0;
+	}
 
 	unvmed_cmd_cmpl(cmd, &cqe);
+	unvmed_sq_exit(cmd->usq);
+
 	return unvmed_cqe_status(&cqe);
 }
 
@@ -1580,9 +1606,12 @@ int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
 		return -1;
 	}
 
+	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
 
 	unvmed_cmd_cmpl(cmd, &cqe);
+	unvmed_sq_exit(cmd->usq);
+
 	return unvmed_cqe_status(&cqe);
 }
 
@@ -1603,14 +1632,18 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		return -1;
 	}
 
+	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
 
 	if (flags & UNVMED_CMD_F_NODB) {
+		unvmed_sq_exit(cmd->usq);
 		cmd->opaque = opaque;
 		return 0;
 	}
 
 	unvmed_cmd_cmpl(cmd, &cqe);
+	unvmed_sq_exit(cmd->usq);
+
 	return unvmed_cqe_status(&cqe);
 }
 
@@ -1631,14 +1664,18 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		return -1;
 	}
 
+	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
 
 	if (flags & UNVMED_CMD_F_NODB) {
+		unvmed_sq_exit(cmd->usq);
 		cmd->opaque = opaque;
 		return 0;
 	}
 
 	unvmed_cmd_cmpl(cmd, &cqe);
+	unvmed_sq_exit(cmd->usq);
+
 	return unvmed_cqe_status(&cqe);
 }
 
@@ -1654,12 +1691,17 @@ int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		}
 	}
 
+	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)sqe, flags);
 
-	if (flags & UNVMED_CMD_F_NODB)
+	if (flags & UNVMED_CMD_F_NODB) {
+		unvmed_sq_exit(cmd->usq);
 		return 0;
+	}
 
 	unvmed_cmd_cmpl(cmd, &cqe);
+	unvmed_sq_exit(cmd->usq);
+
 	return unvmed_cqe_status(&cqe);
 }
 

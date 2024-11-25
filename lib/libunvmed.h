@@ -110,6 +110,8 @@ struct unvme_cmd {
 
 	enum unvme_cmd_state state;
 
+	struct unvme_sq *usq;
+
 	/*
 	 * rq->opaque will point to the current structure pointer.
 	 */
