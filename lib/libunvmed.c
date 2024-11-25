@@ -1300,8 +1300,10 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq)
 {
-	nvme_discard_sq(&u->ctrl, usq->q);
+	struct nvme_sq *sq = usq->q;
+
 	unvmed_free_usq(u, usq);
+	nvme_discard_sq(&u->ctrl, sq);
 }
 
 int unvmed_delete_sq(struct unvme *u, uint32_t qid)
