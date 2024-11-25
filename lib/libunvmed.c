@@ -618,9 +618,15 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 		iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
 
 		ret = unvmed_id_ns(u, cmd, nsid, &iov, 1, flags);
-		if (ret)
-			return ret;
+		if (ret) {
+			unvmed_log_err("failed to identify namespace");
 
+			unvmed_cmd_free(cmd);
+			pgunmap(id_ns_local, size);
+			return -1;
+		}
+
+		unvmed_cmd_free(cmd);
 		id_ns = id_ns_local;
 	}
 
