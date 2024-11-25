@@ -245,10 +245,12 @@ int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist)
 	if (!*nslist)
 		return -1;
 
+	pthread_rwlock_rdlock(&u->ns_list_lock);
 	list_for_each(&u->ns_list, ns, list) {
 		assert(nr_ns < u->nr_ns);
 		memcpy(&((*nslist)[nr_ns++]), ns, sizeof(struct unvme_ns));
 	}
+	pthread_rwlock_unlock(&u->ns_list_lock);
 
 	return nr_ns;
 }
@@ -644,7 +646,9 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	ns->lba_size = 1 << id_ns->lbaf[format_idx].ds;
 	ns->nr_lbas = le64_to_cpu((uint64_t)id_ns->nsze);
 
+	pthread_rwlock_wrlock(&u->ns_list_lock);
 	list_add_tail(&u->ns_list, &ns->list);
+	pthread_rwlock_unlock(&u->ns_list_lock);
 	u->nr_ns++;
 
 	if (id_ns_local)
@@ -726,8 +730,10 @@ static void unvmed_free_ns_all(struct unvme *u)
 {
 	struct __unvme_ns *ns, *next_ns;
 
+	pthread_rwlock_wrlock(&u->ns_list_lock);
 	list_for_each_safe(&u->ns_list, ns, next_ns, list)
 		__unvmed_free_ns(ns);
+	pthread_rwlock_unlock(&u->ns_list_lock);
 }
 
 /*
