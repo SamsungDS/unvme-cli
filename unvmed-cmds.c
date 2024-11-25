@@ -780,7 +780,14 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	ret = unvmed_id_ns(u, cmd, arg_intv(nsid), &iov, 1, flags);
-	if (!ret && !arg_boolv(nodb)) {
+
+	if (arg_boolv(nodb)) {
+		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
+			UNVME_CMD_BUF_F_IOVA_UNMAP;
+		goto out;
+	}
+
+	if (!ret) {
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ns);
 
 		if (unvmed_init_ns(u, arg_intv(nsid), buf)) {
@@ -790,10 +797,8 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-	if (!(flags & UNVMED_CMD_F_NODB)) {
-		pgunmap(cmd->buf.va, cmd->buf.len);
-		unvmed_cmd_free(cmd);
-	}
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -884,8 +889,8 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-	pgunmap(cmd->buf.va, cmd->buf.len);
 	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -988,7 +993,14 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_read(u, cmd, arg_intv(nsid), arg_dblv(slba),
 			arg_intv(nlb), &iov, 1, flags, NULL);
-	if (!ret && !arg_boolv(nodb)) {
+
+	if (arg_boolv(nodb)) {
+		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
+			UNVME_CMD_BUF_F_IOVA_UNMAP;
+		goto out;
+	}
+
+	if (!ret) {
 		if (!filepath)
 			unvme_cmd_pr_raw(buf, arg_intv(data_size));
 		else
@@ -996,10 +1008,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-	if (!(flags & UNVMED_CMD_F_NODB)) {
-		pgunmap(cmd->buf.va, cmd->buf.len);
-		unvmed_cmd_free(cmd);
-	}
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1110,13 +1120,18 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_write(u, cmd, arg_intv(nsid), arg_dblv(slba),
 			arg_intv(nlb), &iov, 1, flags, NULL);
+
+	if (arg_boolv(nodb)) {
+		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
+			UNVME_CMD_BUF_F_IOVA_UNMAP;
+		goto out;
+	}
+
 	if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-	if (!(flags & UNVMED_CMD_F_NODB)) {
-		pgunmap(cmd->buf.va, cmd->buf.len);
-		unvmed_cmd_free(cmd);
-	}
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1289,6 +1304,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_pr_err("failed to read file %s\n", filepath);
 
 			unvmed_cmd_free(cmd);
+			pgunmap(buf, len);
 			ret = ENOENT;
 			goto out;
 		}
@@ -1323,6 +1339,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (arg_boolv(dry_run)) {
 		unvmed_cmd_free(cmd);
+		pgunmap(buf, len);
 		ret = 0;
 		goto out;
 	}
@@ -1336,16 +1353,21 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	ret = unvmed_passthru(u, cmd, &sqe, _read, &iov, 1, cmd_flags);
-	if (!ret && !arg_boolv(nodb)) {
+
+	if (arg_boolv(nodb)) {
+		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
+			UNVME_CMD_BUF_F_IOVA_UNMAP;
+		goto out;
+	}
+
+	if (!ret) {
 		if (_read)
 			unvme_cmd_pr_raw(buf, arg_intv(data_len));
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 
-	if (!(cmd_flags & UNVMED_CMD_F_NODB)) {
-		pgunmap(cmd->buf.va, cmd->buf.len);
-		unvmed_cmd_free(cmd);
-	}
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
 	return ret;
