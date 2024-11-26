@@ -372,6 +372,12 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 
 	ld->ucq = ld->usq->ucq;
 
+	if (td->o.iodepth >= unvmed_sq_size(ld->usq)) {
+		libunvmed_log("--iodepth=%d is greater than SQ queue size %d\n",
+				td->o.iodepth, unvmed_sq_size(ld->usq));
+		return -1;
+	}
+
 	ret = pthread_mutex_lock(&g_serialize);
 	if (ret) {
 		libunvmed_log("failed to grab mutex lock\n");
