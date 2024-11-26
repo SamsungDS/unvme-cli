@@ -506,7 +506,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, 0)) {
+	if (!unvmed_sq_enabled(u, 0)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -521,7 +521,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_intv(vector) < 0)
 		arg_intv(vector) = -1;
 
-	if (unvmed_get_cq(u, arg_intv(qid))) {
+	if (unvmed_cq_enabled(u, arg_intv(qid))) {
 		unvme_pr_err("failed to create cq (qid=%u) (exists)\n", arg_intv(qid));
 		ret = EEXIST;
 		goto out;
@@ -564,13 +564,13 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, 0)) {
+	if (!unvmed_sq_enabled(u, 0)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	if (!unvmed_get_cq(u, arg_intv(qid))) {
+	if (!unvmed_cq_enabled(u, arg_intv(qid))) {
 		unvme_pr_err("failed to delete cq (qid=%u) (not exists)\n", arg_intv(qid));
 		ret = ENOMEDIUM;
 		goto out;
@@ -619,7 +619,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, 0)) {
+	if (!unvmed_sq_enabled(u, 0)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -631,7 +631,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_get_sq(u, arg_intv(qid))) {
+	if (unvmed_sq_enabled(u, arg_intv(qid))) {
 		unvme_pr_err("failed to create iosq (qid=%u) (exists)\n", arg_intv(qid));
 		ret = EEXIST;
 		goto out;
@@ -674,13 +674,13 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, 0)) {
+	if (!unvmed_sq_enabled(u, 0)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, arg_intv(qid))) {
+	if (!unvmed_sq_enabled(u, arg_intv(qid))) {
 		unvme_pr_err("failed to delete iosq (qid=%u) (not exists)\n", arg_intv(qid));
 		ret = ENOMEDIUM;
 		goto out;
@@ -740,7 +740,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, 0)) {
+	if (!unvmed_sq_enabled(u, 0)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -848,7 +848,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, 0)) {
+	if (!unvmed_sq_enabled(u, 0)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -950,7 +950,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, arg_intv(sqid))) {
+	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -1069,7 +1069,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, arg_intv(sqid))) {
+	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -1250,7 +1250,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, arg_intv(sqid))) {
+	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -1409,7 +1409,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_get_sq(u, arg_intv(sqid));
+	usq = unvmed_sq_find(u, arg_intv(sqid));
 	if (!usq) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
@@ -1549,13 +1549,13 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_get_sq(u, arg_intv(sqid))) {
+	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	qsize = unvmed_get_sq(u, arg_intv(sqid))->q->qsize;
+	qsize = unvmed_sq_find(u, arg_intv(sqid))->q->qsize;
 
 	if (arg_intv(io_depth) < 1 || arg_intv(io_depth) > qsize - 1) {
 		unvme_pr_err("invalid -d|--io-depth\n");

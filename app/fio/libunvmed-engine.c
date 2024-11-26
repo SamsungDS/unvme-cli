@@ -364,13 +364,18 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 
 	ld->f = f;
 
-	ld->usq = unvmed_get_sq(u, o->sqid);
+	ld->usq = unvmed_sq_get(u, o->sqid);
 	if (!ld->usq) {
 		libunvmed_log("submission queue (--sqid=%d) not found\n", o->sqid);
 		return -1;
 	}
 
-	ld->ucq = ld->usq->ucq;
+	ld->ucq = unvmed_cq_get(u, unvmed_sq_cqid(ld->usq));
+	if (!ld->ucq) {
+		libunvmed_log("completion queue (--cqid=%d) not found\n",
+				unvmed_sq_cqid(ld->usq));
+		return -1;
+	}
 
 	if (td->o.iodepth >= unvmed_sq_size(ld->usq)) {
 		libunvmed_log("--iodepth=%d is greater than SQ queue size %d\n",
@@ -440,7 +445,11 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 			libunvmed_log("failed to unmap io_u buffers from iommu\n");
 	}
 
+	unvmed_cq_put(ld->u, ld->ucq);
+	unvmed_sq_put(ld->u, ld->usq);
+
 	pthread_mutex_unlock(&g_serialize);
+
 	return ret;
 }
 

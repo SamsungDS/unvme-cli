@@ -52,6 +52,7 @@ struct name {			\
 	struct unvme_cmd *cmds; \
 	pthread_spinlock_t lock;\
 	bool enabled;		\
+	int refcnt;		\
 }
 
 /*
@@ -63,6 +64,7 @@ struct name {			\
 	struct nvme_cq *q;	\
 	pthread_spinlock_t lock;\
 	bool enabled;		\
+	int refcnt;		\
 }
 
 #define unvmed_cq_id(ucq)	((ucq)->q->id)
@@ -124,6 +126,9 @@ struct unvme_cmd {
 	void *opaque;
 };
 
+struct unvme_sq *unvmed_sq_find(struct unvme *u, uint32_t qid);
+struct unvme_cq *unvmed_cq_find(struct unvme *u, uint32_t qid);
+
 /**
  * unvmed_sq_enter - Acquire a lock for the given @usq
  * @usq: submission queue instance
@@ -171,6 +176,38 @@ static inline void unvmed_cq_enter(struct unvme_cq *ucq)
 static inline void unvmed_cq_exit(struct unvme_cq *ucq)
 {
 	pthread_spin_unlock(&ucq->lock);
+}
+
+/**
+ * unvmed_sq_enabled - Check whether the submission queue is enabled (live)
+ * @u: &struct unvme
+ * @qid: submission queue identifier
+ *
+ * Return: true if the given queue is alive.
+ */
+static inline bool unvmed_sq_enabled(struct unvme *u, uint32_t qid)
+{
+	struct unvme_sq *usq = unvmed_sq_find(u, qid);
+
+	if (!usq || (usq && !usq->enabled))
+		return false;
+	return true;
+}
+
+/**
+ * unvmed_cq_enabled - Check whether the completion queue is enabled (live)
+ * @u: &struct unvme
+ * @qid: completion queue identifier
+ *
+ * Return: true if the given queue is alive.
+ */
+static inline bool unvmed_cq_enabled(struct unvme *u, uint32_t qid)
+{
+	struct unvme_cq *ucq = unvmed_cq_find(u, qid);
+
+	if (!ucq || (ucq && !ucq->enabled))
+		return false;
+	return true;
 }
 
 /**
@@ -340,26 +377,78 @@ int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs);
 int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs);
 
 /**
- * unvmed_get_sq - Get a submission queue instance
+ * unvmed_sq_get - Get a submission queue instance with refcnt incremented
  * @u: &struct unvme
  * @qid: submission queue identifier
  *
- * Return a submission queue instance created in the given controller @u.
+ * Return a submission queue instance created in the given controller @u with
+ * refcnt incremented which means caller will keep using this queue instance
+ * until calling unvmed_sq_put() explicitly.
  *
  * Return: &struct unvme_sq, otherwise ``NULL``.
  */
-struct unvme_sq *unvmed_get_sq(struct unvme *u, uint32_t qid);
+struct unvme_sq *unvmed_sq_get(struct unvme *u, uint32_t qid);
 
 /**
- * unvmed_get_cq - Get a completion queue instance
+ * unvmed_cq_get - Get a completion queue instance with refcnt incremented
  * @u: &struct unvme
  * @qid: completion queue identifier
  *
- * Return a completion queue instance created in the given controller @u.
+ * Return a completion queue instance created in the given controller @u with
+ * refcnt incremented which means caller will keep using this queue instance
+ * until calling unvmed_cq_put() explicitly.
  *
  * Return: &struct unvme_cq, otherwise ``NULL``.
  */
-struct unvme_cq *unvmed_get_cq(struct unvme *u, uint32_t qid);
+struct unvme_cq *unvmed_cq_get(struct unvme *u, uint32_t qid);
+
+/**
+ * unvmed_sq_put - Put a submission queue instance with refcnt decremented
+ * @u: &struct unvme
+ * @usq: submission queue (&struct unvme_sq)
+ *
+ * It puts the given @usq instance by decrementing @usq->refcnt and if it
+ * reaches to 0, @usq will be freed up and no longer valid after this call.
+ *
+ * Return: @usq->refcnt decremented.
+ */
+int unvmed_sq_put(struct unvme *u, struct unvme_sq *usq);
+
+/**
+ * unvmed_cq_put - Put a completion queue instance with refcnt decremented
+ * @u: &struct unvme
+ * @usq: completion queue (&struct unvme_sq)
+ *
+ * It puts the given @ucq instance by decrementing @ucq->refcnt and if it
+ * reaches to 0, @ucq will be freed up and no longer valid after this call.
+ *
+ * Return: @ucq->refcnt decremented.
+ */
+int unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq);
+
+/**
+ * unvmed_sq_find - Find a submission queue instance
+ * @u: &struct unvme
+ * @qid: submission queue identifier
+ *
+ * Return a submission queue instance created in the given controller @u.  This
+ * API does not update refcnt at all.
+ *
+ * Return: &struct unvme_sq, otherwise ``NULL``.
+ */
+struct unvme_sq *unvmed_sq_find(struct unvme *u, uint32_t qid);
+
+/**
+ * unvmed_cq_find - Find a completion queue instance
+ * @u: &struct unvme
+ * @qid: completion queue identifier
+ *
+ * Return a completion queue instance created in the given controller @u.  This
+ * API does not update refcnt at all.
+ *
+ * Return: &struct unvme_cq, otherwise ``NULL``.
+ */
+struct unvme_cq *unvmed_cq_find(struct unvme *u, uint32_t qid);
 
 /**
  * unvmed_alloc_cmd - Allocate a NVMe command instance.

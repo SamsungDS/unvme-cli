@@ -89,7 +89,7 @@ static void unvmed_perf_update_stats(bool warmup, unsigned long interval)
 
 static int unvmed_perf_reap(struct unvme *u, struct unvme_sq *usq, struct unvme_cmd *cmd)
 {
-	struct unvme_cq *ucq = unvmed_get_cq(u, unvmed_sq_cqid(usq));
+	struct unvme_cq *ucq = usq->ucq;
 	struct nvme_cqe *cqe = calloc(1, sizeof(struct nvme_cqe));
 	int reaped = 0;
 	int ret;
@@ -144,6 +144,8 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 	void *mem_per_cmd;
 	int ret;
 
+	struct unvme_sq *usq;
+
 	ns = unvmed_get_ns(u, nsid);
 	if (!ns) {
 		printf("Do 'unvme id-ns %s -n %d --init' first\n", unvmed_bdf(u), nsid);
@@ -165,6 +167,9 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 	}
 
 	mem_per_cmd = mem;
+
+	usq = unvmed_sq_get(u, sqid);
+	unvmed_cq_get(u, unvmed_sq_cqid(usq));
 
 	do {
 		struct iod *iod;
@@ -188,7 +193,6 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 		unvmed_perf_issue(cmd);
 	} while (true && --to_submit > 0);
 
-	struct unvme_sq *usq = unvmed_get_sq(u, sqid);
 	unvmed_sq_update_tail(u, usq);
 
 	do {
@@ -232,6 +236,9 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 	do {
 		unvmed_perf_reap(u, usq, cmd);
 	} while (queued);
+
+	unvmed_cq_put(u, usq->ucq);
+	unvmed_sq_put(u, usq);
 
 	ret = unvmed_unmap_vaddr(u, mem);
 	if (ret) {
