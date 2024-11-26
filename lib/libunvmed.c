@@ -402,7 +402,7 @@ static struct __unvme_sq *__unvmed_find_and_get_sq(struct unvme *u,
 	pthread_rwlock_rdlock(&u->sq_list_lock);
 	list_for_each(&u->sq_list, curr, list) {
 		assert(curr->q != NULL);
-		if (unvmed_sq_id(curr) == qid) {
+		if (curr->q->vaddr && unvmed_sq_id(curr) == qid) {
 			usq = curr;
 			if (get)
 				atomic_inc(&usq->refcnt);
