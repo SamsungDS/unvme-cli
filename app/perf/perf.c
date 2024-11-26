@@ -146,7 +146,7 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 
 	struct unvme_sq *usq;
 
-	ns = unvmed_get_ns(u, nsid);
+	ns = unvmed_ns_get(u, nsid);
 	if (!ns) {
 		printf("Do 'unvme id-ns %s -n %d --init' first\n", unvmed_bdf(u), nsid);
 		return -ENODEV;

@@ -151,6 +151,7 @@ struct unvme_ctx {
 };
 
 static void *unvmed_rcq_run(void *opaque);
+static void __unvmed_free_ns(struct __unvme_ns *ns);
 static void __unvmed_free_usq(struct __unvme_sq *usq);
 static void __unvmed_free_ucq(struct __unvme_cq *ucq);
 static void __unvmed_delete_sq_all(struct unvme *u);
@@ -259,20 +260,55 @@ int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist)
 	return nr_ns;
 }
 
-struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid)
+static struct __unvme_ns *__unvmed_find_and_get_ns(struct unvme *u,
+						   uint32_t nsid, bool get)
 {
 	struct __unvme_ns *ns;
 
 	pthread_rwlock_rdlock(&u->ns_list_lock);
 	list_for_each(&u->ns_list, ns, list) {
 		if (ns->nsid == nsid) {
+			if (get)
+				atomic_inc(&ns->refcnt);
 			pthread_rwlock_unlock(&u->ns_list_lock);
-			return (struct unvme_ns *)ns;
+			return ns;
 		}
 	}
 	pthread_rwlock_unlock(&u->ns_list_lock);
 
 	return NULL;
+}
+
+struct unvme_ns *unvmed_ns_find(struct unvme *u, uint32_t nsid)
+{
+	return (struct unvme_ns *)__unvmed_find_and_get_ns(u, nsid, false);
+}
+
+struct unvme_ns *unvmed_ns_get(struct unvme *u, uint32_t nsid)
+{
+	return (struct unvme_ns *)__unvmed_find_and_get_ns(u, nsid, true);
+}
+
+int __unvmed_ns_put(struct unvme *u, struct unvme_ns *ns)
+{
+	int refcnt;
+
+	refcnt = atomic_dec_fetch(&ns->refcnt);
+	if (!refcnt)
+		__unvmed_free_ns((struct __unvme_ns *)ns);
+
+	return refcnt;
+}
+
+int unvmed_ns_put(struct unvme *u, struct unvme_ns *ns)
+{
+	int refcnt;
+
+	pthread_rwlock_wrlock(&u->ns_list_lock);
+	refcnt = __unvmed_ns_put(u, ns);
+	pthread_rwlock_unlock(&u->ns_list_lock);
+
+	return refcnt;
 }
 
 int unvmed_get_max_qid(struct unvme *u)
@@ -642,15 +678,6 @@ static void __unvmed_free_ns(struct __unvme_ns *ns)
 	free(ns);
 }
 
-static void unvmed_free_ns(struct unvme_ns *ns)
-{
-	struct unvme *u = ns->u;
-
-	pthread_rwlock_wrlock(&u->ns_list_lock);
-	__unvmed_free_ns((struct __unvme_ns *)ns);
-	pthread_rwlock_unlock(&u->ns_list_lock);
-}
-
 int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 {
 	struct nvme_id_ns *id_ns_local = NULL;
@@ -694,16 +721,21 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 		id_ns = id_ns_local;
 	}
 
-	ns = zmalloc(sizeof(struct __unvme_ns));
-	if (!ns) {
-		if (id_ns_local)
-			pgunmap(id_ns_local, size);
-		return -1;
-	}
+	prev = unvmed_ns_get(u, nsid);
+	if (!prev) {
+		ns = zmalloc(sizeof(struct __unvme_ns));
+		if (!ns) {
+			if (id_ns_local)
+				pgunmap(id_ns_local, size);
+			return -1;
+		}
+	} else {
+		int refcnt;
 
-	prev = unvmed_get_ns(u, nsid);
-	if (prev)
-		unvmed_free_ns(prev);
+		ns = (struct __unvme_ns *)prev;
+		refcnt = unvmed_ns_put(u, prev);
+		assert(refcnt > 0);
+	}
 
 	if (id_ns->nlbaf < 16)
 		format_idx = id_ns->flbas & 0xf;
@@ -716,10 +748,17 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	ns->lba_size = 1 << id_ns->lbaf[format_idx].ds;
 	ns->nr_lbas = le64_to_cpu((uint64_t)id_ns->nsze);
 
-	pthread_rwlock_wrlock(&u->ns_list_lock);
-	list_add_tail(&u->ns_list, &ns->list);
-	pthread_rwlock_unlock(&u->ns_list_lock);
-	u->nr_ns++;
+	if (!prev) {
+		ns->refcnt = 1;
+
+		pthread_rwlock_wrlock(&u->ns_list_lock);
+		list_add_tail(&u->ns_list, &ns->list);
+		pthread_rwlock_unlock(&u->ns_list_lock);
+
+		u->nr_ns++;
+	}
+
+	ns->enabled = true;
 
 	if (id_ns_local)
 		pgunmap(id_ns_local, size);
@@ -824,7 +863,7 @@ static void unvmed_free_ns_all(struct unvme *u)
 
 	pthread_rwlock_wrlock(&u->ns_list_lock);
 	list_for_each_safe(&u->ns_list, ns, next_ns, list)
-		__unvmed_free_ns(ns);
+		__unvmed_ns_put(u, (struct unvme_ns *)ns);
 	pthread_rwlock_unlock(&u->ns_list_lock);
 }
 
@@ -1013,6 +1052,16 @@ static inline void unvmed_disable_cq_all(struct unvme *u)
 	pthread_rwlock_unlock(&u->cq_list_lock);
 }
 
+static inline void unvmed_disable_ns_all(struct unvme *u)
+{
+	struct __unvme_ns *ns;
+
+	pthread_rwlock_rdlock(&u->ns_list_lock);
+	list_for_each(&u->ns_list, ns, list)
+		ns->enabled = false;
+	pthread_rwlock_unlock(&u->ns_list_lock);
+}
+
 static inline void unvmed_quiesce_sq_all(struct unvme *u)
 {
 	struct __unvme_sq *usq;
@@ -1127,6 +1176,7 @@ void unvmed_reset_ctrl(struct unvme *u)
 
 	unvmed_disable_sq_all(u);
 	unvmed_disable_cq_all(u);
+	unvmed_disable_ns_all(u);
 
 	/*
 	 * Quiesce all submission queues to prevent I/O submission from upper

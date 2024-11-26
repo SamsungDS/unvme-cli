@@ -279,7 +279,7 @@ static int libunvmed_init_data(struct thread_data *td)
 		return -EINVAL;
 	}
 
-	ns = unvmed_get_ns(u, o->nsid);
+	ns = unvmed_ns_get(u, o->nsid);
 	if (!ns) {
 		libunvmed_log("failed to get unvme namespace instance (bdf=%s, nsid=%u)\n", bdf, o->nsid);
 		return -EINVAL;

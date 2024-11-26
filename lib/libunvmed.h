@@ -37,6 +37,9 @@ struct nvme_rq;
 struct name {			\
 	struct unvme *u;	\
 				\
+	int refcnt;		\
+	bool enabled;		\
+				\
 	uint32_t nsid;		\
 	unsigned int lba_size;	\
 	unsigned long nr_lbas;	\
@@ -275,7 +278,35 @@ void unvmed_free_ctrl_all(void);
 struct unvme *unvmed_get(const char *bdf);
 
 /**
- * unvmed_get_ns - Get a namespace instance (&struct unvme_ns)
+ * unvmed_ns_get - Get a namespace instance (&struct unvme_ns) with refcnt
+ *                 incremented
+ * @u: &struct unvme
+ * @nsid: namespace identifier
+ *
+ * Get a namespace instance from the given controller @u which has been
+ * identified by unvmed_init_ns() with @ns->refcnt incremented which means
+ * caller will keep using this queue instance until calling unvmed_ns_put()
+ * explicitly.
+ *
+ * Return: &struct unvme_ns, otherwise NULL.
+ */
+struct unvme_ns *unvmed_ns_get(struct unvme *u, uint32_t nsid);
+
+/**
+ * unvmed_ns_put - Put a namespace instance (&struct unvme_ns) with recnt
+ *                 decremented
+ * @u: &struct unvme
+ * @ns: namespace instance (&struct unvme_ns)
+ *
+ * It puts the given @ns instance by decrementing @ns->refcnt and if it reaches
+ * to 0, @ns will be freed up and no longer valid after this call.
+ *
+ * Return: @ns->refcnt decremented.
+ */
+int unvmed_ns_put(struct unvme *u, struct unvme_ns *ns);
+
+/**
+ * unvmed_ns_find - Find a namespace instance (&struct unvme_ns)
  * @u: &struct unvme
  * @nsid: namespace identifier
  *
@@ -284,7 +315,7 @@ struct unvme *unvmed_get(const char *bdf);
  *
  * Return: &struct unvme_ns, otherwise NULL.
  */
-struct unvme_ns *unvmed_get_ns(struct unvme *u, uint32_t nsid);
+struct unvme_ns *unvmed_ns_find(struct unvme *u, uint32_t nsid);
 
 /**
  * unvmed_get_nslist - Get attached namespace list to the controller
