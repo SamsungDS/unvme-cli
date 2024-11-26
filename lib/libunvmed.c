@@ -1705,15 +1705,11 @@ int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
 	int nr_sqes;
 	int nr_cmds;
 
-	unvmed_sq_enter(usq);
 	nr_sqes = unvmed_nr_pending_sqes(usq);
-	if (!nr_sqes) {
-		unvmed_sq_exit(usq);
+	if (!nr_sqes)
 		return 0;
-	}
 
 	nvme_sq_update_tail(usq->q);
-	unvmed_sq_exit(usq);
 
 	do {
 		nr_cmds = u->nr_cmds;

@@ -786,7 +786,8 @@ int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
  * UNVMED_CMD_F_NODB, to controller doorbell register.  This is used to update
  * tail doorbell at once to issue one or more multiple commands.
  *
- * This API is thread-safe for the given @usq, no lock is required.
+ * This API is not thread-safe for the given @usq.  Caller should acquire lock
+ * for the corresponding @usq.
  *
  * Return: The number of SQ entries issued and 0 if no SQ entry is issued.
  */

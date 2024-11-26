@@ -1416,23 +1416,29 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	unvmed_sq_enter(usq);
 	nr_sqes = unvmed_sq_update_tail(u, usq);
-	if (!nr_sqes)
+	if (!nr_sqes) {
+		unvmed_sq_exit(usq);
 		goto out;
+	}
 
 	unvme_pr("Updated SQ%d doorbell for %d entries\n", arg_intv(sqid), nr_sqes);
 
 	cqes = malloc(sizeof(struct nvme_cqe) * nr_sqes);
 	if (!cqes) {
+		unvmed_sq_exit(usq);
 		unvme_pr_err("failed to allocate memory for cq entreis\n");
 		goto out;
 	}
 
 	unvme_pr("Reaping for %d CQ entries..\n", nr_sqes);
 	if (unvmed_cq_run_n(u, usq->ucq, cqes, nr_sqes, nr_sqes) < 0) {
+		unvmed_sq_exit(usq);
 		unvme_pr_err("failed to fetch CQ entries\n");
 		goto out;
 	}
+	unvmed_sq_exit(usq);
 
 	for (int i = 0; i < nr_sqes; i++) {
 		struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, &cqes[i]);
