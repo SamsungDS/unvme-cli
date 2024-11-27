@@ -1117,9 +1117,16 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct __unvme_sq *usq)
 
 	unvmed_cq_enter(ucq);
 
+	/*
+	 * Update @cmd->state of the valid cq entries while cq lock is
+	 * acquired.  If some of @cmd is not caught in this loop and
+	 * @cmd->state still shows UNVME_CMD_S_SUBMITTED, device has failed to
+	 * post the cq entry for the corresponding command and we definitely
+	 * cancel them by posting a dummy cq entry to the cq.
+	 */
 	while (1) {
 		cqe = unvmed_get_cqe(ucq, head);
-		if ((le16_to_cpu(cqe->sfp) & 0x1) == phase) {
+		if ((le16_to_cpu(cqe->sfp) & 0x1) != phase) {
 			cmd = unvmed_get_cmd_from_cqe(u, cqe);
 			assert(cmd != NULL);
 
