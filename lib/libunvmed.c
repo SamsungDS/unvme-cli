@@ -1173,21 +1173,23 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct __unvme_sq *usq)
 	unvmed_cq_exit(ucq);
 }
 
-static inline void unvmed_cancel_sq_all(struct unvme *u)
+static inline void unvmed_cancel_cmd_all(struct unvme *u)
 {
 	struct __unvme_sq *usq;
 
 	pthread_rwlock_rdlock(&u->sq_list_lock);
-	list_for_each(&u->sq_list, usq, list)
+	list_for_each(&u->sq_list, usq, list) {
 		unvmed_cancel_sq(u, usq);
-	pthread_rwlock_unlock(&u->sq_list_lock);
 
-	/*
-	 * Wait for upper layer to complete canceled commands in their CQ
-	 * reapding routine.
-	 */
-	while (LOAD(u->nr_cmds) > 0)
-		;
+		/*
+		 * Wait for upper layer to complete canceled commands in their
+		 * CQ reapding routine.  @usq>nr_cmds indicates the number of
+		 * command which have not been freed by unvmed_cmd_free().
+		 */
+		while (atomic_load_acquire(&usq->nr_cmds) > 0)
+			;
+	}
+	pthread_rwlock_unlock(&u->sq_list_lock);
 }
 
 /*
@@ -1199,6 +1201,8 @@ void unvmed_reset_ctrl(struct unvme *u)
 {
 	__unvme_reset_ctrl(u);
 
+	u->state = UNVME_DISABLED;
+
 	unvmed_disable_sq_all(u);
 	unvmed_disable_cq_all(u);
 	unvmed_disable_ns_all(u);
@@ -1209,20 +1213,17 @@ void unvmed_reset_ctrl(struct unvme *u)
 	 * create I/O queue command is issued.
 	 */
 	unvmed_quiesce_sq_all(u);
-
-	unvmed_cancel_sq_all(u);
-
+	unvmed_cancel_cmd_all(u);
 	unvmed_unquiesce_sq_all(u);
-	u->state = UNVME_DISABLED;
-
-	__unvmed_delete_sq_all(u);
-	__unvmed_delete_cq_all(u);
 
 	/*
 	 * Free up all the namespace instances attached to the current
 	 * controller.
 	 */
 	unvmed_free_ns_all(u);
+
+	__unvmed_delete_sq_all(u);
+	__unvmed_delete_cq_all(u);
 }
 
 static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
