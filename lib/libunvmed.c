@@ -1112,10 +1112,18 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct __unvme_sq *usq)
 	struct unvme_cq *ucq = usq->ucq;
 	struct nvme_cqe *cqe;
 	struct unvme_cmd *cmd;
-	uint32_t head = ucq->q->head;
-	uint8_t phase = ucq->q->phase;
+	uint32_t head;
+	uint8_t phase;
 
 	unvmed_cq_enter(ucq);
+
+	/*
+	 * Load the latest value of head pointer and phase value right before
+	 * starting cancelation since other thread context of the upper layer
+	 * might have updated the doorbell recently.
+	 */
+	head = LOAD(ucq->q->head);
+	phase = LOAD(ucq->q->phase);
 
 	/*
 	 * Update @cmd->state of the valid cq entries while cq lock is
@@ -1142,7 +1150,7 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct __unvme_sq *usq)
 
 	for (int i = 0; i < usq->q->qsize; i++) {
 		cmd = &usq->cmds[i];
-		if (cmd->state == UNVME_CMD_S_SUBMITTED) {
+		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED) {
 			unvmed_put_cqe(ucq, head, phase ^ 1, cmd);
 
 			if (++head == ucq->q->qsize) {
@@ -1556,7 +1564,7 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 {
 	nvme_rq_post(cmd->rq, (union nvme_cmd *)sqe);
 
-	cmd->state = UNVME_CMD_S_SUBMITTED;
+	STORE(cmd->state, UNVME_CMD_S_SUBMITTED);
 #ifdef UNVME_DEBUG
 	unvmed_log_cmd_post(unvmed_bdf(cmd->u), cmd->rq->sq->id, sqe);
 #endif
