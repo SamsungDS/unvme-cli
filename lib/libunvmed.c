@@ -1403,11 +1403,12 @@ static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 {
 	struct nvme_cq *cq = ucq->q;
 	int vector = unvmed_cq_iv(ucq);
+	bool irq = unvmed_cq_irq_enabled(ucq);
 
 	unvmed_cq_put(u, ucq);
 	nvme_discard_cq(&u->ctrl, cq);
 
-	if (vector >= 0)
+	if (irq)
 		unvmed_free_irq(u, vector);
 }
 
@@ -1419,13 +1420,15 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 	pthread_rwlock_wrlock(&u->cq_list_lock);
 	list_for_each_safe(&u->cq_list, ucq, next, list) {
 		int vector = unvmed_cq_iv(ucq);
+		bool irq = unvmed_cq_irq_enabled(__to_cq(ucq));
+
 		cq = ucq->q;
 
 		unvmed_log_info("Deleting ucq (qid=%d)", unvmed_cq_id(ucq));
 		__unvmed_cq_put(u, __to_cq(ucq));
 		nvme_discard_cq(&u->ctrl, cq);
 
-		if (vector >= 0)
+		if (irq)
 			unvmed_free_irq(u, vector);
 	}
 	pthread_rwlock_unlock(&u->cq_list_lock);
