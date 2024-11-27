@@ -10,7 +10,6 @@ configure_file(
 
 ccan_inc = include_directories('.')
 ccan_src = [
-  'ccan/pr_log/pr_log.c',
   'ccan/str/str.c',
   'ccan/list/list.c',
 ]
