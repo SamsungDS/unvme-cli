@@ -773,6 +773,10 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	ns->lba_size = 1 << id_ns->lbaf[format_idx].ds;
 	ns->nr_lbas = le64_to_cpu((uint64_t)id_ns->nsze);
 
+	ns->format_idx = format_idx;
+	ns->mset = (id_ns->flbas >> 4) & 0x1;
+	ns->ms = le16_to_cpu(id_ns->lbaf[format_idx].ms);
+
 	if (!prev) {
 		ns->refcnt = 1;
 
@@ -787,6 +791,64 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 
 	if (id_ns_local)
 		pgunmap(id_ns_local, size);
+	return 0;
+}
+
+int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify)
+{
+	struct nvme_nvm_id_ns *nvm_id_ns_local = NULL;
+	struct nvme_nvm_id_ns *nvm_id_ns = identify;
+	struct unvme_ns *ns;
+	uint32_t elbaf;
+	ssize_t size;
+	int refcnt;
+	int ret;
+
+	ns = unvmed_ns_get(u, nsid);
+	if (!ns) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (!nvm_id_ns) {
+		struct unvme_cmd *cmd;
+		struct iovec iov;
+
+		size = pgmap((void **)&nvm_id_ns_local, NVME_IDENTIFY_DATA_SIZE);
+		assert(size == NVME_IDENTIFY_DATA_SIZE);
+
+		cmd = unvmed_alloc_cmd(u, 0, nvm_id_ns_local, size);
+		if (!cmd) {
+			pgunmap(nvm_id_ns_local, size);
+
+			unvmed_log_err("failed to allocate a command instance");
+			ret = errno;
+			return -1;
+		}
+
+		iov.iov_base = nvm_id_ns_local;
+		iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
+
+		ret = unvmed_nvm_id_ns(u, cmd, nsid, &iov, 1);
+		if (ret)
+			return ret;
+
+		nvm_id_ns = nvm_id_ns_local;
+	}
+
+	elbaf = le32_to_cpu(nvm_id_ns->elbaf[ns->format_idx]);
+
+	ns->lbstm = le64_to_cpu(nvm_id_ns->lbstm);
+	ns->sts = elbaf & NVME_NVM_ELBAF_STS_MASK;
+	ns->pif = (elbaf & NVME_NVM_ELBAF_PIF_MASK) >> 7;
+	if (ns->pif == NVME_NVM_PIF_QTYPE && (nvm_id_ns->pic & 0x8))
+		ns->pif = (elbaf & NVME_NVM_ELBAF_QPIF_MASK) >> 9;
+
+	refcnt = unvmed_ns_put(u, ns);
+	assert(refcnt > 0);
+
+	if (nvm_id_ns_local)
+		pgunmap(nvm_id_ns_local, size);
 	return 0;
 }
 

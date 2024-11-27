@@ -981,8 +981,17 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	ret = unvmed_nvm_id_ns(u, cmd, arg_intv(nsid), &iov, 1);
-	if (!ret)
+	if (!ret) {
+		if (unvmed_init_meta_ns(u, arg_intv(nsid), buf)) {
+			unvme_pr_err("failed to initialize meta info");
+
+			unvmed_cmd_free(cmd);
+			pgunmap(buf, len);
+			ret = errno;
+			goto out;
+		}
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_nvm_id_ns);
+	}
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 

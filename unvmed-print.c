@@ -120,13 +120,15 @@ void unvme_pr_status(struct unvme *u)
 	unvme_pr("\n");
 
 	unvme_pr("Namespaces\n");
-	unvme_pr("nsid       block size(B) meta size(B) size(blocks)\n");
-	unvme_pr("---------- ------------- ------------ ------------\n");
+	unvme_pr("nsid       block size(B) meta size(B) size(blocks) meta(b)\n");
+	unvme_pr("---------- ------------- ------------ ------------ -----------------\n");
 	for (int i = 0; i < nr_ns; i++) {
 		ns = &nslist[i];
 
-		unvme_pr("%#10x %13u %12u %#12lx\n",
-				ns->nsid, ns->lba_size, 0, ns->nr_lbas);
+		unvme_pr("%#10x %13u %12u %#12lx ",
+				ns->nsid, ns->lba_size, ns->ms, ns->nr_lbas);
+		unvme_pr("[%2d]%s:pi%d:st%d\n", ns->format_idx, ns->mset ? "dif" : "dix",
+				16 * (ns->pif + 1), ns->sts);
 	}
 	unvme_pr("\n");
 

@@ -30,6 +30,9 @@ struct nvme_sq;
 struct nvme_cq;
 struct nvme_rq;
 
+struct unvme_meta {
+};
+
 /*
  * struct unvme_ns - Namespace instance
  */
@@ -41,8 +44,15 @@ struct name {			\
 	bool enabled;		\
 				\
 	uint32_t nsid;		\
+	uint8_t format_idx;	\
 	unsigned int lba_size;	\
 	unsigned long nr_lbas;	\
+				\
+	uint16_t ms;		\
+	uint8_t mset;		\
+	uint8_t pif;		\
+	uint8_t sts;		\
+	uint64_t lbstm;		\
 }
 
 /*
@@ -357,6 +367,30 @@ int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist);
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
+
+/**
+ * unvmed_init_meta_ns - Initialize namespace instance with metadata info
+ * @u: &struct unvme
+ * @nsid: namespace identifier
+ * @identify: identify namespace data structure (can be NULL)
+ *
+ * This API sets some metadata informations to the given namespace instance,
+ * which has @nsid as its id.
+ *
+ * If @identify is given with non-NULL, it will skip issuing Identify Namespace
+ * admin command to identify the namespace, instead it assumes that Identify
+ * command has already been issued and the given @identify is the data returned
+ * by the device controller.  Based on the @identify data, it will register a
+ * namespace instance to the given controller @u.
+ *
+ * If @identify is NULL, it will issue an Identify Namespace admin command to
+ * the controller and register a namespace instance to the driver context.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify);
 
 /**
  * unvmed_nr_cmds - Get a number of in-flight commands
