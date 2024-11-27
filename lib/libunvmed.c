@@ -41,6 +41,10 @@ struct unvme {
 	struct list_head cq_list;
 	pthread_rwlock_t cq_list_lock;
 
+	/*
+	 * Number of in-flight commands whose sq entries have already issued
+	 * with the doorbell udpate and cq entries have not been yet fetched.
+	 */
 	int nr_cmds;
 
 	struct list_head ns_list;
@@ -787,7 +791,7 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	pthread_spin_init(&usq->lock, 0);
 	usq->q = &u->ctrl.sq[qid];
 	usq->ucq = ucq;
-	usq->enabled = true;
+	usq->nr_cmds = 0;
 
 	if (alloc) {
 		usq->cmds = calloc(qsize, sizeof(struct unvme_cmd));
@@ -799,6 +803,7 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		unvmed_sq_get(u, qid);
 	}
 
+	usq->enabled = true;
 	return __to_sq(usq);
 }
 
@@ -831,7 +836,6 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 	pthread_spin_init(&ucq->lock, 0);
 	ucq->u = u;
 	ucq->q = &u->ctrl.cq[qid];
-	ucq->enabled = true;
 
 	if (alloc) {
 		pthread_rwlock_wrlock(&u->cq_list_lock);
@@ -841,6 +845,7 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 		unvmed_cq_get(u, qid);
 	}
 
+	ucq->enabled = true;
 	return __to_cq(ucq);
 }
 
@@ -913,9 +918,12 @@ void unvmed_free_ctrl_all(void)
 
 void __unvmed_cmd_free(struct unvme_cmd *cmd)
 {
-	nvme_rq_release_atomic(cmd->rq);
+	struct unvme_sq *usq = cmd->usq;
 
+	nvme_rq_release_atomic(cmd->rq);
 	memset(cmd, 0, sizeof(*cmd));
+
+	atomic_dec(&usq->nr_cmds);
 }
 
 void unvmed_cmd_free(struct unvme_cmd *cmd)
@@ -947,6 +955,8 @@ static struct unvme_cmd* __unvmed_cmd_alloc(struct unvme *u, uint16_t sqid)
 		unvmed_log_err("failed to acquire nvme request instance");
 		return NULL;
 	}
+
+	atomic_inc(&usq->nr_cmds);
 
 	cmd = &usq->cmds[rq->cid];
 	cmd->u = u;
