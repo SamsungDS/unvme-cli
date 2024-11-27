@@ -510,6 +510,44 @@ int unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
 	return refcnt;
 }
 
+static void unvmed_init_irq_rcq(struct unvme *u, int vector)
+{
+	struct unvme_cq_reaper *r = &u->reapers[vector];
+	struct epoll_event e;
+	/* XXX: Currently fixed size of queue is supported */
+	const int qsize = 256;
+
+	r->u = u;
+	r->vector = vector;
+	r->rcq.cqe = malloc(sizeof(struct nvme_cqe) * qsize);
+	r->rcq.qsize = qsize;
+	r->efd = eventfd(0, EFD_CLOEXEC | EFD_SEMAPHORE);
+	r->epoll_fd = epoll_create1(0);
+
+	e = (struct epoll_event) {
+		.events = EPOLLIN,
+		.data.fd = r->efd,
+	};
+	epoll_ctl(r->epoll_fd, EPOLL_CTL_ADD, r->efd, &e);
+
+	u->efds[r->vector] = r->efd;
+}
+
+static void unvmed_free_irq_rcq(struct unvme_cq_reaper *r)
+{
+	struct epoll_event e = {
+		.events = EPOLLIN,
+		.data.fd = r->efd,
+	};
+
+	epoll_ctl(r->epoll_fd, EPOLL_CTL_DEL, r->efd, &e);
+
+	close(r->efd);
+	close(r->epoll_fd);
+	free(r->rcq.cqe);
+	memset(r, 0, sizeof(*r));
+}
+
 static int unvmed_free_irq(struct unvme *u, int vector)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
@@ -531,36 +569,38 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 		return -1;
 	}
 
+	unvmed_free_irq_rcq(r);
 	return 0;
 }
 
 static int unvmed_init_irq(struct unvme *u, int vector)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
-	/* XXX: Currently fixed size of queue is supported */
-	const int qsize = 256;
+
+	if (vector >= u->ctrl.pci.dev.irq_info.count) {
+		unvmed_log_err("invalid vector %d", vector);
+		return -1;
+	}
 
 	if (atomic_inc_fetch(&r->refcnt) > 1)
 		return 0;
 
+	unvmed_init_irq_rcq(u, vector);
+
 	if (vfio_set_irq(&u->ctrl.pci.dev, &u->efds[vector], vector, 1)) {
 		unvmed_log_err("failed to set IRQ for vector %d", vector);
+
+		unvmed_free_irq_rcq(r);
 		return -1;
 	}
-
-	r->u = u;
-	r->vector = vector;
-	r->rcq.cqe = malloc(sizeof(struct nvme_cqe) * qsize);
-	r->rcq.qsize = qsize;
 
 	pthread_create(&r->th, NULL, unvmed_rcq_run, (void *)r);
 	return 0;
 }
 
-static int unvmed_init_irqs(struct unvme *u)
+static int unvmed_alloc_irqs(struct unvme *u)
 {
 	int nr_irqs = u->ctrl.pci.dev.irq_info.count;
-	int vector;
 
 	u->efds = malloc(sizeof(int) * nr_irqs);
 	if (!u->efds)
@@ -568,20 +608,6 @@ static int unvmed_init_irqs(struct unvme *u)
 
 	u->nr_efds = nr_irqs;
 	u->reapers = calloc(u->nr_efds, sizeof(struct unvme_cq_reaper));
-
-	for (vector = 0; vector < nr_irqs; vector++) {
-		struct unvme_cq_reaper *r = &u->reapers[vector];
-		struct epoll_event e;
-
-		u->efds[vector] = eventfd(0, EFD_CLOEXEC | EFD_SEMAPHORE);
-		r->epoll_fd = epoll_create1(0);
-		r->efd = u->efds[vector];
-
-		e.events = EPOLLIN;
-		e.data.fd = r->efd;
-		epoll_ctl(r->epoll_fd, EPOLL_CTL_ADD, r->efd, &e);
-	}
-
 	return 0;
 }
 
@@ -589,11 +615,11 @@ static int unvmed_free_irqs(struct unvme *u)
 {
 	int vector;
 
-	if (vfio_disable_irq_all(&u->ctrl.pci.dev))
-		return -1;
-
 	for (vector = 0; vector < u->nr_efds; vector++)
 		unvmed_free_irq(u, vector);
+
+	if (vfio_disable_irq_all(&u->ctrl.pci.dev))
+		return -1;
 
 	free(u->reapers);
 	u->reapers = NULL;
@@ -631,7 +657,7 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 		return NULL;
 	}
 
-	if (unvmed_init_irqs(u)) {
+	if (unvmed_alloc_irqs(u)) {
 		unvmed_log_err("failed to initialize IRQs");
 
 		nvme_close(&u->ctrl);
