@@ -118,37 +118,32 @@ enum unvme_ctx_type {
 	UNVME_CTX_T_NS,
 };
 
-struct unvme_ctx_ctrl {
-	uint8_t iosqes;
-	uint8_t iocqes;
-	uint8_t mps;
-	uint8_t css;
-};
-
-struct unvme_ctx_sq {
-	uint32_t qid;
-	uint32_t qsize;
-	uint32_t cqid;
-};
-
-struct unvme_ctx_cq {
-	uint32_t qid;
-	uint32_t qsize;
-	int vector;
-};
-
-struct unvme_ctx_ns {
-	uint32_t nsid;
-};
-
 struct unvme_ctx {
 	enum unvme_ctx_type type;
 
 	union {
-		struct unvme_ctx_ctrl ctrl;
-		struct unvme_ctx_sq sq;
-		struct unvme_ctx_cq cq;
-		struct unvme_ctx_ns ns;
+		struct {
+			uint8_t iosqes;
+			uint8_t iocqes;
+			uint8_t mps;
+			uint8_t css;
+		} ctrl;
+
+		struct {
+			uint32_t qid;
+			uint32_t qsize;
+			uint32_t cqid;
+		} sq;
+
+		struct {
+			uint32_t qid;
+			uint32_t qsize;
+			int vector;
+		} cq;
+
+		struct {
+			uint32_t nsid;
+		} ns;
 	};
 
 	struct list_node list;
