@@ -1173,22 +1173,38 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct __unvme_sq *usq)
 	unvmed_cq_exit(ucq);
 }
 
+static void unvmed_cancel_cmd(struct unvme *u, struct __unvme_sq *usq)
+{
+	struct unvme_cq *ucq = usq->ucq;
+
+	unvmed_cancel_sq(u, usq);
+
+	/*
+	 * Wake-up CQ reaper thread in the background if irq is enabled for the
+	 * corresponding completion queue to let application reap the canceled
+	 * cq entries.
+	 */
+	if (unvmed_cq_irq_enabled(ucq)) {
+		struct unvme_cq_reaper *r = &u->reapers[unvmed_cq_iv(ucq)];
+		eventfd_write(r->efd, 1);
+	}
+
+	/*
+	 * Wait for upper layer to complete canceled commands in their
+	 * CQ reapding routine.  @usq>nr_cmds indicates the number of
+	 * command which have not been freed by unvmed_cmd_free().
+	 */
+	while (atomic_load_acquire(&usq->nr_cmds) > 0)
+		;
+}
+
 static inline void unvmed_cancel_cmd_all(struct unvme *u)
 {
 	struct __unvme_sq *usq;
 
 	pthread_rwlock_rdlock(&u->sq_list_lock);
-	list_for_each(&u->sq_list, usq, list) {
-		unvmed_cancel_sq(u, usq);
-
-		/*
-		 * Wait for upper layer to complete canceled commands in their
-		 * CQ reapding routine.  @usq>nr_cmds indicates the number of
-		 * command which have not been freed by unvmed_cmd_free().
-		 */
-		while (atomic_load_acquire(&usq->nr_cmds) > 0)
-			;
-	}
+	list_for_each(&u->sq_list, usq, list)
+		unvmed_cancel_cmd(u, usq);
 	pthread_rwlock_unlock(&u->sq_list_lock);
 }
 
