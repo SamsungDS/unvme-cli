@@ -1023,6 +1023,15 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *nlb;
 	struct arg_int *data_size;
 	struct arg_file *data;
+	/* metadata */
+	struct arg_int *metadata_size;
+	struct arg_file *metadata;
+	struct arg_int *prinfo;
+	struct arg_int *atag_mask;
+	struct arg_int *atag;
+	struct arg_int *rtag;
+	struct arg_int *stag;
+	struct arg_lit *stag_check;
 	struct arg_int *prp1_offset;
 	struct arg_lit *sgl;
 	struct arg_lit *nodb;
@@ -1043,6 +1052,14 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		nlb = arg_int1("c", "block-count", "<n>", "[M] Number of logical block (0-based)"),
 		data_size = arg_int1("z", "data-size", "<n>", "[M] Read data buffer size in bytes"),
 		data = arg_file0("d", "data", "<output>", "[O] File to write read data"),
+		metadata_size = arg_int0("y", "metadata-size", "<n>", "[O] Metadata block size in bytes"),
+		metadata = arg_file0("M", "metadata", "<input>", "[O] File to write as metadata"),
+		prinfo = arg_int0("p", "prinfo", "<n>", "[O] PI and check field"),
+		atag_mask = arg_int0("m", "app-tag-mask", "<n>", "[O] App tag mask for end-to-end PI"),
+		atag = arg_int0("a", "app-tag", "<n>", "[O] App tag for end-to-end PI"),
+		rtag = arg_int0("r", "ref-tag", "<n>", "[O] Reference tag for end-to-end PI"),
+		stag = arg_int0("g", "storage-tag", "<n>", "[O] Storage tag for end-to-end PI"),
+		stag_check = arg_lit0("C", "storage-tag-check", "[O] Enable to check storage tag"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		sgl = arg_lit0("S", "sgl", "[O] Map data buffer with SGL (default: PRP)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
@@ -1051,13 +1068,26 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
+	__unvme_free char *mfilepath = NULL;
 	struct unvme_cmd *cmd;
+	struct unvme_ns *ns;
 	struct iovec iov;
 	void *buf = NULL;
+	void *mbuf = NULL;
+	void *rdata;
+	void *rmdata;
 	unsigned long flags = 0;
+	ssize_t size;
 	ssize_t len;
+	ssize_t mlen = 0;
 	int ret;
 
+	arg_intv(metadata_size) = 0;
+	arg_intv(prinfo) = 0;
+	arg_intv(atag) = 0;
+	arg_intv(atag_mask) = 0;
+	arg_intv(rtag) = 0;
+	arg_intv(stag) = 0;
 	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -1067,6 +1097,21 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
 		ret = ENODEV;
 		goto out;
+	}
+
+	if (arg_intv(metadata_size)) {
+		ns = unvmed_ns_get(u, arg_dblv(nsid));
+		if (!ns) {
+			unvme_pr_err("failed to get namespace\n");
+			ret = EINVAL;
+			goto out;
+		}
+
+		if (!ns->ms) {
+			unvme_pr_err("metadata is not supported by ns\n");
+			ret = ENOTSUP;
+			goto out;
+		}
 	}
 
 	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
@@ -1081,11 +1126,36 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, arg_intv(data_size) + (getpagesize() - arg_intv(prp1_offset)));
+	/*
+	 * XXX: Users can be confused because of printing metadata with
+	 * data.  So, if there is metadata, the output file for metadata
+	 * have to be given by users, so that we can seperate it from
+	 * data.
+	 */
+	if (arg_intv(metadata_size) && !arg_boolv(metadata)) {
+		unvme_pr_err("-M <output> is needed for metadata\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	size = arg_intv(data_size);
+	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_EXTENDED)
+		size += arg_intv(metadata_size);
+
+	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
 		goto out;
+	}
+
+	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE) {
+		mlen = pgmap(&mbuf, arg_intv(metadata_size));
+		if (mlen < 0) {
+			unvme_pr_err("failed to allocate meta buffer\n");
+			ret = errno;
+			goto unmap;
+		}
 	}
 
 	if (arg_boolv(sgl))
@@ -1095,45 +1165,87 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (arg_boolv(data))
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
+	if (arg_boolv(metadata))
+		mfilepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(metadata));
 
-	cmd = unvmed_alloc_cmd(u, arg_intv(sqid), buf, len);
+	cmd = unvmed_alloc_cmd_meta(u, arg_intv(sqid), buf, len, mbuf, mlen);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
-
-		pgunmap(buf, len);
 		ret = errno;
-		goto out;
+		goto unmap;
 	}
 
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
 		.iov_base = buf,
-		.iov_len = arg_intv(data_size),
+		.iov_len = size,
 	};
 
-	ret = unvmed_read(u, cmd, arg_dblv(nsid), arg_dblv(slba),
-			arg_intv(nlb), &iov, 1, flags, NULL);
+	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE)
+		mbuf += arg_intv(prp1_offset);
+
+	ret = unvmed_read(u, cmd, arg_dblv(nsid), arg_dblv(slba), arg_intv(nlb),
+			arg_intv(prinfo), arg_intv(atag), arg_intv(atag_mask),
+			arg_intv(rtag), arg_intv(stag), arg_boolv(stag_check),
+			&iov, 1, mbuf, flags, NULL);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
 			UNVME_CMD_BUF_F_IOVA_UNMAP;
+		if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE) {
+			cmd->mbuf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
+				UNVME_CMD_BUF_F_IOVA_UNMAP;
+		}
 		goto out;
 	}
 
+
 	if (!ret) {
+		rdata = malloc(arg_intv(data_size));
+		if (!arg_intv(metadata_size))
+			memcpy(rdata, buf, arg_intv(data_size));
+		else {
+			rmdata = malloc(arg_intv(metadata_size));
+			if (arg_intv(nlb) + 1 != arg_intv(metadata_size) / ns->ms)
+				unvme_pr_err("warning: # of lba is not fit with # of metadata\n");
+
+			if (ns->mset == NVME_FORMAT_MSET_SEPARATE) {
+				memcpy(rdata, buf, arg_intv(data_size));
+				memcpy(rmdata, mbuf, arg_intv(metadata_size));
+			} else {
+				uint64_t offset = 0;
+
+				for (int i = 0; i < arg_intv(nlb) + 1; i++) {
+					memcpy(rdata + (i * ns->lba_size), buf + offset, ns->lba_size);
+					offset += ns->lba_size;
+					memcpy(rmdata + (i * ns->ms), buf + offset, ns->ms);
+					offset += ns->ms;
+				}
+			}
+			unvme_write_file(mfilepath, rmdata, arg_intv(metadata_size));
+			free(rmdata);
+		}
+
 		if (!filepath)
-			unvme_cmd_pr_raw(buf, arg_intv(data_size));
+			unvme_cmd_pr_raw(rdata, arg_intv(data_size));
 		else
-			unvme_write_file(filepath, buf, arg_intv(data_size));
+			unvme_write_file(filepath, rdata, arg_intv(data_size));
+
+		free(rdata);
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 	else
 		unvme_pr_err("failed to read\n");
 
 	unvmed_cmd_free(cmd);
+unmap:
 	pgunmap(buf, len);
+	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE)
+		pgunmap(mbuf, mlen);
 out:
+	if (ns)
+		unvmed_ns_put(u, ns);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -1148,6 +1260,15 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *nlb;
 	struct arg_int *data_size;
 	struct arg_file *data;
+	/* metadata */
+	struct arg_int *metadata_size;
+	struct arg_file *metadata;
+	struct arg_int *prinfo;
+	struct arg_int *atag_mask;
+	struct arg_int *atag;
+	struct arg_int *rtag;
+	struct arg_int *stag;
+	struct arg_lit *stag_check;
 	struct arg_int *prp1_offset;
 	struct arg_lit *sgl;
 	struct arg_lit *nodb;
@@ -1167,6 +1288,14 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		nlb = arg_int1("c", "block-count", "<n>", "[M] Number of logical block (0-based)"),
 		data_size = arg_int1("z", "data-size", "<n>", "[O] Logical block size in bytes"),
 		data = arg_file1("d", "data", "<input>", "[M] File to write as write data"),
+		metadata_size = arg_int0("y", "metadata-size", "<n>", "[O] Metadata block size in bytes"),
+		metadata = arg_file0("M", "metadata", "<input>", "[O] File to write as metadata"),
+		prinfo = arg_int0("p", "prinfo", "<n>", "[O] PI and check field"),
+		atag_mask = arg_int0("m", "app-tag-mask", "<n>", "[O] App tag mask for end-to-end PI"),
+		atag = arg_int0("a", "app-tag", "<n>", "[O] App tag for end-to-end PI"),
+		rtag = arg_int0("r", "ref-tag", "<n>", "[O] Reference tag for end-to-end PI"),
+		stag = arg_int0("g", "storage-tag", "<n>", "[O] Storage tag for end-to-end PI"),
+		stag_check = arg_lit0("C", "storage-tag-check", "[O] Enable to check storage tag"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		sgl = arg_lit0("S", "sgl", "[O] Map data buffer with SGL (default: PRP)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
@@ -1175,14 +1304,28 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	__unvme_free char *filepath = NULL;
+	__unvme_free char *mfilepath = NULL;
 	struct unvme_cmd *cmd;
+	struct unvme_ns *ns;
 	struct iovec iov;
 	void *buf = NULL;
+	void *mbuf = NULL;
 	void *__buf;
+	void *__mbuf = NULL;
+	void *wdata;
+	void *wmdata;
 	unsigned long flags = 0;
+	ssize_t size;
 	ssize_t len;
+	ssize_t mlen = 0;
 	int ret;
 
+	arg_intv(metadata_size) = 0;
+	arg_intv(prinfo) = 0;
+	arg_intv(atag) = 0;
+	arg_intv(atag_mask) = 0;
+	arg_intv(rtag) = 0;
+	arg_intv(stag) = 0;
 	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -1192,6 +1335,21 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
 		ret = ENODEV;
 		goto out;
+	}
+
+	if (arg_intv(metadata_size)) {
+		ns = unvmed_ns_get(u, arg_dblv(nsid));
+		if (!ns) {
+			unvme_pr_err("failed to get ns\n");
+			ret = ENODEV;
+			goto out;
+		}
+
+		if (!ns->ms) {
+			unvme_pr_err("metadata is not supported by ns\n");
+			ret = ENOTSUP;
+			goto out;
+		}
 	}
 
 	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
@@ -1206,6 +1364,12 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if (arg_intv(metadata_size) && !arg_boolv(metadata)) {
+		unvme_pr_err("-M <input> is needed for metadata\n");
+		ret = EINVAL;
+		goto out;
+	}
+
 	if (arg_boolv(sgl))
 		flags |= UNVMED_CMD_F_SGL;
 	if (arg_boolv(nodb))
@@ -1213,8 +1377,14 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (arg_boolv(data))
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
+	if (arg_boolv(metadata))
+		mfilepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(metadata));
 
-	len = pgmap(&buf, arg_intv(data_size) + (getpagesize() - arg_intv(prp1_offset)));
+	size = arg_intv(data_size);
+	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_EXTENDED)
+		size += arg_intv(metadata_size);
+
+	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -1223,34 +1393,74 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 	__buf = buf + arg_intv(prp1_offset);
 
-	if (unvme_read_file(filepath, __buf, arg_intv(data_size))) {
-		unvme_pr_err("failed to read file %s\n", filepath);
+	wdata = malloc(arg_intv(data_size));
 
-		pgunmap(buf, len);
+	if (unvme_read_file(filepath, wdata, arg_intv(data_size))) {
+		unvme_pr_err("failed to read file %s\n", filepath);
 		ret = ENOENT;
-		goto out;
+		goto unmap;
 	}
 
-	cmd = unvmed_alloc_cmd(u, arg_intv(sqid), buf, len);
+	if (!arg_intv(metadata_size))
+		memcpy(__buf, wdata, arg_intv(data_size));
+	else {
+		if (arg_intv(nlb) + 1 != arg_intv(metadata_size) / ns->ms)
+			unvme_pr_err("Warning: # of lba is not fit with # of metadata\n");
+
+		wmdata = malloc(arg_intv(metadata_size));
+		if (unvme_read_file(mfilepath, wmdata, arg_intv(metadata_size))) {
+			unvme_pr_err("failed to read file %s\n", mfilepath);
+			ret = ENOENT;
+			goto unmap;
+		}
+
+		if (ns->mset == NVME_FORMAT_MSET_SEPARATE) {
+			mlen = pgmap(&mbuf, arg_intv(metadata_size) +
+					(getpagesize() - arg_intv(prp1_offset)));
+			if (mlen < 0) {
+				unvme_pr_err("failed to allocate meta buffer\n");
+				ret = errno;
+				goto unmap;
+			}
+			__mbuf = mbuf + arg_intv(prp1_offset);
+			memcpy(__buf, wdata, arg_intv(data_size));
+			memcpy(__mbuf, wmdata, arg_intv(metadata_size));
+		} else {
+			uint64_t offset = 0;
+
+			for (int i = 0; i < arg_intv(nlb) + 1; i++) {
+				memcpy(__buf + offset, wdata + (i * ns->lba_size), ns->lba_size);
+				offset += ns->lba_size;
+				memcpy(__buf + offset, wmdata + (i * ns->ms), ns->ms);
+				offset += ns->ms;
+			}
+		}
+	}
+
+	cmd = unvmed_alloc_cmd_meta(u, arg_intv(sqid), buf, len, mbuf, mlen);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
-
-		pgunmap(buf, len);
 		ret = errno;
-		goto out;
+		goto unmap;
 	}
 
 	iov = (struct iovec) {
 		.iov_base = __buf,
-		.iov_len = arg_intv(data_size),
+		.iov_len = size,
 	};
 
-	ret = unvmed_write(u, cmd, arg_dblv(nsid), arg_dblv(slba),
-			arg_intv(nlb), &iov, 1, flags, NULL);
+	ret = unvmed_write(u, cmd, arg_dblv(nsid), arg_dblv(slba), arg_intv(nlb),
+			arg_intv(prinfo), arg_intv(atag), arg_intv(atag_mask),
+			arg_intv(rtag), arg_intv(stag), arg_boolv(stag_check),
+			&iov, 1, __mbuf, flags, NULL);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
 			UNVME_CMD_BUF_F_IOVA_UNMAP;
+		if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE) {
+			cmd->mbuf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
+				UNVME_CMD_BUF_F_IOVA_UNMAP;
+		}
 		goto out;
 	}
 
@@ -1260,8 +1470,18 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to write\n");
 
 	unvmed_cmd_free(cmd);
+unmap:
 	pgunmap(buf, len);
+
+	if (arg_intv(metadata_size)) {
+		free(wmdata);
+		if (ns->mset == NVME_FORMAT_MSET_SEPARATE)
+			pgunmap(mbuf, mlen);
+	}
+	free(wdata);
 out:
+	if (ns)
+		unvmed_ns_put(u, ns);
 	unvme_free_args(argtable);
 	return ret;
 }

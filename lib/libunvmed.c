@@ -1009,13 +1009,23 @@ void __unvmed_cmd_free(struct unvme_cmd *cmd)
 	atomic_dec(&usq->nr_cmds);
 }
 
+static void unvmed_buf_free(struct unvme *u, struct unvme_buf *buf)
+{
+	if (buf->flags & UNVME_CMD_BUF_F_IOVA_UNMAP)
+		unvmed_unmap_vaddr(u, buf->va);
+
+	if (buf->flags & UNVME_CMD_BUF_F_VA_UNMAP)
+		pgunmap(buf->va, buf->len);
+
+	buf->va = 0;
+	buf->len = 0;
+	buf->iov = (struct iovec) {.iov_base = 0, .iov_len = 0};
+}
+
 void unvmed_cmd_free(struct unvme_cmd *cmd)
 {
-	if (cmd->buf.flags & UNVME_CMD_BUF_F_IOVA_UNMAP)
-		unvmed_unmap_vaddr(cmd->u, cmd->buf.va);
-
-	if (cmd->buf.flags & UNVME_CMD_BUF_F_VA_UNMAP)
-		pgunmap(cmd->buf.va, cmd->buf.len);
+	unvmed_buf_free(cmd->u, &cmd->buf);
+	unvmed_buf_free(cmd->u, &cmd->mbuf);
 
 	__unvmed_cmd_free(cmd);
 }
@@ -1051,17 +1061,11 @@ static struct unvme_cmd* __unvmed_cmd_alloc(struct unvme *u, uint16_t sqid)
 	return cmd;
 }
 
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
-				   size_t len)
+static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
+			   void *buf, uint32_t len)
 {
-	struct unvme_cmd *cmd;
-
 	void *__buf = NULL;
 	ssize_t __len;
-
-	cmd = __unvmed_cmd_alloc(u, sqid);
-	if (!cmd)
-		return NULL;
 
 	/*
 	 * If caller gives NULL buf and non-zero len, it will allocate a user
@@ -1075,13 +1079,13 @@ struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
 		__len = pgmap(&__buf, len);
 		if (!__buf) {
 			unvmed_log_err("failed to mmap() for data buffer");
-			return NULL;
+			return -1;
 		}
 
 		buf = __buf;
 		len = __len;  /* Update length with a newly aligned size */
 
-		cmd->buf.flags |= UNVME_CMD_BUF_F_VA_UNMAP;
+		ubuf->flags |= UNVME_CMD_BUF_F_VA_UNMAP;
 	}
 
 	if (buf && len) {
@@ -1093,23 +1097,67 @@ struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
 
 				if (__buf)
 					pgunmap(buf, len);
-				__unvmed_cmd_free(cmd);
-				return NULL;
+				return -1;
 			}
-			cmd->buf.flags |= UNVME_CMD_BUF_F_IOVA_UNMAP;
+			ubuf->flags |= UNVME_CMD_BUF_F_IOVA_UNMAP;
 		}
 	}
 
-	cmd->buf.va = buf;
-	cmd->buf.len = len;
-	cmd->buf.iov = (struct iovec) {.iov_base = buf, .iov_len = len};
+	ubuf->va = buf;
+	ubuf->len = len;
+	ubuf->iov = (struct iovec) {.iov_base = buf, .iov_len = len};
+
+	return 0;
+}
+
+static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, uint16_t sqid, void *buf,
+					    size_t len, void *mbuf, size_t mlen)
+{
+	struct unvme_cmd *cmd;
+
+	cmd = __unvmed_cmd_alloc(u, sqid);
+	if (!cmd)
+		return NULL;
+
+	if (unvmed_buf_init(u, &cmd->buf, buf, len)) {
+		__unvmed_cmd_free(cmd);
+		return NULL;
+	}
+
+	if (unvmed_buf_init(u, &cmd->mbuf, mbuf, mlen)) {
+		unvmed_buf_free(u, &cmd->buf);
+		__unvmed_cmd_free(cmd);
+		return NULL;
+	}
 
 	return cmd;
 }
 
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
+				   size_t len)
+{
+	if (!buf || !len) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	return __unvmed_cmd_init(u, sqid, buf, len, NULL, 0);
+}
+
 struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, uint16_t sqid)
 {
-	return __unvmed_cmd_alloc(u, sqid);
+	return __unvmed_cmd_init(u, sqid, NULL, 0, NULL, 0);
+}
+
+struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, uint16_t sqid, void *buf,
+					size_t len, void *mbuf, size_t mlen)
+{
+	if (!buf || !len) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	return __unvmed_cmd_init(u, sqid, buf, len, mbuf, mlen);
 }
 
 static void __unvme_reset_ctrl(struct unvme *u)
@@ -1955,8 +2003,75 @@ int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
 	return unvmed_cqe_status(&cqe);
 }
 
+/*
+ * This function is from `libnvme` with few modifications.  It updates the
+ * given @sqe with cdw2, cdw3, cdw14 and cdw15, remaining fields should be
+ * updated outside of this function.
+ */
+static int unvmed_sqe_set_tags(struct unvme *u, uint32_t nsid, struct nvme_cmd_rw *sqe,
+			       uint16_t atag, uint16_t atag_mask,
+			       uint64_t rtag, uint64_t stag)
+{
+	uint8_t pif;
+	uint8_t sts;
+	uint32_t cdw2 = 0;
+	uint32_t cdw3 = 0;
+	uint32_t cdw14 = 0;
+	int refcnt;
+
+	struct unvme_ns *ns = unvmed_ns_get(u, nsid);
+	if (!ns) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	pif = ns->pif;
+	sts = ns->sts;
+
+	refcnt = unvmed_ns_put(u, ns);
+	assert(refcnt > 0);
+
+	switch (pif) {
+	case NVME_NVM_PIF_16B_GUARD:
+		cdw14 = rtag & 0xffffffff;
+		cdw14 |= (stag << (32 - sts)) & 0xffffffff;
+		break;
+	case NVME_NVM_PIF_32B_GUARD:
+		cdw2 = (stag >> (sts - 16)) & 0xffff;
+		cdw3 = (rtag >> 32) & 0xffffffff;
+		cdw14 = rtag & 0xffffffff;
+		cdw14 |= (stag << (80 - sts)) & 0xffff0000;
+		if (sts >= 48)
+			cdw3 |= (stag >> (sts - 48)) & 0xffffffff;
+		else
+			cdw3 |= (stag << (48 - sts)) & 0xffffffff;
+		break;
+	case NVME_NVM_PIF_64B_GUARD:
+		cdw3 = (rtag >> 32) & 0xffff;
+		cdw14 = rtag & 0xffffffff;
+		cdw14 |= (stag << (48 - sts)) & 0xffffffff;
+		if (sts >= 16)
+			cdw3 |= (stag >> (sts - 16)) & 0xffff;
+		else
+			cdw3 |= (stag << (16 - sts)) & 0xffff;
+		break;
+	default:
+		return -1;
+	}
+
+	sqe->apptag = cpu_to_le16(atag);
+	sqe->appmask = cpu_to_le16(atag_mask);
+	sqe->cdw2 = cpu_to_le32(cdw2);
+	sqe->cdw3 = cpu_to_le32(cdw3);
+	sqe->reftag = cpu_to_le32(cdw14);
+	return 0;
+}
+
 int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
+		uint64_t slba, uint16_t nlb, uint8_t prinfo,
+		uint16_t atag, uint16_t atag_mask, uint64_t rtag,
+		uint64_t stag, bool stag_check,
+		struct iovec *iov, int nr_iov, void *mbuf,
 		unsigned long flags, void *opaque)
 {
 	struct nvme_cmd_rw sqe = {0, };
@@ -1981,6 +2096,34 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
 			NVME_CMD_FLAGS_PSDT_SHIFT;
 
+	/*
+	 * If user does not give `mbuf` for metadata buffer, try with the
+	 * pre-initialized meta data buffer initialized when @cmd was created.
+	 */
+	if (!mbuf && cmd->mbuf.va)
+		mbuf = cmd->mbuf.va;
+
+	if (mbuf) {
+		uint64_t iova;
+
+		if (unvmed_to_iova(u, mbuf, &iova)) {
+			errno = EFAULT;
+			return -1;
+		}
+
+		/*
+		 * Mapping MPTR should be done in libvfn, but we don't have
+		 * helpers for MPTR yet, just do it here until helpers are
+		 * provided.
+		 */
+		sqe.mptr = cpu_to_le64(iova);
+	}
+
+	unvmed_sqe_set_tags(u, nsid, &sqe, atag, atag_mask, rtag, stag);
+	sqe.control |= (prinfo << 10);
+	if (stag_check)
+		sqe.control |= NVME_IO_STC;
+
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
 
@@ -1997,7 +2140,10 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 }
 
 int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		 uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
+		 uint64_t slba, uint16_t nlb, uint8_t prinfo,
+		 uint16_t atag, uint16_t atag_mask, uint64_t rtag,
+		 uint64_t stag, bool stag_check,
+		 struct iovec *iov, int nr_iov, void *mbuf,
 		 unsigned long flags, void *opaque)
 {
 	struct nvme_cmd_rw sqe = {0, };
@@ -2021,6 +2167,34 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 	if (flags & UNVMED_CMD_F_SGL)
 		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
 			NVME_CMD_FLAGS_PSDT_SHIFT;
+
+	/*
+	 * If user does not give `mbuf` for metadata buffer, try with the
+	 * pre-initialized meta data buffer initialized when @cmd was created.
+	 */
+	if (!mbuf && cmd->mbuf.va)
+		mbuf = cmd->mbuf.va;
+
+	if (mbuf) {
+		uint64_t iova;
+
+		if (unvmed_to_iova(u, mbuf, &iova)) {
+			errno = EFAULT;
+			return -1;
+		}
+
+		/*
+		 * Mapping MPTR should be done in libvfn, but we don't have
+		 * helpers for MPTR yet, just do it here until helpers are
+		 * provided.
+		 */
+		sqe.mptr = cpu_to_le64(iova);
+	}
+
+	unvmed_sqe_set_tags(u, nsid, &sqe, atag, atag_mask, rtag, stag);
+	sqe.control |= (prinfo << 10);
+	if (stag_check)
+		sqe.control |= NVME_IO_STC;
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);

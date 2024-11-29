@@ -132,6 +132,24 @@ enum unvmed_cmd_flags {
 	UNVMED_CMD_F_SGL	= 1 << 1,
 };
 
+struct unvme_buf {
+	void *va;
+	size_t len;
+	/* Unmap user data buffer in unvmed_cmd_free() */
+#define UNVME_CMD_BUF_F_VA_UNMAP	(1 << 0)
+	/* Unmap I/O VA for user data buffer in unvmed_cmd_free() */
+#define UNVME_CMD_BUF_F_IOVA_UNMAP	(1 << 1)
+	unsigned int flags;
+
+	/*
+	 * Inlined single iovec representing the entire buffer.  If
+	 * user wants to define their own iovec list, this can be
+	 * no-used.  If user wants to issue a single iovec, user also
+	 * can user this instance by updating the value inside of it.
+	 */
+	struct iovec iov;
+};
+
 /*
  * struct unvme_cmd - NVMe command instance
  * @u: unvme controller instance
@@ -152,23 +170,8 @@ struct unvme_cmd {
 	 */
 	struct nvme_rq *rq;
 
-	struct {
-		void *va;
-		size_t len;
-/* Unmap user data buffer in unvmed_cmd_free() */
-#define UNVME_CMD_BUF_F_VA_UNMAP	(1 << 0)
-/* Unmap I/O VA for user data buffer in unvmed_cmd_free() */
-#define UNVME_CMD_BUF_F_IOVA_UNMAP	(1 << 1)
-		unsigned int flags;
-
-		/*
-		 * Inlined single iovec representing the entire buffer.  If
-		 * user wants to define their own iovec list, this can be
-		 * no-used.  If user wants to issue a single iovec, user also
-		 * can user this instance by updating the value inside of it.
-		 */
-		struct iovec iov;
-	} buf;
+	struct unvme_buf buf;
+	struct unvme_buf mbuf;  /* mbuf is valid only in DIX mode */
 
 	void *opaque;
 };
@@ -586,6 +589,26 @@ struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
 struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, uint16_t sqid);
 
 /**
+ * unvmed_alloc_cmd_meta - Allocate a NVMe command instance with metadata
+ * @u: &struct unvme
+ * @sqid: submission queue identifier
+ * @buf: user data buffer virtual address
+ * @len: size of user data buffer in bytes
+ * @mbuf: metadata buffer virtual address
+ * @mlen: size of metadata buffer in bytes
+ *
+ * Allocate a NVMe command instance with data and metadata buffer to trasnfer.
+ * If @ns has extended metadata buffer format, there is no need to @mbuf and
+ * @mlen.
+ *
+ * This API is thread-safe.
+ *
+ * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
+ */
+struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, uint16_t sqid, void *buf,
+					size_t len, void *mbuf, size_t mlen);
+
+/**
  * __unvmed_cmd_free - Destroy a NVMe command instance
  * @cmd: command instance (&struct unvme_cmd)
  *
@@ -978,8 +1001,15 @@ int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
  * @nsid: namespace identifier to identify
  * @slba: start logical block address
  * @nlb: number of logical blocks (0-based)
+ * @prinfo: prinfo for end-to-end pi
+ * @atag: app tag for end-to-end pi
+ * @atag_mask: app tag mask for end-to-end pi
+ * @rtag: reference tag for end-to-end pi
+ * @stag: storage tag for end-to-end pi
+ * @stag_check: check storage tag for end-to-end pi
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
+ * @mbuf: metadata buffer I/O vector
  * @flags: control flags (enum unvmed_cmd_flags)
  * @opaque: opaque private data for asynchronous completion
  *
@@ -990,7 +1020,10 @@ int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
  * Return: ``0`` on success, otherwise CQE status field.
  */
 int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
+		uint64_t slba, uint16_t nlb, uint8_t prinfo,
+		uint16_t atag, uint16_t atag_mask, uint64_t rtag,
+		uint64_t stag, bool stag_check,
+		struct iovec *iov, int nr_iov, void *mbuf,
 		unsigned long flags, void *opaque);
 
 /**
@@ -1000,8 +1033,15 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  * @nsid: namespace identifier to identify
  * @slba: start logical block address
  * @nlb: number of logical blocks (0-based)
+ * @prinfo: prinfo for end-to-end pi
+ * @atag: app tag for end-to-end pi
+ * @atag_mask: app tag mask for end-to-end pi
+ * @rtag: reference tag for end-to-end pi
+ * @stag: storage tag for end-to-end pi
+ * @stag_check: check storage tag for end-to-end pi
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
+ * @mbuf: metadata buffer I/O vector
  * @flags: control flags (enum unvmed_cmd_flags)
  * @opaque: opaque private data for asynchronous completion
  *
@@ -1012,7 +1052,10 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  * Return: ``0`` on success, otherwise CQE status field.
  */
 int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		 uint64_t slba, uint16_t nlb, struct iovec *iov, int nr_iov,
+		 uint64_t slba, uint16_t nlb, uint8_t prinfo,
+		 uint16_t atag, uint16_t atag_mask, uint64_t rtag,
+		 uint64_t stag, bool stag_check,
+		 struct iovec *iov, int nr_iov, void *mbuf,
 		 unsigned long flags, void *opaque);
 
 /**
