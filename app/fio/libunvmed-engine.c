@@ -64,7 +64,7 @@ static struct fio_option options[] = {
 		.lname = "Submission queue ID",
 		.type = FIO_OPT_INT,
 		.off1 = offsetof(struct libunvmed_options, sqid),
-		.help = "Submission queue ID",
+		.help = "Submission queue ID.  If not given, each SQ will be assigned for each job",
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
@@ -249,11 +249,6 @@ static int libunvmed_check_constraints(struct thread_data *td)
 		return 1;
 	}
 
-	if (!o->sqid) {
-		libunvmed_log("'--sqid=' option should have a submission queue id\n");
-		return 1;
-	}
-
 	return 0;
 }
 
@@ -363,6 +358,9 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	int ret;
 
 	ld->f = f;
+
+	if (!o->sqid)
+		o->sqid = td->thread_number;
 
 	ld->usq = unvmed_sq_get(u, o->sqid);
 	if (!ld->usq) {
