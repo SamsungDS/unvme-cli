@@ -3,10 +3,12 @@
 #include <stdlib.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <setjmp.h>
 
 #define UNVME_FIO_IOENGINE	"libunvmed-ioengine.so"
 
 extern char **environ;
+extern __thread jmp_buf *__jump;
 
 extern char *unvme_get_filepath(char *pwd, const char *filename);
 
@@ -31,6 +33,8 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 
 	void *fio;
 	void *ioengine;
+
+	jmp_buf jump;
 
 	/*
 	 * If the previous app handle has not been closed yet, close here
@@ -88,8 +92,24 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 	__argv[argc] = "--eta=always";
 	__argv[argc + 1] = NULL;
 
+	/*
+	 * If fio is terminated by exit() call inside of the shared object,
+	 * dynamically loaded code and data won't be cleaned up properly.  It
+	 * causes the next load not to initialize the global variables properly
+	 * causing an initialization failure from the second run.  To fix this,
+	 * if fio calls exit(), we catch the exit() call in our daemon exit()
+	 * symbol and our exit() will longjmp() to here with EINTR value to
+	 * indicate that this has been terminated.  If so, we can move the
+	 * instruction to the 'out' label and clean up all the mess.
+	 */
+	__jump = &jump;
+	ret = setjmp(*__jump);
+	if (ret == EINTR)
+		goto out;
+
 	ret = main(argc + 1, __argv, environ);
 
+out:
 	free(__argv);
 
 	dlclose(fio);
