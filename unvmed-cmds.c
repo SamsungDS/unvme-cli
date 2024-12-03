@@ -762,7 +762,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 
 	/* allocate a buffer with a consieration of --prp1-offset=<n> */
 	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
-	if (!buf) {
+	if (len < 0) {
 		unvme_pr_err("failed to allocate user data buffer\n");
 		ret = errno;
 		goto out;
@@ -868,7 +868,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
-	if (!buf) {
+	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
 		goto out;
@@ -967,7 +967,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
-	if (buf == MAP_FAILED) {
+	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
 		goto out;
@@ -1082,7 +1082,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	len = pgmap(&buf, arg_intv(data_size) + (getpagesize() - arg_intv(prp1_offset)));
-	if (!buf) {
+	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
 		goto out;
@@ -1215,7 +1215,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 
 	len = pgmap(&buf, arg_intv(data_size) + (getpagesize() - arg_intv(prp1_offset)));
-	if (!buf) {
+	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
 		goto out;
@@ -1412,7 +1412,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	len = pgmap(&buf, arg_intv(data_len));
-	if (!buf) {
+	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
 		goto out;
