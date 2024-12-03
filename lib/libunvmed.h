@@ -35,6 +35,20 @@ struct unvme_meta {
 
 /*
  * struct unvme_ns - Namespace instance
+ * @u: unvme controller instance
+ * @refcnt: reference count
+ * @enabled: ``true`` if the unvme instance is in enabled state
+ * @nsid: namespace identifier
+ * @format_idx: LBA format index in Identify Namespace data structure
+ * @lba_size: LBA size in bytes
+ * @nr_lbas: number of logical blocks
+ * @ms: metadata size in bytes
+ * @mset: metadata setting (1: metadata is transferred as part of an extended
+ *        data LBA.  Otherwise, metadata is transferred as part of separate
+ *        buffer.
+ * @pif: protection information format (00b: 16b, 01b: 32b, 10b: 64b guard)
+ * @sts: stroage tag size
+ * @lbstm: logical block storage tag mask
  */
 #define unvme_declare_ns(name)	\
 struct name {			\
@@ -57,6 +71,13 @@ struct name {			\
 
 /*
  * struct unvme_sq - Submission queue instance
+ * @q: submission queue instance provided by libvfn
+ * @ucq: unvme completion queue instance
+ * @cmds: command instance array for @nr_cmds
+ * @nr_cmds: number of command instances in the array @cmds
+ * @lock: spinlock to protect the current unvme SQ instance
+ * @enabled: ``true`` if the queue is enabled
+ * @refcnt: reference count
  */
 #define unvme_declare_sq(name)	\
 struct name {			\
@@ -71,6 +92,11 @@ struct name {			\
 
 /*
  * struct unvme_cq - Completion queue instance
+ * @u: unvme controller instance
+ * @q: completion queue instance provided by libvfn
+ * @lock: spinlock to protect the current unvme CQ instance
+ * @enabled: ``true`` if the queue is enabled
+ * @refcnt: reference count
  */
 #define unvme_declare_cq(name)	\
 struct name {			\
@@ -108,6 +134,11 @@ enum unvmed_cmd_flags {
 
 /*
  * struct unvme_cmd - NVMe command instance
+ * @u: unvme controller instance
+ * @state: command state
+ * @rq: command request instance provided by libvfn
+ * @buf: data buffer to be mapped to DPTR in submission queue entry
+ * @opaque: opaque data
  */
 struct unvme_cmd {
 	struct unvme *u;
