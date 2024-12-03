@@ -1882,9 +1882,11 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.cns = cpu_to_le32(0x0);
 
-	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, 1)) {
-		unvmed_log_err("failed to map iovec for prp");
-		return -1;
+	if (nr_iov > 0) {
+		if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+			unvmed_log_err("failed to map iovec for prp");
+			return -1;
+		}
 	}
 
 	unvmed_sq_enter(cmd->usq);
@@ -1911,9 +1913,11 @@ int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.cns = cpu_to_le32(0x2);
 
-	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, 1)) {
-		unvmed_log_err("failed to map iovec for prp");
-		return -1;
+	if (nr_iov > 0) {
+		if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+			unvmed_log_err("failed to map iovec for prp");
+			return -1;
+		}
 	}
 
 	unvmed_sq_enter(cmd->usq);
@@ -1935,9 +1939,11 @@ int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.cns = NVME_IDENTIFY_CNS_CSI_NS;
 
-	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, 1)) {
-		unvmed_log_err("failed to map iovec for prp");
-		return -1;
+	if (nr_iov > 0) {
+		if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+			unvmed_log_err("failed to map iovec for prp");
+			return -1;
+		}
 	}
 
 	unvmed_sq_enter(cmd->usq);
