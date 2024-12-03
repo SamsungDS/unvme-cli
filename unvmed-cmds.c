@@ -796,11 +796,13 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ns);
 
 		if (unvmed_init_ns(u, arg_intv(nsid), buf)) {
-			unvme_pr_err("failed to initialize ns instance");
+			unvme_pr_err("failed to initialize ns instance\n");
 			ret = errno;
 		}
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
+	else
+		unvme_pr_err("failed to identify namespace\n");
 
 	unvmed_cmd_free(cmd);
 	pgunmap(buf, len);
@@ -893,6 +895,8 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_active_nslist);
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
+	else
+		unvme_pr_err("failed to identify active namespace list\n");
 
 	unvmed_cmd_free(cmd);
 	pgunmap(buf, len);
@@ -999,6 +1003,8 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	}
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
+	else
+		unvme_pr_err("failed to NVM identify namespace\n");
 
 	unvmed_cmd_free(cmd);
 	pgunmap(buf, len);
@@ -1118,6 +1124,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_write_file(filepath, buf, arg_intv(data_size));
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
+	else
+		unvme_pr_err("failed to read\n");
 
 	unvmed_cmd_free(cmd);
 	pgunmap(buf, len);
@@ -1240,6 +1248,8 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (ret > 0)
 		unvme_pr_cqe_status(ret);
+	else if (ret < 0)
+		unvme_pr_err("failed to write\n");
 
 	unvmed_cmd_free(cmd);
 	pgunmap(buf, len);
@@ -1476,6 +1486,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_cmd_pr_raw(buf, arg_intv(data_len));
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
+	else
+		unvme_pr_err("failed to passthru\n");
 
 	unvmed_cmd_free(cmd);
 	pgunmap(buf, len);
