@@ -704,7 +704,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
-	struct arg_int *nsid;
+	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
 	struct arg_str *format;
 	struct arg_lit *nodb;
@@ -715,7 +715,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
-		nsid = arg_int1("n", "nsid", "<n>", "[M] Namespace ID"),
+		nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
@@ -784,7 +784,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_ns(u, cmd, arg_intv(nsid), &iov, 1, flags);
+	ret = unvmed_id_ns(u, cmd, arg_dblv(nsid), &iov, 1, flags);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -795,7 +795,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (!ret) {
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ns);
 
-		if (unvmed_init_ns(u, arg_intv(nsid), buf)) {
+		if (unvmed_init_ns(u, arg_dblv(nsid), buf)) {
 			unvme_pr_err("failed to initialize ns instance\n");
 			ret = errno;
 		}
@@ -815,7 +815,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
-	struct arg_int *nsid;
+	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
 	struct arg_str *format;
 	struct arg_lit *help;
@@ -826,7 +826,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
-		nsid = arg_int0("n", "nsid", "<n>", "[O] Starting NSID for retrieving active NS with NSID greater than this (default: 0)"),
+		nsid = arg_dbl0("n", "nsid", "<n>", "[O] Starting NSID for retrieving active NS with NSID greater than this (default: 0)"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
 		help = arg_lit0("h", "help", "Show help message"),
@@ -842,7 +842,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	int ret;
 
 	/* Set default argument values prior to parsing */
-	arg_intv(nsid) = 0;
+	arg_dblv(nsid) = 0;
 	arg_strv(format) = "normal";
 	arg_intv(prp1_offset) = 0x0;
 
@@ -890,7 +890,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_active_nslist(u, cmd, arg_intv(nsid), &iov, 1);
+	ret = unvmed_id_active_nslist(u, cmd, arg_dblv(nsid), &iov, 1);
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_active_nslist);
 	else if (ret > 0)
@@ -909,7 +909,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
-	struct arg_int *nsid;
+	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
 	struct arg_str *format;
 	struct arg_lit *help;
@@ -920,7 +920,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
-		nsid = arg_int1("n", "nsid", "<n>", "[M] Namespace ID"),
+		nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
 		help = arg_lit0("h", "help", "Show help message"),
@@ -954,7 +954,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_ns_find(u, arg_intv(nsid))) {
+	if (!unvmed_ns_find(u, arg_dblv(nsid))) {
 		unvme_pr_err("failed to get namespace instance. Do `unvme id-ns` first\n");
 		ret = EINVAL;
 		goto out;
@@ -989,9 +989,9 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_nvm_id_ns(u, cmd, arg_intv(nsid), &iov, 1);
+	ret = unvmed_nvm_id_ns(u, cmd, arg_dblv(nsid), &iov, 1);
 	if (!ret) {
-		if (unvmed_init_meta_ns(u, arg_intv(nsid), buf)) {
+		if (unvmed_init_meta_ns(u, arg_dblv(nsid), buf)) {
 			unvme_pr_err("failed to initialize meta info");
 
 			unvmed_cmd_free(cmd);
@@ -1018,7 +1018,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *sqid;
-	struct arg_int *nsid;
+	struct arg_dbl *nsid;
 	struct arg_dbl *slba;
 	struct arg_int *nlb;
 	struct arg_int *data_size;
@@ -1038,7 +1038,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
                 sqid = arg_int1("q", "sqid", "<n>", "[M] Submission queue ID"),
-                nsid = arg_int1("n", "namespace-id", "<n>", "[M] Namespace ID"),
+                nsid = arg_dbl1("n", "namespace-id", "<n>", "[M] Namespace ID"),
                 slba = arg_dbl1("s", "start-block", "<n>", "[M] Start LBA"),
 		nlb = arg_int1("c", "block-count", "<n>", "[M] Number of logical block (0-based)"),
 		data_size = arg_int1("z", "data-size", "<n>", "[M] Read data buffer size in bytes"),
@@ -1112,7 +1112,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = arg_intv(data_size),
 	};
 
-	ret = unvmed_read(u, cmd, arg_intv(nsid), arg_dblv(slba),
+	ret = unvmed_read(u, cmd, arg_dblv(nsid), arg_dblv(slba),
 			arg_intv(nlb), &iov, 1, flags, NULL);
 
 	if (arg_boolv(nodb)) {
@@ -1143,7 +1143,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *sqid;
-	struct arg_int *nsid;
+	struct arg_dbl *nsid;
 	struct arg_dbl *slba;
 	struct arg_int *nlb;
 	struct arg_int *data_size;
@@ -1162,7 +1162,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
                 sqid = arg_int1("q", "sqid", "<n>", "[M] Submission queue ID"),
-                nsid = arg_int1("n", "namespace-id", "<n>", "[M] Namespace ID"),
+                nsid = arg_dbl1("n", "namespace-id", "<n>", "[M] Namespace ID"),
                 slba = arg_dbl1("s", "start-block", "<n>", "[M] Start LBA"),
 		nlb = arg_int1("c", "block-count", "<n>", "[M] Number of logical block (0-based)"),
 		data_size = arg_int1("z", "data-size", "<n>", "[O] Logical block size in bytes"),
@@ -1245,7 +1245,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = arg_intv(data_size),
 	};
 
-	ret = unvmed_write(u, cmd, arg_intv(nsid), arg_dblv(slba),
+	ret = unvmed_write(u, cmd, arg_dblv(nsid), arg_dblv(slba),
 			arg_intv(nlb), &iov, 1, flags, NULL);
 
 	if (arg_boolv(nodb)) {
@@ -1271,22 +1271,22 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *sqid;
-	struct arg_int *nsid;
+	struct arg_dbl *nsid;
 	struct arg_int *opcode;
 	struct arg_int *flags;
 	struct arg_int *rsvd;
 	struct arg_int *data_len;
-	struct arg_int *cdw2;
-	struct arg_int *cdw3;
+	struct arg_dbl *cdw2;
+	struct arg_dbl *cdw3;
 	/* To figure out whether --prp1=, --prp2= are given or not */
 	struct arg_dbl *prp1;
 	struct arg_dbl *prp2;
-	struct arg_int *cdw10;
-	struct arg_int *cdw11;
-	struct arg_int *cdw12;
-	struct arg_int *cdw13;
-	struct arg_int *cdw14;
-	struct arg_int *cdw15;
+	struct arg_dbl *cdw10;
+	struct arg_dbl *cdw11;
+	struct arg_dbl *cdw12;
+	struct arg_dbl *cdw13;
+	struct arg_dbl *cdw14;
+	struct arg_dbl *cdw15;
 	struct arg_file *input;
 	struct arg_lit *show_cmd;
 	struct arg_lit *dry_run;
@@ -1307,21 +1307,21 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
                 sqid = arg_int1("q", "sqid", "<n>", "[M] Submission queue ID"),
-                nsid = arg_int0("n", "namespace-id", "<n>", "[O] Namespace ID, Mandatory if --sqid > 0"),
+                nsid = arg_dbl0("n", "namespace-id", "<n>", "[O] Namespace ID, Mandatory if --sqid > 0"),
 		opcode = arg_int1("o", "opcode", "<int>", "[M] Operation code"),
 		flags = arg_int0("f", "flags", "<n>", "[O] Command flags in CDW0[15:8]"),
 		rsvd = arg_int0("R", "rsvd", "<n>", "[O] Reserved field"),
 		data_len = arg_int0("l", "data-len", "<n>", "[O] Data length in bytes"),
-		cdw2 = arg_int0("2", "cdw2", "<n>", "[O] Command dword 2"),
-		cdw3 = arg_int0("3", "cdw3", "<n>", "[O] Command dword 3"),
+		cdw2 = arg_dbl0("2", "cdw2", "<n>", "[O] Command dword 2"),
+		cdw3 = arg_dbl0("3", "cdw3", "<n>", "[O] Command dword 3"),
 		prp1 = arg_dbl0(NULL, "prp1", "<ptr>", "[O] PRP1 in DPTR (for injection)"),
 		prp2 = arg_dbl0(NULL, "prp2", "<ptr>", "[O] PRP2 in DPTR (for injection)"),
-		cdw10 = arg_int0("4", "cdw10", "<n>", "[O] Command dword 10"),
-		cdw11 = arg_int0("5", "cdw11", "<n>", "[O] Command dword 11"),
-		cdw12 = arg_int0("6", "cdw12", "<n>", "[O] Command dword 12"),
-		cdw13 = arg_int0("7", "cdw13", "<n>", "[O] Command dword 13"),
-		cdw14 = arg_int0("8", "cdw14", "<n>", "[O] Command dword 14"),
-		cdw15 = arg_int0("9", "cdw15", "<n>", "[O] Command dword 15"),
+		cdw10 = arg_dbl0("4", "cdw10", "<n>", "[O] Command dword 10"),
+		cdw11 = arg_dbl0("5", "cdw11", "<n>", "[O] Command dword 11"),
+		cdw12 = arg_dbl0("6", "cdw12", "<n>", "[O] Command dword 12"),
+		cdw13 = arg_dbl0("7", "cdw13", "<n>", "[O] Command dword 13"),
+		cdw14 = arg_dbl0("8", "cdw14", "<n>", "[O] Command dword 14"),
+		cdw15 = arg_dbl0("9", "cdw15", "<n>", "[O] Command dword 15"),
 		input = arg_file0("i", "input-file", "<input>", "[M] File to write (in write direction)"),
 		show_cmd = arg_lit0("s", "show-command", "[O] Show command before sending"),
 		dry_run = arg_lit0("d", "dry-run", "[O] Show command instead of sending"),
@@ -1343,20 +1343,20 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	union nvme_cmd sqe = {0, };
 	int ret;
 
-	arg_intv(nsid) = 0;
+	arg_dblv(nsid) = 0;
 	arg_intv(flags) = 0;
 	arg_intv(rsvd) = 0;
 	arg_intv(data_len) = 0;
-	arg_intv(cdw2) = 0;
-	arg_intv(cdw3) = 0;
+	arg_dblv(cdw2) = 0;
+	arg_dblv(cdw3) = 0;
 	arg_dblv(prp1) = 0;
 	arg_dblv(prp2) = 0;
-	arg_intv(cdw10) = 0;
-	arg_intv(cdw11) = 0;
-	arg_intv(cdw12) = 0;
-	arg_intv(cdw13) = 0;
-	arg_intv(cdw14) = 0;
-	arg_intv(cdw15) = 0;
+	arg_dblv(cdw10) = 0;
+	arg_dblv(cdw11) = 0;
+	arg_dblv(cdw12) = 0;
+	arg_dblv(cdw13) = 0;
+	arg_dblv(cdw14) = 0;
+	arg_dblv(cdw15) = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -1441,9 +1441,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	sqe.opcode = (uint8_t)arg_intv(opcode);
 	sqe.flags = (uint8_t)arg_intv(flags);
-	sqe.nsid = cpu_to_le32(arg_intv(nsid));
-	sqe.cdw2 = cpu_to_le32(arg_intv(cdw2));
-	sqe.cdw3 = cpu_to_le32(arg_intv(cdw3));
+	sqe.nsid = cpu_to_le32(arg_dblv(nsid));
+	sqe.cdw2 = cpu_to_le32(arg_dblv(cdw2));
+	sqe.cdw3 = cpu_to_le32(arg_dblv(cdw3));
 
 	/*
 	 * Override prp1 and prp2 if they are given to inject specific values
@@ -1453,12 +1453,12 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(prp2))
 		sqe.dptr.prp2 = cpu_to_le64((uint64_t)arg_dblv(prp2));
 
-	sqe.cdw10 = cpu_to_le32(arg_intv(cdw10));
-	sqe.cdw11 = cpu_to_le32(arg_intv(cdw11));
-	sqe.cdw12 = cpu_to_le32(arg_intv(cdw12));
-	sqe.cdw13 = cpu_to_le32(arg_intv(cdw13));
-	sqe.cdw14 = cpu_to_le32(arg_intv(cdw14));
-	sqe.cdw15 = cpu_to_le32(arg_intv(cdw15));
+	sqe.cdw10 = cpu_to_le32(arg_dblv(cdw10));
+	sqe.cdw11 = cpu_to_le32(arg_dblv(cdw11));
+	sqe.cdw12 = cpu_to_le32(arg_dblv(cdw12));
+	sqe.cdw13 = cpu_to_le32(arg_dblv(cdw13));
+	sqe.cdw14 = cpu_to_le32(arg_dblv(cdw14));
+	sqe.cdw15 = cpu_to_le32(arg_dblv(cdw15));
 
 	if (arg_boolv(show_cmd) || arg_boolv(dry_run)) {
 		uint32_t *entry = (uint32_t *)&sqe;
@@ -1637,7 +1637,7 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *sqid;
-	struct arg_int *nsid;
+	struct arg_dbl *nsid;
 	struct arg_str *io_pattern;
 	struct arg_lit *random;
 	struct arg_int *io_depth;
@@ -1656,7 +1656,7 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		sqid = arg_int1("q", "sqid", "<n>", "[M] Submission Queue ID"),
-		nsid = arg_int1("n", "namespace-id", "<n>", "[M] Namespace ID"),
+		nsid = arg_dbl1("n", "namespace-id", "<n>", "[M] Namespace ID"),
 		io_pattern = arg_str0("p", "io-pattern", "[read|write]", "[O] I/O pattern (defaults: read)"),
 		random = arg_lit0("r", "random", "[O] Random I/O (defaults: false)"),
 		io_depth = arg_int0("d", "io-depth", "<n>", "[O] I/O depth (defaults: 1)"),
@@ -1707,7 +1707,7 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	ret = unvmed_perf(u, arg_intv(sqid), arg_intv(nsid),
+	ret = unvmed_perf(u, arg_intv(sqid), arg_dblv(nsid),
 			arg_strv(io_pattern), arg_boolv(random),
 			arg_intv(io_depth), arg_intv(sec_runtime),
 			arg_intv(sec_warmup), arg_intv(update_interval));
