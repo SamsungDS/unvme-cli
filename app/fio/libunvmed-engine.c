@@ -27,6 +27,7 @@ struct libunvmed_options {
 	unsigned int nsid;
 	unsigned int sqid;
 	uint64_t prp1_offset;
+	unsigned int sgl;
 
 	/*
 	 * io_uring_cmd ioengine options
@@ -75,6 +76,16 @@ static struct fio_option options[] = {
 		.type = FIO_OPT_INT,
 		.off1 = offsetof(struct libunvmed_options, prp1_offset),
 		.help = "Configure offset value (< MPS) to PRP1 to introduce unaligned PRP1",
+		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "sgl",
+		.lname = "Use SGL for data buffer",
+		.type = FIO_OPT_BOOL,
+		.off1 = offsetof(struct libunvmed_options, sgl),
+		.help = "Use SGL for data buffer",
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
@@ -246,6 +257,11 @@ static int libunvmed_check_constraints(struct thread_data *td)
 
 	if (!o->nsid) {
 		libunvmed_log("'--nsid=' option should have a target nsid\n");
+		return 1;
+	}
+
+	if (o->sgl && o->prp1_offset) {
+		libunvmed_log("'--sgl' should be used without '--prp1_offset'\n");
 		return 1;
 	}
 
@@ -519,6 +535,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 
 	void *buf = io_u->xfer_buf;
 	size_t len = io_u->xfer_buflen;
+	int ret;
 
 	if (o->prp1_offset)
 		buf = libunvmed_prp_iomem(ld, io_u);
@@ -551,7 +568,14 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 		.iov_len = io_u->xfer_buflen,
 	};
 
-	if (unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe)) {
+	if (o->sgl) {
+		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
+			NVME_CMD_FLAGS_PSDT_SHIFT;
+		ret = unvmed_mapv_sgl(cmd, (union nvme_cmd *)&sqe);
+	} else
+		ret = unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe);
+
+	if (ret) {
 		unvmed_cmd_free(cmd);
 		return -errno;
 	}

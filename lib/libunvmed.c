@@ -1859,6 +1859,19 @@ int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe)
 	return __unvmed_mapv_prp(cmd, sqe, &cmd->buf.iov, 1);
 }
 
+int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		      struct iovec *iov, int nr_iov)
+{
+	if (nvme_rq_mapv_sgl(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov))
+		return -1;
+	return 0;
+}
+
+int unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe)
+{
+	return __unvmed_mapv_sgl(cmd, sqe, &cmd->buf.iov, 1);
+}
+
 int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		 struct iovec *iov, int nr_iov, unsigned long flags)
 {
@@ -1942,16 +1955,25 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 {
 	struct nvme_cmd_rw sqe = {0, };
 	struct nvme_cqe cqe;
+	int ret;
 
 	sqe.opcode = nvme_cmd_read;
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.slba = cpu_to_le64(slba);
 	sqe.nlb = cpu_to_le16(nlb);
 
-	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+	if (flags & UNVMED_CMD_F_SGL)
+		ret = __unvmed_mapv_sgl(cmd, (union nvme_cmd *)&sqe, iov, nr_iov);
+	else
+		ret = __unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov);
+	if (ret) {
 		unvmed_log_err("failed to map iovec for prp");
 		return -1;
 	}
+
+	if (flags & UNVMED_CMD_F_SGL)
+		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
+			NVME_CMD_FLAGS_PSDT_SHIFT;
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
@@ -1974,16 +1996,25 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 {
 	struct nvme_cmd_rw sqe = {0, };
 	struct nvme_cqe cqe;
+	int ret;
 
 	sqe.opcode = nvme_cmd_write;
 	sqe.nsid = cpu_to_le32(nsid);
 	sqe.slba = cpu_to_le64(slba);
 	sqe.nlb = cpu_to_le16(nlb);
 
-	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+	if (flags & UNVMED_CMD_F_SGL)
+		ret = __unvmed_mapv_sgl(cmd, (union nvme_cmd *)&sqe, iov, nr_iov);
+	else
+		ret = __unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov);
+	if (ret) {
 		unvmed_log_err("failed to map iovec for prp");
 		return -1;
 	}
+
+	if (flags & UNVMED_CMD_F_SGL)
+		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
+			NVME_CMD_FLAGS_PSDT_SHIFT;
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);

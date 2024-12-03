@@ -1024,6 +1024,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *data_size;
 	struct arg_file *data;
 	struct arg_int *prp1_offset;
+	struct arg_lit *sgl;
 	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -1043,6 +1044,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		data_size = arg_int1("z", "data-size", "<n>", "[M] Read data buffer size in bytes"),
 		data = arg_file0("d", "data", "<output>", "[O] File to write read data"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
+		sgl = arg_lit0("S", "sgl", "[O] Map data buffer with SGL (default: PRP)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -1086,6 +1088,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if (arg_boolv(sgl))
+		flags |= UNVMED_CMD_F_SGL;
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 
@@ -1145,6 +1149,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *data_size;
 	struct arg_file *data;
 	struct arg_int *prp1_offset;
+	struct arg_lit *sgl;
 	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -1163,6 +1168,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		data_size = arg_int1("z", "data-size", "<n>", "[O] Logical block size in bytes"),
 		data = arg_file1("d", "data", "<input>", "[M] File to write as write data"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
+		sgl = arg_lit0("S", "sgl", "[O] Map data buffer with SGL (default: PRP)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -1200,6 +1206,8 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if (arg_boolv(sgl))
+		flags |= UNVMED_CMD_F_SGL;
 	if (arg_boolv(nodb))
 		flags |= UNVMED_CMD_F_NODB;
 

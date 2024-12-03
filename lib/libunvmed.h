@@ -102,6 +102,8 @@ enum unvme_cmd_state {
 enum unvmed_cmd_flags {
 	/* No doorbell update after posting one or more commands */
 	UNVMED_CMD_F_NODB	= 1 << 0,
+	/* Use SGL in DPTR instead of PRP */
+	UNVMED_CMD_F_SGL	= 1 << 1,
 };
 
 /*
@@ -857,6 +859,34 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe);
+
+/**
+ * __unvmed_mapv_sgl - Map and configure iovecs as SGL to command
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Make a SGL data structure for data pointer in @sqe with @iov for number of
+ * @nr_iov vectors.  libvfn prepares SGL data structure and map it to the given
+ * @sqe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		      struct iovec *iov, int nr_iov);
+/**
+ * __unvmed_mapv_sgl - Map and configure iovecs as SGL to command
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ *
+ * Make a SGL data structure for data pointer in @sqe with @cmd->buf.iov which
+ * is an inline iovec structure.  It's same with __unvmed_mapv_sgl(@cmd, @sqe,
+ * &@cmd->buf.iov, 1);
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe);
 
 /**
  * unvmed_id_ns - Identify Namespace (CNS 0h)
