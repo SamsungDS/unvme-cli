@@ -47,17 +47,21 @@ static void __attribute__((constructor)) __unvme_cmd_init(void) {
 		}									\
 	} while (0)
 
+static void __unvme_stop(bool with_client);
+
 int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 {
 	pid_t pid;
 	int ret = 0;
 	struct arg_str *with_fio;
+	struct arg_lit *restart;
 	struct arg_lit *help;
 	struct arg_end *end;
 	const char *desc = "Start unvmed daemon process.";
 
 	void *argtable[] = {
 		with_fio = arg_str0(NULL, "with-fio", "</path/to/fio>", "[O] fio shared object path to run"),
+		restart = arg_lit0("r", "restart", "Stop the current running unvmed and re-run the daemon process"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(20),
 	};
@@ -67,8 +71,12 @@ int unvme_start(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
 	if (unvme_is_daemon_running()) {
-		unvme_pr_err("unvmed is already running\n");
-		goto out;
+		if (arg_boolv(restart))
+			__unvme_stop(true);
+		else {
+			unvme_pr_err("unvmed is already running\n");
+			goto out;
+		}
 	}
 
 	if (arg_boolv(with_fio) && access(arg_strv(with_fio), F_OK))
@@ -90,7 +98,7 @@ out:
 	return ret;
 }
 
-static int __unvme_stop(const char *name)
+static int __kill(const char *name)
 {
 	char pids[16];
 	char *cmd = NULL;
@@ -132,6 +140,16 @@ static int __unvme_stop(const char *name)
 	return 0;
 }
 
+static void __unvme_stop(bool with_client)
+{
+	__kill("unvmed");
+	/* To make sure that unvmed.pid file is removed from the system */
+	remove(UNVME_DAEMON_PID);
+
+	if (with_client)
+		__kill("unvme");
+}
+
 int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct arg_lit *all;
@@ -147,12 +165,7 @@ int unvme_stop(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args(argc, argv, argtable, help, end, desc);
 
-	__unvme_stop("unvmed");
-	/* To make sure that unvmed.pid file is removed from the system */
-	remove(UNVME_DAEMON_PID);
-
-	if (arg_boolv(all))
-		__unvme_stop("unvme");
+	__unvme_stop(arg_boolv(all));
 
 	unvme_free_args(argtable);
 	return 0;
