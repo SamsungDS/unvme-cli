@@ -794,24 +794,6 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags);
 
 /**
- * unvmed_cmd_cmpl - Wait and reap a command completion
- * @cmd: command instance (&struct unvme_cmd)
- * @cqe: completion queue entry (&struct nvme_cqe)
- *
- * Wait for a @cqe from a corresponding completion queue and fetch it and copy
- * to @cqe.  This API reaps a single @cqe.
- *
- * While another thread is submitting a command to a specific submission queue
- * whose completion queue's vector is the same one which this function is
- * looking at, it might fetch an invalid cq entry.  Caller should make sure
- * that the @cqe must be for the given @cmd in @cmd->usq->ucq.
- *
- * This API is not thread-safe.  Caller should acquire a lock by calling
- * unvmed_cq_enter() for the corresponding completion queue.
- */
-void unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
-
-/**
  * unvmed_get_cmd_from_cqe - Convert &struct nvme_cqe to &struct unvme_cmd
  * @u: &struct unvme
  * @cqe: completion queue entry (&struct nvme_cqe)
