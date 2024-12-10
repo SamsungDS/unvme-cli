@@ -127,8 +127,11 @@ void unvme_pr_status(struct unvme *u)
 
 		unvme_pr("%#10x %13u %12u %#12lx ",
 				ns->nsid, ns->lba_size, ns->ms, ns->nr_lbas);
-		unvme_pr("[%2d]%s:pi%d:st%d\n", ns->format_idx, ns->mset ? "dif" : "dix",
-				16 * (ns->pif + 1), ns->sts);
+		if (ns->ms)
+			unvme_pr("[%2d]%s:pi%d:st%d\n", ns->format_idx, ns->mset ? "dif" : "dix",
+					16 * (ns->pif + 1), ns->sts);
+		else
+			unvme_pr("\n");
 	}
 	unvme_pr("\n");
 
