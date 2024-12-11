@@ -30,9 +30,6 @@ struct nvme_sq;
 struct nvme_cq;
 struct nvme_rq;
 
-struct unvme_meta {
-};
-
 /*
  * struct unvme_ns - Namespace instance
  * @u: unvme controller instance
