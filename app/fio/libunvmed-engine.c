@@ -30,6 +30,8 @@ struct libunvmed_options {
 	unsigned int enable_sgl;
 	unsigned int dtype;
 	unsigned int dspec;
+	unsigned int cmb_data;
+	unsigned int cmb_list;
 
 	/*
 	 * io_uring_cmd ioengine options
@@ -108,6 +110,26 @@ static struct fio_option options[] = {
 		.type = FIO_OPT_INT,
 		.off1 = offsetof(struct libunvmed_options, dspec),
 		.help = "Directive Specific",
+		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "cmb_data",
+		.lname = "Place Read/Write data in CMB",
+		.type = FIO_OPT_BOOL,
+		.off1 = offsetof(struct libunvmed_options, cmb_data),
+		.help = "Place read/write data buffer within CMB",
+		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "cmb_list",
+		.lname = "Place Read/Write PRP list or SGL segment in CMB",
+		.type = FIO_OPT_BOOL,
+		.off1 = offsetof(struct libunvmed_options, cmb_list),
+		.help = "Place read/write PRP list or SGL segment within CMB",
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
@@ -201,6 +223,13 @@ struct libunvmed_data {
 	((ld)->prp_iomem + ((io_u)->index * (ld)->prp_iomem_usize))
 
 	/*
+	 * A memory page for a PRP list, which is a value for PRP2, if
+	 * required.  By default, libunvmed uses default memory page.
+	 */
+	void *prp_list_iomem;
+	size_t prp_list_iomem_size;
+
+	/*
 	 * Target I/O submission queue instance per a thread.  A submission
 	 * queue is fully dedicated to a thread(job), which means totally
 	 * non-sharable.
@@ -253,6 +282,42 @@ static inline uint64_t libunvmed_to_iova(struct thread_data *td, void *buf)
 	uint64_t offset = (uint64_t)(buf - (void *)td->orig_buffer);
 
 	return ld->orig_buffer_iova + (uint64_t)offset;
+}
+
+static void *__cmb_ptr;
+static int libunvmed_cmb_alloc(struct thread_data *td, void **ptr, size_t len)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+
+	void *cmb;
+	ssize_t size;
+
+	size = unvmed_cmb_get_region(ld->u, &cmb);
+	if (size <= 0) {
+		libunvmed_log("failed to get CMB memory region\n");
+		return -1;
+	}
+
+	if (!__cmb_ptr)
+		__cmb_ptr = cmb;
+
+	len = ROUND_UP(len, getpagesize());
+
+	if (__cmb_ptr + len > cmb + size) {
+		libunvmed_log("failed to allocate data buffer in CMB memory, "
+				"Reduce --iodepth to fit in CMB area (%#lx > %#lx bytes).\n",
+				len, size);
+		return -1;
+	}
+
+	*ptr = __cmb_ptr;
+	__cmb_ptr += len;
+	return 0;
+}
+
+static void libunvmed_cmb_free_all(struct thread_data *td)
+{
+	__cmb_ptr = NULL;
 }
 
 static int libunvmed_check_constraints(struct thread_data *td)
@@ -450,10 +515,14 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	 * here.
 	 */
 	if (ld->orig_buffer_size) {
-		ret = unvmed_map_vaddr(u, td->orig_buffer, ld->orig_buffer_size,
-				&ld->orig_buffer_iova, 0);
-		if (ret)
-			libunvmed_log("failed to map io_u buffers to iommu\n");
+		if (o->cmb_data)
+			unvmed_to_iova(u, td->orig_buffer, &ld->orig_buffer_iova);
+		else {
+			ret = unvmed_map_vaddr(u, td->orig_buffer, ld->orig_buffer_size,
+					&ld->orig_buffer_iova, 0);
+			if (ret)
+				libunvmed_log("failed to map io_u buffers to iommu\n");
+		}
 	}
 
 	if (ld->prp_iomem) {
@@ -480,6 +549,7 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 				 struct fio_file *f)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
 	int ret;
 
 	ret = pthread_mutex_lock(&g_serialize);
@@ -494,7 +564,7 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 			libunvmed_log("failed to unmap prp iomem from iommu\n");
 	}
 
-	if (td->orig_buffer) {
+	if (td->orig_buffer && !o->cmb_data) {
 		ret = unvmed_unmap_vaddr(ld->u, td->orig_buffer);
 		if (ret)
 			libunvmed_log("failed to unmap io_u buffers from iommu\n");
@@ -526,11 +596,20 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 		return ret;
 	}
 
-	size = pgmap(&ptr, total_mem);
-	if (size < total_mem) {
-		libunvmed_log("failed to allocate memory (size=%ld bytes)\n", total_mem);
-		pthread_mutex_unlock(&g_serialize);
-		return 1;
+	if (o->cmb_data) {
+		if (libunvmed_cmb_alloc(td, &ptr, total_mem)) {
+			pthread_mutex_unlock(&g_serialize);
+			return 1;
+		}
+
+		size = total_mem;
+	} else {
+		size = pgmap(&ptr, total_mem);
+		if (size < total_mem) {
+			libunvmed_log("failed to allocate memory (size=%ld bytes)\n", total_mem);
+			pthread_mutex_unlock(&g_serialize);
+			return 1;
+		}
 	}
 
 	td->orig_buffer = (char *)ptr;
@@ -542,6 +621,17 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 				ld->prp_iomem_usize * max_units);
 	}
 
+	if (o->cmb_list) {
+		size = getpagesize() * td->o.iodepth;
+		if (libunvmed_cmb_alloc(td, &ptr, size)) {
+			pthread_mutex_unlock(&g_serialize);
+			return 1;
+		}
+
+		ld->prp_list_iomem = ptr;
+		ld->prp_list_iomem_size = size;
+	}
+
 	pthread_mutex_unlock(&g_serialize);
 	return 0;
 }
@@ -549,14 +639,17 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 static void fio_libunvmed_iomem_free(struct thread_data *td)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
 
 	pthread_mutex_lock(&g_serialize);
 
 	if (ld->prp_iomem)
 		pgunmap(ld->prp_iomem, ld->prp_iomem_size);
 
-	if (td->orig_buffer)
+	if (td->orig_buffer && !o->cmb_data)
 		pgunmap(td->orig_buffer, ld->orig_buffer_size);
+	else if (o->cmb_data)
+		libunvmed_cmb_free_all(td);
 
 	pthread_mutex_unlock(&g_serialize);
 }
@@ -575,6 +668,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	uint32_t nlb;
 
 	void *buf = io_u->xfer_buf;
+	void *list = NULL;
 	size_t len = io_u->xfer_buflen;
 	int ret;
 
@@ -611,12 +705,17 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 		.iov_len = io_u->xfer_buflen,
 	};
 
+	if (o->cmb_list)
+		list = ld->prp_list_iomem + (io_u->index * getpagesize());
+
 	if (o->enable_sgl) {
 		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
 			NVME_CMD_FLAGS_PSDT_SHIFT;
-		ret = unvmed_mapv_sgl(cmd, (union nvme_cmd *)&sqe);
+		ret = __unvmed_mapv_sgl_seg(cmd, (union nvme_cmd *)&sqe,
+				list, &cmd->buf.iov, 1);
 	} else
-		ret = unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe);
+		ret = __unvmed_mapv_prp_list(cmd, (union nvme_cmd *)&sqe,
+				list, &cmd->buf.iov, 1);
 
 	if (ret) {
 		unvmed_cmd_free(cmd);
