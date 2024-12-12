@@ -1943,6 +1943,17 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	return 0;
 }
 
+int __unvmed_mapv_prp_list(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			   void *prplist, struct iovec *iov, int nr_iov)
+{
+	if (!prplist)
+		prplist = cmd->rq->page.vaddr;
+
+	if (nvme_mapv_prp(&cmd->u->ctrl, prplist, sqe, iov, nr_iov))
+		return -1;
+	return 0;
+}
+
 int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe)
 {
 	return __unvmed_mapv_prp(cmd, sqe, &cmd->buf.iov, 1);
@@ -1952,6 +1963,14 @@ int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		      struct iovec *iov, int nr_iov)
 {
 	if (nvme_rq_mapv_sgl(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov))
+		return -1;
+	return 0;
+}
+
+int __unvmed_mapv_sgl_seg(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			  struct nvme_sgld *seg, struct iovec *iov, int nr_iov)
+{
+	if (nvme_mapv_sgl(&cmd->u->ctrl, seg, sqe, iov, nr_iov))
 		return -1;
 	return 0;
 }

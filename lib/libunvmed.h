@@ -879,6 +879,27 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		      struct iovec *iov, int nr_iov);
 
 /**
+ * __unvmed_mapv_prp_list - Map and configure iovecs as PRP to command with
+ *                          PRP list
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @prplist: memory page address of a PRP list (address to be written to PRP2)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Make a PRP data structure for data pointer in @sqe with @iov for number of
+ * @nr_iov vectors.  libvfn prepares PRP data structure and map it to the given
+ * @sqe.
+ *
+ * Caller *should* map @prplist to the IOMMU page table before calling this
+ * helper.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int __unvmed_mapv_prp_list(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			   void *prplist, struct iovec *iov, int nr_iov);
+
+/**
  * __unvmed_mapv_prp - Map and configure iovecs as PRP to command
  * @cmd: command instance (&struct unvme_cmd)
  * @sqe: submission queue entry (&union nvme_cmd)
@@ -906,6 +927,27 @@ int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe);
  */
 int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		      struct iovec *iov, int nr_iov);
+
+
+/**
+ * __unvmed_mapv_sgl_seg - Map and configure iovecs as SGL with segment to command
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @seg: SGL segment memory page address
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Make a SGL data structure for data pointer in @sqe with @iov for number of
+ * @nr_iov vectors.  libvfn prepares SGL data structure and map it to the given
+ * @sqe.
+ *
+ * Caller *should* map @seg to the IOMMU page table before calling this helper.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int __unvmed_mapv_sgl_seg(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			  struct nvme_sgld *seg, struct iovec *iov, int nr_iov);
+
 /**
  * __unvmed_mapv_sgl - Map and configure iovecs as SGL to command
  * @cmd: command instance (&struct unvme_cmd)
