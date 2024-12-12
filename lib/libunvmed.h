@@ -320,6 +320,30 @@ void unvmed_free_ctrl_all(void);
 struct unvme *unvmed_get(const char *bdf);
 
 /**
+ * unvmed_cmb_init - Initialize Controller Memory Buffer
+ * @u: &struct unvme
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmb_init(struct unvme *u);
+
+/**
+ * unvmed_cmb_free - Free Controller Memory Buffer
+ * @u: &struct unvme
+ */
+void unvmed_cmb_free(struct unvme *u);
+
+/**
+ * unvmed_cmb_get_region - Get CMB region address and size
+ * @u: &struct unvme
+ * @vaddr: output to indicate mapped CMB region
+ *
+ * Return: positive value indicating the size of CMB area, otherwise error with
+ * ``errno`` set.
+ */
+ssize_t unvmed_cmb_get_region(struct unvme *u, void **vaddr);
+
+/**
  * unvmed_ns_get - Get a namespace instance (&struct unvme_ns) with refcnt
  *                 incremented
  * @u: &struct unvme

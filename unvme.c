@@ -50,6 +50,7 @@ static struct command cmds[] = {
 	{"status",		"Show device resource status",   	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_status},
 	{"enable",		"Enable controller with adminq",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_enable},
 	{"disable",		"Disable controller",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
+	{"cmb",			"Enable controller memory buffer",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_cmb},
 	{"create-iocq",		"Create I/O Completion Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iocq},
 	{"delete-iocq",		"Delete I/O Completion Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_delete_iocq},
 	{"create-iosq",		"Create I/O Submission Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iosq},

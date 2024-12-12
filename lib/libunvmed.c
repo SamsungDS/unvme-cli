@@ -644,6 +644,40 @@ static int unvmed_free_irqs(struct unvme *u)
 	return 0;
 }
 
+int unvmed_cmb_init(struct unvme *u)
+{
+	/*
+	 * ``nvme_discard_cmb()`` will be called when the device is detached
+	 * from the unvmed service by ``unvme del <bdf>``.
+	 */
+	if (nvme_configure_cmb(&u->ctrl))
+		return -1;
+
+	unvmed_log_info("CMB enabled (bar=%d, vaddr=%p, iova=%#lx, size=%#lx)",
+			u->ctrl.cmb.bar, u->ctrl.cmb.vaddr, u->ctrl.cmb.iova, u->ctrl.cmb.size);
+	return 0;
+}
+
+void unvmed_cmb_free(struct unvme *u)
+{
+	nvme_discard_cmb(&u->ctrl);
+}
+
+ssize_t unvmed_cmb_get_region(struct unvme *u, void **vaddr)
+{
+	/*
+	 * We can guarantee that CMB BAR region will never be BAR0 since it's
+	 * for controller property registers.
+	 */
+	if (!u->ctrl.cmb.bar) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	*vaddr = u->ctrl.cmb.vaddr;
+	return (ssize_t)u->ctrl.cmb.size;
+}
+
 /*
  * Initialize NVMe controller instance in libvfn.  If exists, return the
  * existing one, otherwise it will create new one.  NULL if failure happens.

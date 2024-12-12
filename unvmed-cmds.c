@@ -472,6 +472,61 @@ out:
 	return ret;
 }
 
+int unvme_cmb(int argc, char *argv[], struct unvme_msg *msg)
+{
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_lit *enable;
+	struct arg_lit *disable;
+	struct arg_lit *help;
+	struct arg_end *end;
+
+	const char *desc =
+		"Enable CMB (controller memory buffer) in the controller.";
+
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		enable = arg_lit0("e", "enable", "Enable CMB"),
+		disable = arg_lit0("d", "disable", "Disable CMB"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
+	};
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if (arg_boolv(enable) && arg_boolv(disable)) {
+		unvme_pr_err("invalid, given --enable and --disable both\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (arg_boolv(enable)) {
+		if (unvmed_cmb_init(u)) {
+			unvme_pr_err("failed to initialize CMB\n");
+			ret = EINVAL;
+			goto out;
+		}
+	} else if (arg_boolv(disable)) {
+		unvmed_cmb_free(u);
+	} else {
+		unvme_pr_err("either --enable or --disable should be given\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
