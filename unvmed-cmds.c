@@ -1070,7 +1070,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	__unvme_free char *filepath = NULL;
 	__unvme_free char *mfilepath = NULL;
 	struct unvme_cmd *cmd;
-	struct unvme_ns *ns;
+	struct unvme_ns *ns = NULL;
 	struct iovec iov;
 	void *buf = NULL;
 	void *mbuf = NULL;
@@ -1306,14 +1306,14 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	__unvme_free char *filepath = NULL;
 	__unvme_free char *mfilepath = NULL;
 	struct unvme_cmd *cmd;
-	struct unvme_ns *ns;
+	struct unvme_ns *ns = NULL;
 	struct iovec iov;
 	void *buf = NULL;
 	void *mbuf = NULL;
 	void *__buf;
 	void *__mbuf = NULL;
 	void *wdata;
-	void *wmdata;
+	void *wmdata = NULL;
 	unsigned long flags = 0;
 	ssize_t size;
 	ssize_t len;
