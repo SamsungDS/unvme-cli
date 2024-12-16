@@ -14,6 +14,7 @@ libunvmed_so = shared_library(
   link_with: [ccan_lib],
   include_directories: [ccan_inc, libunvmed_inc],
   install: true,
+  install_dir: get_option('libdir'),
 )
 
 install_headers(libunvmed_hdr)

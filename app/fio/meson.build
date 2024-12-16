@@ -22,6 +22,7 @@ ioengine_lib = shared_library(
   dependencies: [nvme_lib, unvmed_dep],
   include_directories: fio_inc,
   install: true,
+  install_dir: get_option('libdir'),
 )
 
 pkgconfig = import('pkgconfig')
