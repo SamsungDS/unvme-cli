@@ -56,6 +56,7 @@ static struct command cmds[] = {
 	{"id-ns",		"Identify Namespace (CNS 0h)",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_ns},
 	{"id-active-nslist",	"Identify Active Namespace List (CNS 2h)",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_active_nslist},
 	{"nvm-id-ns",		"Identify Namespace NVM (CNS 5h)",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_nvm_id_ns},
+	{"set-features",	"Set Features",				UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_set_features},
 	{"read",		"NVM Read command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_read},
 	{"write",		"NVM Write command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_write},
 	{"passthru",		"Passthrough command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_passthru},

@@ -974,6 +974,30 @@ int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
 		     uint32_t nsid, struct iovec *iov, int nr_iov);
 
 /**
+ * unvmed_set_features - Set Features
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @fid: feature identifier
+ * @save: to make attribute persistent
+ * @cdw11: command dword 11
+ * @cdw12: command dword 12
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ * @cqe: cq entry
+ *
+ * Issue an Set Features to the controller @u.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, -1 on error, otherwise CQE status field.
+ */
+int unvmed_set_features(struct unvme *u, struct unvme_cmd *cmd,
+			uint32_t nsid, uint8_t fid, bool save, uint32_t cdw11,
+			uint32_t cdw12, struct iovec *iov, int nr_iov,
+			struct nvme_cqe *cqe);
+
+/**
  * unvmed_read - Read I/O command
  * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
