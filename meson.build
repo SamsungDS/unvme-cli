@@ -25,7 +25,14 @@ endif
 add_project_arguments(args, language: 'c')
 add_project_link_arguments(link_args, language: 'c')
 
-vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
+c = meson.get_compiler('c')
+vfn_lib_path = get_option('with-libvfn')
+if vfn_lib_path != ''
+  vfn_lib = c.find_library('libvfn', dirs : [vfn_lib_path])
+else
+  vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
+endif
+
 nvme_lib = dependency('libnvme', version: '>=1.8.0', static: static)
 
 subdir('ccan')

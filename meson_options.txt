@@ -1,2 +1,3 @@
 option('static', type: 'boolean', value: false, description: 'Link libvfn library statically')
 option('with-fio', type: 'string', value: '', description: 'fio source directory to build with')
+option('with-libvfn', type: 'string', value: '', description: 'libvfn source directory to build with (if not given, find library from the system)')
