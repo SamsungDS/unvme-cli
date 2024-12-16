@@ -1117,6 +1117,65 @@ out:
 	return ret;
 }
 
+int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Submit a Set Features admin command to the given <device> NVMe controller";
+
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_int *nsqr = arg_int1("s", "nsqr", "<n>", "[M] Number of I/O Submission Queue Requested");
+	struct arg_int *ncqr = arg_int1("c", "ncqr", "<n>", "[M] Number of I/O Completion Queue Requested");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = {dev, nsqr, ncqr, help, end};
+
+	const uint32_t sqid = 0;
+	struct unvme_cmd *cmd;
+	struct nvme_cqe cqe;
+	struct unvme *u;
+	uint32_t cdw11;
+	int ret;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (!unvmed_sq_enabled(u, sqid)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, sqid);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		ret = errno;
+		goto out;
+	}
+
+	cdw11 = arg_intv(ncqr) << 16 | arg_intv(nsqr);
+
+	ret = unvmed_set_features(u, cmd, 0 /* nsid */, NVME_FEAT_FID_NUM_QUEUES,
+			0 /* save */, cdw11, 0 /* cdw12 */, NULL /* iov */,
+			0 /* nr_iov */, &cqe);
+	if (!ret)
+		unvme_pr_get_features_noq(le32_to_cpu(cqe.dw0));
+	else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+	else if (ret < 0)
+		unvme_pr_err("failed to set-features-noq\n");
+
+	unvmed_cmd_free(cmd);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;

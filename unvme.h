@@ -203,6 +203,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_read(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_write(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg);

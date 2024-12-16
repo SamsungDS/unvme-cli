@@ -51,6 +51,12 @@ void unvme_pr_id_active_nslist(void *vaddr)
 	unvme_pr("\n");
 }
 
+void unvme_pr_get_features_noq(uint32_t dw0)
+{
+	unvme_pr("nsqa: %d\n", dw0 & 0xffff);
+	unvme_pr("ncqa: %d\n", dw0 >> 16);
+}
+
 void unvme_pr_show_regs(struct unvme *u)
 {
 	unvme_pr("cap     : %lx\n",	unvmed_read64(u, NVME_REG_CAP));
