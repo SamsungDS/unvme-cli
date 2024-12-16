@@ -27,7 +27,7 @@ struct libunvmed_options {
 	unsigned int nsid;
 	unsigned int sqid;
 	uint64_t prp1_offset;
-	unsigned int sgl;
+	unsigned int enable_sgl;
 
 	/*
 	 * io_uring_cmd ioengine options
@@ -81,10 +81,10 @@ static struct fio_option options[] = {
 		.group = FIO_OPT_G_INVALID,
 	},
 	{
-		.name = "sgl",
+		.name = "enable_sgl",
 		.lname = "Use SGL for data buffer",
 		.type = FIO_OPT_BOOL,
-		.off1 = offsetof(struct libunvmed_options, sgl),
+		.off1 = offsetof(struct libunvmed_options, enable_sgl),
 		.help = "Use SGL for data buffer",
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
@@ -260,7 +260,7 @@ static int libunvmed_check_constraints(struct thread_data *td)
 		return 1;
 	}
 
-	if (o->sgl && o->prp1_offset) {
+	if (o->enable_sgl && o->prp1_offset) {
 		libunvmed_log("'--sgl' should be used without '--prp1_offset'\n");
 		return 1;
 	}
@@ -568,7 +568,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 		.iov_len = io_u->xfer_buflen,
 	};
 
-	if (o->sgl) {
+	if (o->enable_sgl) {
 		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
 			NVME_CMD_FLAGS_PSDT_SHIFT;
 		ret = unvmed_mapv_sgl(cmd, (union nvme_cmd *)&sqe);
