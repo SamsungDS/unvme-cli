@@ -70,6 +70,9 @@ else
   conf.set('UNVME_VERSION', '"' + meson.project_version() + '"')
 endif
 
+conf.set('LIBUNVMED_VERSION', '"' + unvmed_dep.version() + '"')
+conf.set('LIBVFN_VERSION', '"' + vfn_lib.version() + '"')
+
 configure_file(
     output: 'config.h',
     configuration: conf

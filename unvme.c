@@ -87,6 +87,9 @@ static int unvme_help(int argc, char *argv[], struct unvme_msg *msg)
 static int unvme_version(int argc, char *argv[], struct unvme_msg *msg)
 {
 	unvme_pr("unvme version %s\n", UNVME_VERSION);
+	unvme_pr("Dependencies:\n");
+	unvme_pr(" - libunvmed version %s\n", LIBUNVMED_VERSION);
+	unvme_pr(" - libvfn version %s\n", LIBVFN_VERSION);
 
 	return 0;
 }
