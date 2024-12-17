@@ -19,6 +19,8 @@ libunvmed_so = shared_library(
   install_dir: get_option('libdir'),
 )
 
+conf.set('LIBUNVMED_VERSION', '"' + ver + '"')
+
 install_headers(libunvmed_hdr)
 
 unvmed_dep = declare_dependency(

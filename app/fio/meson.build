@@ -27,6 +27,8 @@ ioengine_lib = shared_library(
   install_dir: get_option('libdir'),
 )
 
+conf.set('LIBUNVMED_IOENGINE_VERSION', '"' + ver + '"')
+
 pkgconfig = import('pkgconfig')
 pkgconfig.generate(
   ioengine_lib,

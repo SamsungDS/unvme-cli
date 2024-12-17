@@ -91,7 +91,9 @@ static int unvme_version(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_pr("unvme version %s\n", UNVME_VERSION);
 	unvme_pr("Dependencies:\n");
 	unvme_pr(" - libunvmed version %s\n", LIBUNVMED_VERSION);
-	unvme_pr(" - libvfn version %s\n", LIBVFN_VERSION);
+#ifdef UNVME_FIO
+	unvme_pr(" - libunvmed-ioengine version %s\n", LIBUNVMED_IOENGINE_VERSION);
+#endif
 
 	return 0;
 }
