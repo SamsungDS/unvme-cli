@@ -19,6 +19,7 @@
 
 #include <ccan/str/str.h>
 #include <ccan/array_size/array_size.h>
+#include <ccan/build_assert/build_assert.h>
 
 #include "unvme.h"
 #include "config.h"
@@ -432,13 +433,62 @@ static void unvme_cleanup(void)
 		unvme_stdio_finish(!!(__cmd->ctype & UNVME_APP_CMD));
 }
 
+/*
+ * XXX: unvmed-file.c can be used in unvmed and unvme both, until it's renamed
+ * to unvme-file.c, declare it temporarily.
+ */
+int unvme_write_file(const char *abspath, void *buf, size_t len);
+
+static int unvme_msg_init(struct unvme_msg *msg, int argc, char *argv[],
+			  const char *bdf, int bdf_len)
+{
+	const char *dir = "/var/run/unvmed";
+	pid_t pid = getpid();
+	char buf[UNVME_ARGV_MAXLEN] = {0, };
+	int ret;
+
+	if (mkdir(dir, 0755) < 0 && errno != EEXIST) {
+		unvme_pr_err("failed to create %s dir\n", dir);
+		return -1;
+	}
+
+	ret = sprintf(msg->msg.argv_file, "%s/argv-%d", dir, pid);
+	if (ret < 0) {
+		unvme_pr_err("failed to sprintf for argv file\n");
+		return -1;
+	}
+
+	unvme_msg_to_daemon(msg);
+	msg->msg.argc = argc;
+	memcpy(msg->msg.bdf, bdf, bdf_len);
+	if (!getcwd(msg->msg.pwd, UNVME_PWD_STRLEN)) {
+		unvme_pr_err("failed to set current working dir\n");
+		return -1;
+	}
+
+	for (int i = 0; i < msg->msg.argc; i++) {
+		strcat(buf, argv[i]);
+		strcat(buf, "\n");
+	}
+
+	if (unvme_write_file(msg->msg.argv_file, buf, sizeof(buf))) {
+		unvme_pr_err("failed to write argv to %s\n", msg->msg.argv_file);
+		return -1;
+	}
+
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	struct unvme_msg msg = {0, };
 	const char *name = argv[1];
 	bool app_cmd;
-	char bdf[13];
+	char bdf[UNVME_BDF_STRLEN];
 	int ret;
+
+	/* 'man msgsnd' says msg size should be <= 8192 bytes */
+	BUILD_ASSERT(sizeof(msg) <= 8192);
 
 	ret = unvme_check_args(argc, argv, bdf);
 	if (ret <= 0) {
@@ -447,15 +497,6 @@ int main(int argc, char *argv[])
 
 		return abs(ret);
 	}
-
-	unvme_msg_to_daemon(&msg);
-
-	msg.msg.argc = argc;
-	for (int i = 0; i < msg.msg.argc; i++)
-		strcpy(msg.msg.argv[i], argv[i]);
-	memcpy(msg.msg.bdf, bdf, sizeof(bdf));
-	if (!getcwd(msg.msg.pwd, UNVME_PWD_STRLEN))
-		unvme_pr_return(1, "ERROR: failed to copy current working dir\n");
 
 	__cmd = unvme_get_cmd(name);
 	if (!__cmd)
@@ -467,6 +508,9 @@ int main(int argc, char *argv[])
 	if (!unvme_is_daemon_running())
 		unvme_pr_return(1, "ERROR: unvmed is not running, "
 				"please run 'unvme start' first\n");
+
+	if (unvme_msg_init(&msg, argc, argv, bdf, sizeof(bdf)))
+		return -1;
 
 	atexit(unvme_cleanup);
 	signal(SIGINT, unvme_sigint);

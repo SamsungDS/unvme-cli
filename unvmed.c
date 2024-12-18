@@ -106,29 +106,66 @@ static int unvme_set_pid(void)
 }
 
 static __thread char __argv[UNVME_MAX_OPT * UNVME_MAX_STR];
-static int __unvme_handler(struct unvme_msg *msg)
+static int unvme_msg_init(struct unvme_msg *msg, int argc, char **argv)
 {
 	char *oneline = __argv;
+	FILE *file;
+	char buf[128];
+	int i = 0;
+
+	file = fopen(msg->msg.argv_file, "r");
+	if (!file) {
+		unvme_pr_err("ERROR: failed to open %s\n", msg->msg.argv_file);
+		return -1;
+	}
+
+	while (fgets(buf, sizeof(buf), file) != NULL) {
+		if (!strlen(buf))
+			break;
+		argv[i] = calloc(1, strlen(buf));
+		if (!argv[i]) {
+			unvme_pr_err("ERROR: failed to malloc\n");
+			goto err;
+		}
+
+		/* remove \n newline character */
+		buf[strcspn(buf, "\n")] = '\0';
+		strncpy(argv[i], buf, strlen(buf));
+		oneline += sprintf(oneline, "%s%s", (i == 0) ? "":" ", argv[i]);
+		i++;
+	}
+	argv[i] = NULL;
+
+	fclose(file);
+	remove(msg->msg.argv_file);
+	unvmed_log_info("msg (pid=%d): start: '%s'", unvme_msg_pid(msg), __argv);
+	return 0;
+
+err:
+	for (i = 0; i < argc; i++) {
+		if (argv[i])
+			free(argv[i]);
+	}
+
+	if (file)
+		fclose(file);
+	remove(msg->msg.argv_file);
+	return -1;
+}
+
+static int __unvme_handler(struct unvme_msg *msg)
+{
 	struct command *cmd;
 	char **argv;
 	int argc = msg->msg.argc;
 	int ret;
-	int i = 0;
 
-	argv = (char **)malloc(sizeof(char *) * (argc + 1));
+	argv = (char **)calloc(argc + 1, sizeof(char *));
 	if (!argv)
 		unvme_pr_return(-ENOMEM, "ERROR: failed to allocate memory\n");
 
-	for (i = 0; i < argc; i++) {
-		argv[i] = malloc(sizeof(char) * strlen(msg->msg.argv[i]) + 1);
-		if (!argv[i])
-			unvme_pr_return(-ENOMEM, "ERROR: failed to allocate memory\n");
-		strcpy(argv[i], msg->msg.argv[i]);
-		oneline += sprintf(oneline, "%s%s", (i == 0) ? "":" ", argv[i]);
-	}
-	argv[i] = NULL;
-
-	unvmed_log_info("msg (pid=%d): start: '%s'", unvme_msg_pid(msg), __argv);
+	if (unvme_msg_init(msg, argc, argv))
+		unvme_pr_return(-errno, "ERROR: failed to parse msg\n");
 
 	/*
 	 * If the message represents termination, simple return here.

@@ -19,6 +19,7 @@
 #define UNVME_MAX_STR		32
 #define UNVME_BDF_STRLEN	13
 #define UNVME_PWD_STRLEN	256
+#define UNVME_ARGV_MAXLEN	4096
 
 /*
  * argtable3-related helper macros
@@ -38,7 +39,11 @@ struct unvme_msg {
 		 * Request message from client to daemon
 		 */
 		int argc;
-		char argv[UNVME_MAX_OPT][UNVME_MAX_STR];
+		/*
+		 * @argv[] string will be written to a file.
+		 */
+		char argv_file[UNVME_PWD_STRLEN];
+
 		char bdf[UNVME_BDF_STRLEN];
 		char pwd[UNVME_PWD_STRLEN];
 		int pid;  /* client pid */
