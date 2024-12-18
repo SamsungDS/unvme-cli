@@ -99,6 +99,7 @@ struct name {			\
 struct name {			\
 	struct unvme *u;	\
 	struct nvme_cq *q;	\
+	struct unvme_sq *usq;	\
 	pthread_spinlock_t lock;\
 	bool enabled;		\
 	int refcnt;		\

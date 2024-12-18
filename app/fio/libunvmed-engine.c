@@ -690,11 +690,11 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	struct libunvmed_data *ld = td->io_ops_data;
 	struct libunvmed_options *o = td->eo;
 
-	struct unvme *u = ld->u;
 	struct nvme_cqe *cqe = &ld->cqes[event];
-	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
+	struct unvme_cmd *cmd = &ld->usq->cmds[cqe->cid];
 	struct io_u *io_u;
 
+	assert(le16_to_cpu(cqe->sqid) == unvmed_sq_id(ld->usq));
 	assert(cmd != NULL);
 
 	io_u = (struct io_u *)cmd->opaque;

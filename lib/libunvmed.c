@@ -890,6 +890,7 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	pthread_spin_init(&usq->lock, 0);
 	usq->q = &u->ctrl.sq[qid];
 	usq->ucq = ucq;
+	ucq->usq = __to_sq(usq);
 	usq->nr_cmds = 0;
 
 	if (alloc) {
@@ -1794,7 +1795,13 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 	cqe = nvme_cq_get_cqe(cq);
 
 	if (cqe) {
-		cmd = unvmed_get_cmd_from_cqe(u, cqe);
+		/*
+		 * XXX: currently SQ:CQ 1:1 mapping is only supported by having
+		 * @usq in @ucq->usq to represent the relationship.
+		 */
+		assert(le16_to_cpu(cqe->sqid) == unvmed_sq_id(ucq->usq));
+
+		cmd = &ucq->usq->cmds[cqe->cid];
 		assert(cmd != NULL);
 
 		cmd->state = UNVME_CMD_S_COMPLETED;
