@@ -1587,7 +1587,7 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
-	unvmed_cq_run_n(u, ucq, &cqe, 1, 1);
+	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
 	unvmed_sq_exit(cmd->usq);
 
 	if (nvme_cqe_ok(&cqe))
@@ -1685,7 +1685,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
-	unvmed_cq_run_n(u, usq->ucq, &cqe, 1, 1);
+	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
 	unvmed_sq_exit(cmd->usq);
 
 	if (nvme_cqe_ok(&cqe))
