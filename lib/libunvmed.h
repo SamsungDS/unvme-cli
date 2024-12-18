@@ -227,15 +227,12 @@ static inline void unvmed_cq_exit(struct unvme_cq *ucq)
 
 /**
  * unvmed_sq_enabled - Check whether the submission queue is enabled (live)
- * @u: &struct unvme
- * @qid: submission queue identifier
+ * @usq: submission queue instance
  *
  * Return: true if the given queue is alive.
  */
-static inline bool unvmed_sq_enabled(struct unvme *u, uint32_t qid)
+static inline bool unvmed_sq_enabled(struct unvme_sq *usq)
 {
-	struct unvme_sq *usq = unvmed_sq_find(u, qid);
-
 	if (!usq || (usq && !usq->enabled))
 		return false;
 	return true;
@@ -552,7 +549,7 @@ struct unvme_cq *unvmed_cq_find(struct unvme *u, uint32_t qid);
 /**
  * unvmed_alloc_cmd - Allocate a NVMe command instance.
  * @u: &struct unvme
- * @sqid: submission queue identifier
+ * @usq: submission queue instance (&struct unvme_sq)
  * @buf: user data buffer virtual address
  * @len: size of user data buffer in bytes
  *
@@ -569,13 +566,13 @@ struct unvme_cq *unvmed_cq_find(struct unvme *u, uint32_t qid);
  *
  * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
  */
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq, void *buf,
 				   size_t len);
 
 /**
  * unvmed_alloc_cmd_nodata - Allocate a NVMe command instance without data
  * @u: &struct unvme
- * @sqid: submission queue identifier
+ * @usq: submission queue instance (&struct unvme_sq)
  *
  * Allocate a NVMe command instance without data buffer to trasnfer.
  *
@@ -583,12 +580,12 @@ struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
  *
  * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
  */
-struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, uint16_t sqid);
+struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, struct unvme_sq *usq);
 
 /**
  * unvmed_alloc_cmd_meta - Allocate a NVMe command instance with metadata
  * @u: &struct unvme
- * @sqid: submission queue identifier
+ * @usq: submission queue instance (&struct unvme_sq)
  * @buf: user data buffer virtual address
  * @len: size of user data buffer in bytes
  * @mbuf: metadata buffer virtual address
@@ -602,7 +599,7 @@ struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, uint16_t sqid);
  *
  * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
  */
-struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, uint16_t sqid, void *buf,
+struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq, void *buf,
 					size_t len, void *mbuf, size_t mlen);
 
 /**

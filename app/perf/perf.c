@@ -174,7 +174,7 @@ int unvmed_perf(struct unvme *u, uint32_t sqid, uint32_t nsid,
 	do {
 		struct iod *iod;
 
-		cmd = unvmed_alloc_cmd(u, sqid, mem_per_cmd, data_size);
+		cmd = unvmed_alloc_cmd(u, usq, mem_per_cmd, data_size);
 		if (!cmd)
 			return -1;
 

@@ -540,7 +540,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	if (o->prp1_offset)
 		buf = libunvmed_prp_iomem(ld, io_u);
 
-	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq), buf, len);
+	cmd = unvmed_alloc_cmd(ld->u, ld->usq, buf, len);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
@@ -599,7 +599,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	uint64_t slba;
 	uint32_t nlb;
 
-	cmd = unvmed_alloc_cmd(ld->u, unvmed_sq_id(ld->usq), NULL, dsm_range_size);
+	cmd = unvmed_alloc_cmd(ld->u, ld->usq, NULL, dsm_range_size);
 	if (!cmd)
 		return FIO_Q_BUSY;
 

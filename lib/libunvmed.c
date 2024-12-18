@@ -716,12 +716,20 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 
 	if (!id_ns) {
 		struct unvme_cmd *cmd;
+		struct unvme_sq *usq;
 		struct iovec iov;
 
 		size = pgmap((void **)&id_ns_local, NVME_IDENTIFY_DATA_SIZE);
 		assert(size == NVME_IDENTIFY_DATA_SIZE);
 
-		cmd = unvmed_alloc_cmd(u, 0, id_ns_local, size);
+		usq = unvmed_sq_find(u, 0);
+		if (!usq) {
+			unvmed_log_err("failed to find enabled adminq");
+			ret = EINVAL;
+			return -1;
+		}
+
+		cmd = unvmed_alloc_cmd(u, usq, id_ns_local, size);
 		if (!cmd) {
 			pgunmap(id_ns_local, size);
 
@@ -812,12 +820,20 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify)
 
 	if (!nvm_id_ns) {
 		struct unvme_cmd *cmd;
+		struct unvme_sq *usq;
 		struct iovec iov;
 
 		size = pgmap((void **)&nvm_id_ns_local, NVME_IDENTIFY_DATA_SIZE);
 		assert(size == NVME_IDENTIFY_DATA_SIZE);
 
-		cmd = unvmed_alloc_cmd(u, 0, nvm_id_ns_local, size);
+		usq = unvmed_sq_find(u, 0);
+		if (!usq) {
+			unvmed_log_err("failed to find enabled adminq");
+			ret = EINVAL;
+			return -1;
+		}
+
+		cmd = unvmed_alloc_cmd(u, usq, nvm_id_ns_local, size);
 		if (!cmd) {
 			pgunmap(nvm_id_ns_local, size);
 
@@ -1030,18 +1046,10 @@ void unvmed_cmd_free(struct unvme_cmd *cmd)
 	__unvmed_cmd_free(cmd);
 }
 
-static struct unvme_cmd* __unvmed_cmd_alloc(struct unvme *u, uint16_t sqid)
+static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u, struct unvme_sq *usq)
 {
 	struct unvme_cmd *cmd;
-	struct unvme_sq *usq;
 	struct nvme_rq *rq;
-
-	usq = __to_sq(unvmed_sq_find(u, sqid));
-	if (!usq) {
-		unvmed_log_err("failed to find sq %d", sqid);
-		errno = EINVAL;
-		return NULL;
-	}
 
 	rq = nvme_rq_acquire_atomic(usq->q);
 	if (!rq) {
@@ -1110,12 +1118,13 @@ static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
 	return 0;
 }
 
-static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, uint16_t sqid, void *buf,
-					    size_t len, void *mbuf, size_t mlen)
+static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, struct unvme_sq *usq,
+					   void *buf, size_t len, void *mbuf,
+					   size_t mlen)
 {
 	struct unvme_cmd *cmd;
 
-	cmd = __unvmed_cmd_alloc(u, sqid);
+	cmd = __unvmed_cmd_alloc(u, usq);
 	if (!cmd)
 		return NULL;
 
@@ -1133,31 +1142,32 @@ static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, uint16_t sqid, void 
 	return cmd;
 }
 
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, uint16_t sqid, void *buf,
-				   size_t len)
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq,
+				   void *buf, size_t len)
 {
 	if (!buf || !len) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	return __unvmed_cmd_init(u, sqid, buf, len, NULL, 0);
+	return __unvmed_cmd_init(u, usq, buf, len, NULL, 0);
 }
 
-struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, uint16_t sqid)
+struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, struct unvme_sq *usq)
 {
-	return __unvmed_cmd_init(u, sqid, NULL, 0, NULL, 0);
+	return __unvmed_cmd_init(u, usq, NULL, 0, NULL, 0);
 }
 
-struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, uint16_t sqid, void *buf,
-					size_t len, void *mbuf, size_t mlen)
+struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
+					void *buf, size_t len, void *mbuf,
+					size_t mlen)
 {
 	if (!buf || !len) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	return __unvmed_cmd_init(u, sqid, buf, len, mbuf, mlen);
+	return __unvmed_cmd_init(u, usq, buf, len, mbuf, mlen);
 }
 
 static void __unvme_reset_ctrl(struct unvme *u)
@@ -1568,6 +1578,7 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
+	struct unvme_sq *adminq;
 	struct unvme_cq *ucq;
 	struct nvme_cmd_delete_q sqe = {0, };
 	struct nvme_cqe cqe;
@@ -1578,9 +1589,16 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, 0);
-	if (!cmd)
+	adminq = unvmed_sq_find(u, 0);
+	if (!adminq || !unvmed_sq_enabled(adminq)) {
 		return -1;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, adminq);
+	if (!cmd) {
+		unvmed_sq_put(u, adminq);
+		return -1;
+	}
 
 	sqe.opcode = nvme_admin_delete_cq;
 	sqe.qid = cpu_to_le16(qid);
@@ -1666,7 +1684,7 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
-	struct unvme_sq *usq;
+	struct unvme_sq *usq, *adminq;
 	struct nvme_cmd_delete_q sqe = {0, };
 	struct nvme_cqe cqe;
 
@@ -1676,9 +1694,16 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, 0);
-	if (!cmd)
+	adminq = unvmed_sq_find(u, 0);
+	if (!adminq || !unvmed_sq_enabled(adminq)) {
 		return -1;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, adminq);
+	if (!cmd) {
+		unvmed_sq_put(u, adminq);
+		return -1;
+	}
 
 	sqe.opcode = nvme_admin_delete_sq;
 	sqe.qid = cpu_to_le16(qid);

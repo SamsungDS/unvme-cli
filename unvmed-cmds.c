@@ -497,6 +497,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	struct unvme_sq *usq;
 	int ret = 0;
 
 	/* Set default argument values prior to parsing */
@@ -511,7 +512,8 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, 0)) {
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -558,6 +560,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	struct unvme_sq *usq;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -569,7 +572,8 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, 0)) {
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -613,6 +617,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	struct unvme_sq *usq, *targetq;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -624,7 +629,8 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, 0)) {
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -636,7 +642,8 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_sq_enabled(u, arg_intv(qid))) {
+	targetq = unvmed_sq_find(u, arg_intv(qid));
+	if (unvmed_sq_enabled(targetq)) {
 		unvme_pr_err("failed to create iosq (qid=%u) (exists)\n", arg_intv(qid));
 		ret = EEXIST;
 		goto out;
@@ -668,6 +675,7 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	struct unvme_sq *usq, *targetq;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -679,13 +687,15 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, 0)) {
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, arg_intv(qid))) {
+	targetq = unvmed_sq_find(u, arg_intv(qid));
+	if (unvmed_sq_enabled(targetq)) {
 		unvme_pr_err("failed to delete iosq (qid=%u) (not exists)\n", arg_intv(qid));
 		ret = ENOMEDIUM;
 		goto out;
@@ -726,6 +736,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	const uint16_t sqid = 0;
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
 	ssize_t len;
 	void *buf = NULL;
 	unsigned long flags = 0;
@@ -745,7 +756,8 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, 0)) {
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -768,7 +780,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, sqid, buf, len);
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -836,6 +848,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	const uint16_t sqid = 0;
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
 	struct iovec iov;
 	ssize_t len;
 	void *buf = NULL;
@@ -855,7 +868,8 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, 0)) {
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -874,7 +888,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, sqid, buf, len);
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -930,6 +944,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	const uint16_t sqid = 0;
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
 	struct iovec iov;
 	ssize_t len;
 	void *buf = NULL;
@@ -948,7 +963,8 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, 0)) {
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -973,7 +989,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, sqid, buf, len);
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -1033,6 +1049,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 	__unvme_free char *filepath = NULL;
 	const uint32_t sqid = 0;
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
 	struct nvme_cqe cqe;
 	struct iovec iov;
 	struct unvme *u;
@@ -1053,7 +1070,8 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, sqid)) {
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -1083,7 +1101,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	cmd = unvmed_alloc_cmd(u, sqid, buf, len);
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -1131,6 +1149,7 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 
 	const uint32_t sqid = 0;
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
 	struct nvme_cqe cqe;
 	struct unvme *u;
 	uint32_t cdw11;
@@ -1145,13 +1164,14 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, sqid)) {
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, sqid);
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
@@ -1233,6 +1253,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	__unvme_free char *filepath = NULL;
 	__unvme_free char *mfilepath = NULL;
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
 	struct unvme_ns *ns = NULL;
 	struct iovec iov;
 	void *buf = NULL;
@@ -1277,7 +1298,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
+	usq = unvmed_sq_find(u, arg_intv(sqid));
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -1331,7 +1353,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(metadata))
 		mfilepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(metadata));
 
-	cmd = unvmed_alloc_cmd_meta(u, arg_intv(sqid), buf, len, mbuf, mlen);
+	cmd = unvmed_alloc_cmd_meta(u, usq, buf, len, mbuf, mlen);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
@@ -1469,6 +1491,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	__unvme_free char *filepath = NULL;
 	__unvme_free char *mfilepath = NULL;
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
 	struct unvme_ns *ns = NULL;
 	struct iovec iov;
 	void *buf = NULL;
@@ -1515,7 +1538,8 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
+	usq = unvmed_sq_find(u, arg_intv(sqid));
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -1600,7 +1624,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	cmd = unvmed_alloc_cmd_meta(u, arg_intv(sqid), buf, len, mbuf, mlen);
+	cmd = unvmed_alloc_cmd_meta(u, usq, buf, len, mbuf, mlen);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
@@ -1717,6 +1741,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	__unvme_free char *filepath = NULL;
 	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
 	struct iovec iov;
 	void *buf;
 	ssize_t len;
@@ -1762,7 +1787,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
+	usq = unvmed_sq_find(u, arg_intv(sqid));
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -1801,7 +1827,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, arg_intv(sqid), buf, len);
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -2049,6 +2075,7 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	struct unvme_sq *usq = NULL;
 	int ret = 0;
 
 	/* Set default argument values prior to parsing */
@@ -2069,7 +2096,8 @@ int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!unvmed_sq_enabled(u, arg_intv(sqid))) {
+	usq = unvmed_sq_find(u, arg_intv(sqid));
+	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
