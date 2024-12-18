@@ -537,6 +537,7 @@ static void unvmed_free_irq_rcq(struct unvme_cq_reaper *r)
 
 	epoll_ctl(r->epoll_fd, EPOLL_CTL_DEL, r->efd, &e);
 
+	r->u->efds[r->vector] = -1;
 	close(r->efd);
 	close(r->epoll_fd);
 	free(r->rcq.cqe);
@@ -571,8 +572,9 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 static int unvmed_init_irq(struct unvme *u, int vector)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
+	int nr_irqs = u->ctrl.pci.dev.irq_info.count;
 
-	if (vector >= u->ctrl.pci.dev.irq_info.count) {
+	if (vector >= nr_irqs) {
 		unvmed_log_err("invalid vector %d", vector);
 		return -1;
 	}
@@ -582,7 +584,15 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 
 	unvmed_init_irq_rcq(u, vector);
 
-	if (vfio_set_irq(&u->ctrl.pci.dev, &u->efds[vector], vector, 1)) {
+	/*
+	 * Note: disable all IRQ enabled first before enabling a specific
+	 * interrupt vector to support older kernel (< v6.5) which does not
+	 * support dynamic MSI-X interrupt assignment.
+	 */
+	if (vfio_disable_irq_all(&u->ctrl.pci.dev))
+		return -1;
+
+	if (vfio_set_irq(&u->ctrl.pci.dev, &u->efds[0], 0, nr_irqs)) {
 		unvmed_log_err("failed to set IRQ for vector %d", vector);
 
 		unvmed_free_irq_rcq(r);
@@ -600,6 +610,14 @@ static int unvmed_alloc_irqs(struct unvme *u)
 	u->efds = malloc(sizeof(int) * nr_irqs);
 	if (!u->efds)
 		return -1;
+
+	/*
+	 * Kenrel vfio-pci documentation says that VFIO_DEVICE_SET_IRQS ioctl
+	 * treats @efd -1 as de-assign or skipping a vector during enabling the
+	 * interrupt.
+	 */
+	for (int i = 0; i < nr_irqs; i++)
+		u->efds[i] = -1;
 
 	u->nr_efds = nr_irqs;
 	u->reapers = calloc(u->nr_efds, sizeof(struct unvme_cq_reaper));
