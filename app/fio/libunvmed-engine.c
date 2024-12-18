@@ -768,7 +768,7 @@ static char *fio_libunvmed_errdetails(struct thread_data *td, struct io_u *io_u)
 		return NULL;
 
 	msg = calloc(1, MAXERRDETAIL);
-	strcpy(msg, "io_uring_cmd: ");
+	strcpy(msg, "libunvmed: ");
 
 	snprintf(msgchunk, MAXMSGCHUNK, "%s: ", io_u->file->file_name);
 	strlcat(msg, msgchunk, MAXERRDETAIL);
