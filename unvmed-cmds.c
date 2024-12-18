@@ -2133,32 +2133,7 @@ out:
 extern int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd);
 int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 {
-	struct arg_lit *help;
-	struct arg_end *end;
-
-	const char *desc =
-		"Run fio libvfn ioengine with NVMe controller resources configured by unvme-cli.\n"
-		"'unvme start --with-fio=<fio>' must be given first to load fio shared object to unvmed.\n"
-		"And users should enable and create I/O queues before running fio through this command";
-
-	void *argtable[] = {
-		help = arg_lit0("h", "help", "Show help message"),
-		end = arg_end(UNVME_ARG_MAX_ERROR),
-	};
-
 	const char *libfio;
-	int ret;
-
-	/*
-	 * We don't care the failure of the parameter parsing since we will
-	 * have fio arguments in this command.
-	 */
-	pthread_spin_lock(&__arglock);
-	arg_parse(argc, argv, argtable);
-	pthread_spin_unlock(&__arglock);
-
-	if (arg_boolv(help))
-		unvme_print_help(__stdout, argv[1], desc, argtable);
 
 	libfio = unvmed_get_libfio();
 	if (!libfio) {
@@ -2170,9 +2145,6 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 		libfio = strdup("fio.so");
 	}
 
-	ret = unvmed_run_fio(argc - 1, &argv[1], libfio, unvme_msg_pwd(msg));
-
-	unvme_free_args(argtable);
-	return ret;
+	return unvmed_run_fio(argc - 1, &argv[1], libfio, unvme_msg_pwd(msg));
 }
 #endif
