@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <setjmp.h>
+#include <string.h>
 
 #define UNVME_FIO_IOENGINE	"libunvmed-ioengine.so"
 
@@ -86,7 +89,13 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 		/* job file path */
 		if (argv[i][0] != '-')
 			__argv[i] = unvme_get_filepath((char *)pwd, argv[i]);
-		else
+		else if (!strncmp(argv[i], "-output=", 8) ||
+				!strncmp(argv[i], "--output=", 9)) {
+			char *val = strstr(argv[i], "=");
+			char *output = unvme_get_filepath((char *)pwd, ++val);
+
+			asprintf(&__argv[i], "--output=%s", output);
+		} else
 			__argv[i] = argv[i];
 	}
 	__argv[argc] = "--eta=always";
