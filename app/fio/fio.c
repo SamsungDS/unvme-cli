@@ -94,7 +94,10 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 			char *val = strstr(argv[i], "=");
 			char *output = unvme_get_filepath((char *)pwd, ++val);
 
-			asprintf(&__argv[i], "--output=%s", output);
+			if (asprintf(&__argv[i], "--output=%s", output) < 0) {
+				fprintf(stderr, "failed to form --output=\n");
+				return errno;
+			}
 		} else
 			__argv[i] = argv[i];
 	}

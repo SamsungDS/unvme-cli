@@ -130,7 +130,7 @@ static int unvme_msg_init(struct unvme_msg *msg, int argc, char **argv)
 
 		/* remove \n newline character */
 		buf[strcspn(buf, "\n")] = '\0';
-		strncpy(argv[i], buf, strlen(buf));
+		strcpy(argv[i], buf);
 		oneline += sprintf(oneline, "%s%s", (i == 0) ? "":" ", argv[i]);
 		i++;
 	}
