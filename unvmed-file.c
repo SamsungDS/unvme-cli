@@ -24,7 +24,8 @@ char *unvme_get_filepath(char *pwd, const char *filename)
 	if (unvme_is_abspath(filename))
 		return strdup(filename);
 
-	str = malloc(256);
+	/* +1 for "/" and +1 for "\0" */
+	str = malloc(strlen(pwd) + strlen(filename) + 1 + 1);
 	assert(str != NULL);
 
 	str[0] = '\0';
