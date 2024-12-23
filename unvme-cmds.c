@@ -144,6 +144,7 @@ static void __unvme_stop(bool with_client)
 {
 	__kill("unvmed");
 	/* To make sure that unvmed.pid file is removed from the system */
+	remove(UNVME_DAEMON_VER);
 	remove(UNVME_DAEMON_PID);
 
 	if (with_client)

@@ -105,6 +105,29 @@ static int unvme_set_pid(void)
 	return 0;
 }
 
+static int unvme_set_ver(void)
+{
+	char ver[UNVME_VER_STR];
+	int fd;
+
+	fd = open(UNVME_DAEMON_VER, O_CREAT | O_WRONLY, S_IRUSR);
+	if (fd < 0)
+		return -1;
+
+	if (sprintf(ver, "%s", UNVME_VERSION) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	if (write(fd, ver, strlen(ver) + 1) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	close(fd);
+	return 0;
+}
+
 static __thread char __argv[UNVME_MAX_OPT * UNVME_MAX_STR];
 static int unvme_msg_init(struct unvme_msg *msg, int argc, char **argv)
 {
@@ -273,6 +296,7 @@ static void unvme_release(int signum)
 
 	unvmed_free_ctrl_all();
 
+	remove(UNVME_DAEMON_VER);
 	remove(UNVME_DAEMON_PID);
 
 	unvmed_log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
@@ -461,12 +485,15 @@ int unvmed(char *argv[], const char *fio)
 	unvme_msgq_create(UNVME_MSGQ);
 
 	unvmed_log_info("unvmed daemon process is sucessfully created "
-			"(pid=%d)", getpid());
+			"(pid=%d, ver='%s')", getpid(), UNVME_VERSION);
 
 	signal(SIGTERM, unvme_release);
 	signal(SIGSEGV, unvme_error);
 	signal(SIGABRT, unvme_error);
+
 	unvme_set_pid();
+	if (unvme_set_ver())
+		unvme_pr_return(-1, "ERROR: failed to set unvme-cli version\n");
 
 	pthread_mutex_init(&__app_mutex, NULL);
 	pthread_mutex_init(&__job_mutex, NULL);

@@ -433,6 +433,30 @@ static void unvme_cleanup(void)
 		unvme_stdio_finish(!!(__cmd->ctype & UNVME_APP_CMD));
 }
 
+static int unvme_check_ver(void)
+{
+	char ver[UNVME_VER_STR];
+	int fd;
+
+	fd = open(UNVME_DAEMON_VER, O_RDONLY, S_IRUSR);
+	if (fd < 0)
+		return -1;
+
+	if (read(fd, ver, sizeof(ver)) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	if (strcmp(ver, UNVME_VERSION)) {
+		errno = EKEYREJECTED;
+		close(fd);
+		return -1;
+	}
+
+	close(fd);
+	return 0;
+}
+
 /*
  * XXX: unvmed-file.c can be used in unvmed and unvme both, until it's renamed
  * to unvme-file.c, declare it temporarily.
@@ -508,6 +532,14 @@ int main(int argc, char *argv[])
 	if (!unvme_is_daemon_running())
 		unvme_pr_return(1, "ERROR: unvmed is not running, "
 				"please run 'unvme start' first\n");
+
+	/*
+	 * Check whether unvmed version is exactly the same with the client's
+	 * one.
+	 */
+	if (unvme_check_ver())
+		unvme_pr_return(errno, "ERROR: Mismatch between unvmed and "
+				"unvme versions.  Please restart unvmed.\n");
 
 	if (unvme_msg_init(&msg, argc, argv, bdf, sizeof(bdf)))
 		return -1;

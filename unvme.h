@@ -20,6 +20,7 @@
 #define UNVME_BDF_STRLEN	13
 #define UNVME_PWD_STRLEN	256
 #define UNVME_ARGV_MAXLEN	4096
+#define UNVME_VER_STR		32
 
 /*
  * argtable3-related helper macros
@@ -155,6 +156,7 @@ static inline int unvme_msgq_get(const char *keyfile)
 }
 
 #define UNVME_DAEMON_PID	"/var/run/unvmed.pid"
+#define UNVME_DAEMON_VER	"/var/run/unvmed.ver"
 
 static inline void unvme_print_help(FILE *fp, char *cmd, const char *desc, void *argtable[]) {
 	fprintf(fp, "\nUsage: unvme %s", cmd);
