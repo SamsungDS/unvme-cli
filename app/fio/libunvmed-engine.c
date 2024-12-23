@@ -334,7 +334,7 @@ static int fio_libunvmed_init(struct thread_data *td)
 		case FIO_URING_CMD_WMODE_ZEROES:
 			ld->write_opcode = nvme_cmd_write_zeroes;
 			if (o->deac)
-				ld->cdw12_flags[DDIR_WRITE] = NVME_IO_DEAC << 16;
+				ld->cdw12_flags[DDIR_WRITE] |= NVME_IO_DEAC << 16;
 			break;
 		case FIO_URING_CMD_WMODE_VERIFY:
 			ld->write_opcode = nvme_cmd_verify;
@@ -346,9 +346,9 @@ static int fio_libunvmed_init(struct thread_data *td)
 	}
 
 	if (o->readfua)
-		ld->cdw12_flags[DDIR_READ] = NVME_IO_FUA << 16;
+		ld->cdw12_flags[DDIR_READ] |= NVME_IO_FUA << 16;
 	if (o->writefua)
-		ld->cdw12_flags[DDIR_WRITE] = NVME_IO_FUA << 16;
+		ld->cdw12_flags[DDIR_WRITE] |= NVME_IO_FUA << 16;
 
 	pthread_mutex_unlock(&g_serialize);
 	return 0;
