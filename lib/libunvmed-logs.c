@@ -7,7 +7,7 @@
 #include "libunvmed.h"
 #include "libunvmed-private.h"
 
-static char __buf[256];
+__thread char __buf[256];
 #define LOG_MAX_LEN sizeof(__buf)
 
 static const char *unvmed_log_delete_sq(union nvme_cmd *sqe)
