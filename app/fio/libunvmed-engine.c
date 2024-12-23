@@ -398,6 +398,10 @@ unlock:
 static void fio_libunvmed_cleanup(struct thread_data *td)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
+	int refcnt;
+
+	refcnt = unvmed_ns_put(ld->u, ld->ns);
+	assert(refcnt > 0);
 
 	free(ld->cqes);
 	free(ld);
