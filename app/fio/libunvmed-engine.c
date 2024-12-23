@@ -343,6 +343,14 @@ static int fio_libunvmed_init(struct thread_data *td)
 	if (ret)
 		return ret;
 
+	/*
+	 * If called twice, return directly here.
+	 */
+	if (td->io_ops_data) {
+		pthread_mutex_unlock(&g_serialize);
+		return 0;
+	}
+
 	ret = libunvmed_init_data(td);
 	if (ret)
 		goto unlock;
