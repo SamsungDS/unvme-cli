@@ -28,6 +28,8 @@ struct libunvmed_options {
 	unsigned int sqid;
 	uint64_t prp1_offset;
 	unsigned int enable_sgl;
+	unsigned int dtype;
+	unsigned int dspec;
 
 	/*
 	 * io_uring_cmd ioengine options
@@ -86,6 +88,26 @@ static struct fio_option options[] = {
 		.type = FIO_OPT_BOOL,
 		.off1 = offsetof(struct libunvmed_options, enable_sgl),
 		.help = "Use SGL for data buffer",
+		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "dtype",
+		.lname = "Directive Type in CDW12",
+		.type = FIO_OPT_INT,
+		.off1 = offsetof(struct libunvmed_options, dtype),
+		.help = "Directive Type",
+		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "dspec",
+		.lname = "Directive Specific in CDW13",
+		.type = FIO_OPT_INT,
+		.off1 = offsetof(struct libunvmed_options, dspec),
+		.help = "Directive Specific",
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
@@ -190,6 +212,7 @@ struct libunvmed_data {
 	struct nvme_cqe *cqes;
 
 	uint32_t cdw12_flags[DDIR_RWDIR_CNT];
+	uint32_t cdw13_flags[DDIR_RWDIR_CNT];
 	uint8_t write_opcode;
 };
 
@@ -341,6 +364,12 @@ static int fio_libunvmed_init(struct thread_data *td)
 			break;
 		default:
 			ld->write_opcode = nvme_cmd_write;
+			if (o->dtype) {
+				ld->cdw12_flags[DDIR_WRITE] |=
+					(o->dtype * NVME_IO_DTYPE_STREAMS) << 16;
+			}
+			if (o->dspec)
+				ld->cdw13_flags[DDIR_WRITE] |= o->dspec << 16;
 			break;
 		}
 	}
@@ -558,6 +587,8 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	sqe.slba = cpu_to_le64(slba);
 	((union nvme_cmd *)&sqe)->cdw12 =
 		cpu_to_le32(ld->cdw12_flags[io_u->ddir] | nlb);
+	((union nvme_cmd *)&sqe)->cdw13 =
+		cpu_to_le32(ld->cdw13_flags[io_u->ddir]);
 
 	/*
 	 * XXX: Making a decision whether PRP or SGL is to be used should be
