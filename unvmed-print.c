@@ -22,8 +22,54 @@ void unvme_pr_id_ns(void *vaddr)
 {
 	struct nvme_id_ns *id_ns = (struct nvme_id_ns *)vaddr;
 
-	unvme_pr("nsze: %lx\n", le64_to_cpu(id_ns->nsze));
-	unvme_pr("ncap: %lx\n", le64_to_cpu(id_ns->ncap));
+	unvme_pr("%10s:\t%#lx\n", "nsze", le64_to_cpu(id_ns->nsze));
+	unvme_pr("%10s:\t%#lx\n", "ncap", le64_to_cpu(id_ns->ncap));
+	unvme_pr("%10s:\t%#lx\n", "nuse", le64_to_cpu(id_ns->nuse));
+	unvme_pr("%10s:\t%#x\n", "nsfeat", id_ns->nsfeat);
+	unvme_pr("%10s:\t%#x\n", "nlbaf", id_ns->nlbaf);
+	unvme_pr("%10s:\t%#x\n", "flbas", id_ns->flbas);
+	unvme_pr("%10s:\t%#x\n", "mc", id_ns->mc);
+	unvme_pr("%10s:\t%#x\n", "dpc", id_ns->dpc);
+	unvme_pr("%10s:\t%#x\n", "dps", id_ns->dps);
+	unvme_pr("%10s:\t%#x\n", "nmic", id_ns->nmic);
+	unvme_pr("%10s:\t%#x\n", "rescap", id_ns->rescap);
+	unvme_pr("%10s:\t%#x\n", "fpi", id_ns->fpi);
+	unvme_pr("%10s:\t%#x\n", "dlfeat", id_ns->dlfeat);
+	unvme_pr("%10s:\t%#x\n", "nawun", le16_to_cpu(id_ns->nawun));
+	unvme_pr("%10s:\t%#x\n", "nawupf", le16_to_cpu(id_ns->nawupf));
+	unvme_pr("%10s:\t%#x\n", "nacwu", le16_to_cpu(id_ns->nacwu));
+	unvme_pr("%10s:\t%#x\n", "nabsn", le16_to_cpu(id_ns->nabsn));
+	unvme_pr("%10s:\t%#x\n", "nabo", le16_to_cpu(id_ns->nabo));
+	unvme_pr("%10s:\t%#x\n", "nabspf", le16_to_cpu(id_ns->nabspf));
+	unvme_pr("%10s:\t%#x\n", "noiob", le16_to_cpu(id_ns->noiob));
+	unvme_pr("%10s:\tlo: %#lx, hi: %#lx\n", "nvmcap",
+			le64_to_cpu(*(leint64_t *)&id_ns->nvmcap[0]),
+			le64_to_cpu(*(leint64_t *)&id_ns->nvmcap[8]));
+	unvme_pr("%10s:\t%#x\n", "npwg", le16_to_cpu(id_ns->npwg));
+	unvme_pr("%10s:\t%#x\n", "npwa", le16_to_cpu(id_ns->npwa));
+	unvme_pr("%10s:\t%#x\n", "npdg", le16_to_cpu(id_ns->npdg));
+	unvme_pr("%10s:\t%#x\n", "npda", le16_to_cpu(id_ns->npda));
+	unvme_pr("%10s:\t%#x\n", "nows", le16_to_cpu(id_ns->nows));
+	unvme_pr("%10s:\t%#x\n", "mssrl", le16_to_cpu(id_ns->mssrl));
+	unvme_pr("%10s:\t%#x\n", "mcl", le32_to_cpu(id_ns->mcl));
+	unvme_pr("%10s:\t%#x\n", "msrc", id_ns->msrc);
+	unvme_pr("%10s:\t%#x\n", "nulbaf", id_ns->nulbaf);
+	unvme_pr("%10s:\t%#x\n", "anagrpid", le32_to_cpu(id_ns->anagrpid));
+	unvme_pr("%10s:\t%#x\n", "nsattr", id_ns->nsattr);
+	unvme_pr("%10s:\t%#x\n", "nvmsetid", le16_to_cpu(id_ns->nvmsetid));
+	unvme_pr("%10s:\t%#x\n", "endgid", le16_to_cpu(id_ns->endgid));
+	unvme_pr("%10s:\tlo: %#lx, hi: %#lx\n", "nguid",
+			le64_to_cpu(*(leint64_t *)&id_ns->nguid[0]),
+			le64_to_cpu(*(leint64_t *)&id_ns->nguid[8]));
+	unvme_pr("%10s:\t%#lx\n", "eui64", le64_to_cpu(*(leint64_t *)id_ns->eui64));
+
+	for (int i = 0; i < id_ns->nlbaf + 1; i++) {
+		struct nvme_lbaf *lbaf = &id_ns->lbaf[i];
+
+		unvme_pr("%c%6s[%2d]:\tms: %4d, ds: %4d, rp: %4d\n",
+				i == id_ns->flbas ? '*' : ' ', "lbaf", i,
+				le16_to_cpu(lbaf->ms), lbaf->ds, lbaf->rp);
+	}
 }
 
 void unvme_pr_nvm_id_ns(void *vaddr)
