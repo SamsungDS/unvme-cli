@@ -2308,6 +2308,27 @@ int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	return unvmed_cqe_status(&cqe);
 }
 
+int unvmed_format(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		  uint8_t lbaf, uint8_t ses, uint8_t pil, uint8_t pi,
+		  uint8_t mset)
+{
+	union nvme_cmd sqe = {0, };
+	struct nvme_cqe cqe;
+
+	sqe.opcode = nvme_admin_format_nvm;
+	sqe.nsid = cpu_to_le32(nsid);
+	sqe.cdw10 = ((lbaf >> 12 & 3) << 12) | ((ses & 0x7) << 9) |
+		((pil & 0x1) << 8) | ((pi & 0x7) << 5) | ((mset & 0x1) << 4) |
+		(lbaf & 0xf);
+
+	unvmed_sq_enter(cmd->usq);
+	unvmed_cmd_post(cmd, &sqe, 0x0);
+	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
+	unvmed_sq_exit(cmd->usq);
+
+	return unvmed_cqe_status(&cqe);
+}
+
 int unvmed_ctx_init(struct unvme *u)
 {
 	struct __unvme_sq *usq;

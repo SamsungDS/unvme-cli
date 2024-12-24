@@ -1995,6 +1995,78 @@ out:
 	return ret;
 }
 
+int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Submit a Format NVM admin command to the given <device>.  After Format NVM command,\n"
+		"Identify Namespace (CNS 0h) admin command will be issued.\n";
+
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_dbl *nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID");
+	struct arg_int *lbaf = arg_int1("l", "lbaf", "<n>", "[M] LBA Format index");
+	struct arg_int *ses = arg_int0("s", "ses", "<n>", "[O] Secure Erase Setting (*0: No secure, 1: User data erase, 2: Cryptographic erase)");
+	struct arg_int *pil = arg_int0("p", "pil", "<n>", "[O] Protection Info Location (*0: First bytes of metadata, 1: Last bytes of metadata)");
+	struct arg_int *pi = arg_int0("i", "pi", "<n>", "[O] Protection Info (*0: PI disabled, 1: Type 1, 2: Type 2, 3: Type 3)");
+	struct arg_int *mset = arg_int0("m", "mset", "<n>", "[O] Metadata Settings (*0: Metadata as separate buffer, 1: Metadata as extended buffer)");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = {dev, nsid, lbaf, ses, pil, pi, mset, help, end};
+
+	struct unvme *u;
+	const int sqid = 0;
+	struct unvme_sq *usq;
+	struct unvme_cmd *cmd;
+	int ret;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		ret = errno;
+		goto out;
+	}
+
+	ret = unvmed_format(u, cmd, arg_dblv(nsid), arg_intv(lbaf),
+			arg_intv(ses), arg_intv(pil), arg_intv(pi),
+			arg_intv(mset));
+
+	if (!ret) {
+		/*
+		 * Re-enumerate &struct unvme_ns instance by issuing an
+		 * Identify Namespace (CNS 0h) admin command to the controller
+		 * and update the either pre-existing or non-existing @ns
+		 * instance.
+		 */
+		ret = unvmed_init_ns(u, arg_dblv(nsid), NULL);
+		if (ret)
+			unvme_pr_err("failed to identify formatted namespace\n");
+	} else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+	else
+		unvme_pr_err("failed to format NVM\n");
+
+	unvmed_cmd_free(cmd);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;

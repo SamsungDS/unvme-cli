@@ -1081,6 +1081,21 @@ int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		    unsigned long flags);
 
 /**
+ * unvmed_format - Format NVM command
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to format
+ * @lbaf: LBA format index
+ * @ses: secure erase settings
+ * @pil: protection information location
+ * @pi: protection information
+ * @mset: metadata settings
+ */
+int unvmed_format(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		  uint8_t lbaf, uint8_t ses, uint8_t pil, uint8_t pi,
+		  uint8_t mset);
+
+/**
  * unvmed_ctx_init - Snapshot current driver context
  * @u: &struct unvme
  *
