@@ -4,6 +4,8 @@
 #include "config-host.h"
 #include "fio.h"
 #include "optgroup.h"
+#include "crc/crc-t10dif.h"
+#include "crc/crc64.h"
 
 #undef cpu_to_le64
 #undef cpu_to_be64
@@ -40,6 +42,12 @@ struct libunvmed_options {
 	unsigned int deac;
 	unsigned int readfua;
 	unsigned int writefua;
+	unsigned int md_per_io_size;
+	unsigned int apptag;
+	unsigned int apptag_mask;
+	unsigned int pi_act;
+	unsigned int prchk;
+	char *pi_chk;
 };
 
 /*
@@ -184,6 +192,56 @@ static struct fio_option options[] = {
 		.group	= FIO_OPT_G_INVALID,
 	},
 	{
+		.name   = "md_per_io_size",
+		.lname  = "Separate Metadata Buffer Size per I/O",
+		.type   = FIO_OPT_INT,
+		.off1   = offsetof(struct libunvmed_options, md_per_io_size),
+		.def    = "0",
+		.help   = "Size of separate metadata buffer per I/O (Default: 0)",
+		.category = FIO_OPT_C_ENGINE,
+		.group  = FIO_OPT_G_INVALID,
+	},
+	{
+		.name	= "pi_act",
+		.lname	= "Protection Information action (PRACT)",
+		.type	= FIO_OPT_BOOL,
+		.off1	= offsetof(struct libunvmed_options, pi_act),
+		.def	= "1",
+		.help	= "Protection Information Action bit (pi_act=1 or pi_act=0)",
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_INVALID,
+	},
+	{
+		.name   = "pi_chk",
+		.lname  = "Protection Information check",
+		.type   = FIO_OPT_STR_STORE,
+		.off1   = offsetof(struct libunvmed_options, pi_chk),
+		.def    = NULL,
+		.help   = "Control of Protection Information Checking (pi_chk=GUARD,REFTAG,APPTAG)",
+		.category = FIO_OPT_C_ENGINE,
+		.group  = FIO_OPT_G_INVALID,
+	},
+	{
+		.name	= "apptag",
+		.lname	= "Application tag for end-to-end Protection Information",
+		.type	= FIO_OPT_INT,
+		.off1	= offsetof(struct libunvmed_options, apptag),
+		.def	= "0x1234",
+		.help	= "Application Tag used in Protection Information field (Default: 0x1234)",
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_INVALID,
+	},
+	{
+		.name	= "apptag_mask",
+		.lname	= "Application tag mask",
+		.type	= FIO_OPT_INT,
+		.off1	= offsetof(struct libunvmed_options, apptag_mask),
+		.def	= "0xffff",
+		.help	= "Application Tag Mask used with Application Tag (Default: 0xffff)",
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_INVALID,
+	},
+	{
 		.name	= "deac",
 		.lname	= "Deallocate bit for write zeroes command",
 		.type	= FIO_OPT_BOOL,
@@ -230,6 +288,13 @@ struct libunvmed_data {
 	size_t prp_list_iomem_size;
 
 	/*
+	 * metadata buffer and size
+	 */
+	void *mbuf;
+	size_t mlen;
+	uint64_t mbuf_iova;
+
+	/*
 	 * Target I/O submission queue instance per a thread.  A submission
 	 * queue is fully dedicated to a thread(job), which means totally
 	 * non-sharable.
@@ -243,6 +308,35 @@ struct libunvmed_data {
 	uint32_t cdw12_flags[DDIR_RWDIR_CNT];
 	uint32_t cdw13_flags[DDIR_RWDIR_CNT];
 	uint8_t write_opcode;
+};
+
+struct nvme_16b_guard_dif {
+	__be16 guard;
+	__be16 apptag;
+	__be32 srtag;
+};
+
+struct nvme_64b_guard_dif {
+	__be64 guard;
+	__be16 apptag;
+	uint8_t srtag[6];
+};
+
+/*
+ * This meta buffer pointer will be stored each io_u instances to verify
+ * protection information.
+ */
+struct libunvmed_meta_options {
+	void *mbuf;
+	size_t mlen;
+
+	/*
+	 * interval means where the pi data located.  It depends on metadata
+	 * size and pi location in device format.
+	 */
+	uint32_t interval;
+	uint16_t apptag;
+	uint16_t apptag_mask;
 };
 
 static pthread_mutex_t g_serialize = PTHREAD_MUTEX_INITIALIZER;
@@ -282,6 +376,40 @@ static inline uint64_t libunvmed_to_iova(struct thread_data *td, void *buf)
 	uint64_t offset = (uint64_t)(buf - (void *)td->orig_buffer);
 
 	return ld->orig_buffer_iova + (uint64_t)offset;
+}
+
+static inline uint64_t libunvmed_to_meta_iova(struct thread_data *td, void *mbuf)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	uint64_t offset = (uint64_t)(mbuf - (void *)ld->mbuf);
+
+	return ld->mbuf_iova + (uint64_t)offset;
+}
+
+static inline int libunvmed_pi_enabled(struct unvme_ns *ns)
+{
+	return (ns->dps & NVME_NS_DPS_PI_MASK);
+}
+
+static inline int libunvmed_ns_meta_is_dif(struct unvme_ns *ns)
+{
+	return ns->mset;
+}
+
+static inline uint64_t libunvmed_get_slba(struct io_u *io_u, struct unvme_ns *ns)
+{
+	if (libunvmed_ns_meta_is_dif(ns))
+		return io_u->offset / (ns->lba_size + ns->ms);
+	else
+		return io_u->offset >> ilog2(ns->lba_size);
+}
+
+static inline uint32_t libunvmed_get_nlba(struct io_u *io_u, struct unvme_ns *ns)
+{
+	if (libunvmed_ns_meta_is_dif(ns))
+		return (io_u->xfer_buflen / (ns->lba_size + ns->ms)) - 1;  /* zero-based */
+	else
+		return (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
 }
 
 static void *__cmb_ptr;
@@ -365,6 +493,8 @@ static int libunvmed_init_data(struct thread_data *td)
 	struct libunvmed_data *ld;
 	struct unvme *u;
 	struct unvme_ns *ns;
+	uint32_t lba_size;
+	size_t mlen;
 
 	if (td->io_ops_data)
 		goto out;
@@ -387,6 +517,48 @@ static int libunvmed_init_data(struct thread_data *td)
 	/* Set accessor to device controller and namespace instance */
 	ld->u = u;
 	ld->ns = ns;
+
+	/*
+	 * The given ``bs`` may not be fit with the namespace format.  To prevent
+	 * variable error cases, we have to handle this as an error and notice to user.
+	 */
+	if (!libunvmed_ns_meta_is_dif(ns))
+		lba_size = ns->lba_size;
+	else
+		lba_size = ns->lba_size + ns->ms;
+
+	for_each_rw_ddir(ddir) {
+		if (td->o.min_bs[ddir] % lba_size || td->o.max_bs[ddir] % lba_size) {
+			libunvmed_log("bs must be multiple of %d\n", lba_size);
+			return -EINVAL;
+		}
+
+		if (ddir != DDIR_TRIM && ns->ms && !libunvmed_ns_meta_is_dif(ns) &&
+		    (o->md_per_io_size < (td->o.max_bs[ddir] / lba_size) * ns->ms)) {
+			libunvmed_log("md_per_io_size must be >= %d\n", (uint32_t)((td->o.max_bs[ddir] / lba_size) * ns->ms));
+			return -EINVAL;
+		}
+	}
+
+	/*
+	 * md_per_io_size indicates the whole metadata buffer size.  Prepare the
+	 * buffer to transfer metadata and map the virtual address to IOMMU.
+	 */
+	if (!libunvmed_ns_meta_is_dif(ns) && o->md_per_io_size) {
+		mlen = o->md_per_io_size * td->o.iodepth;
+		ld->mlen = pgmap(&ld->mbuf, mlen);
+		if (ld->mlen < 0) {
+			libunvmed_log("failed to mmap() for meta buffer");
+			return -ENOMEM;
+		}
+
+		if (unvmed_map_vaddr(u, ld->mbuf, ld->mlen, &ld->mbuf_iova, 0)) {
+			libunvmed_log("failed to map vaddr for metadata\n");
+			pgunmap(ld->mbuf, ld->mlen);
+			return -EINVAL;
+		}
+	} else if (o->md_per_io_size)
+		libunvmed_log("md_per_io_size will be ignored\n");
 
 	td->io_ops_data = ld;
 
@@ -468,8 +640,31 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 	refcnt = unvmed_ns_put(ld->u, ld->ns);
 	assert(refcnt > 0);
 
+	if (ld->mbuf) {
+		unvmed_unmap_vaddr(ld->u, ld->mbuf);
+		pgunmap(ld->mbuf, ld->mlen);
+	}
+
 	free(ld->cqes);
 	free(ld);
+}
+
+static int libunvmed_parse_prchk(struct libunvmed_options *o)
+{
+	if (!o->pi_chk)
+		return 0;
+
+	if (strstr(o->pi_chk, "GUARD"))
+		o->prchk |= NVME_IO_PRINFO_PRCHK_GUARD;
+	if (strstr(o->pi_chk, "APPTAG"))
+		o->prchk |= NVME_IO_PRINFO_PRCHK_APP;
+	if (strstr(o->pi_chk, "REFTAG"))
+		o->prchk |= NVME_IO_PRINFO_PRCHK_REF;
+
+	if (o->prchk != 0)
+		return 0;
+	else
+		return -1;
 }
 
 static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
@@ -533,6 +728,11 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		if (ret)
 			libunvmed_log("failed to map prp iomem to iommu\n");
 		goto out;
+	}
+
+	if (libunvmed_parse_prchk(o)) {
+		libunvmed_log("'pi_chk=' has neither GUARD, APPTAG, or REFTAG\n");
+		return -1;
 	}
 
 	if (o->write_mode != FIO_URING_CMD_WMODE_WRITE && !td_write(td)) {
@@ -654,28 +854,248 @@ static void fio_libunvmed_iomem_free(struct thread_data *td)
 	pthread_mutex_unlock(&g_serialize);
 }
 
+static int fio_libunvmed_io_u_init(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct libunvmed_meta_options *mo;
+
+	mo = calloc(1, sizeof(*mo));
+	if (!mo) {
+		libunvmed_log("failed to allocate meta options\n");
+		return -ENOMEM;
+	}
+
+	if (!libunvmed_ns_meta_is_dif(ld->ns) && o->md_per_io_size) {
+		mo->mbuf = ld->mbuf + (o->md_per_io_size * io_u->index);
+		mo->mlen = o->md_per_io_size;
+	}
+
+	if (!o->pi_act) {
+		mo->apptag = o->apptag;
+		mo->apptag_mask = o->apptag_mask;
+	}
+
+	io_u->engine_data = mo;
+
+	return 0;
+}
+
+static void fio_libunvmed_io_u_free(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_meta_options *mo = io_u->engine_data;
+
+	free(mo);
+	io_u->engine_data = NULL;
+}
+
+static void libunvmed_fill_pi_16b_guard(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct libunvmed_meta_options *mo = io_u->engine_data;
+	struct unvme_ns *ns = ld->ns;
+	struct nvme_16b_guard_dif *pi;
+	void *buf = io_u->xfer_buf;
+	void *mbuf = mo->mbuf;
+	uint32_t lba_idx = 0;
+	uint64_t slba = libunvmed_get_slba(io_u, ns);
+	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint16_t guard;
+
+	if (ns->dps & NVME_NS_DPS_PI_FIRST) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			mo->interval = ns->lba_size;
+		else
+			mo->interval = 0;
+	} else {
+		if (libunvmed_ns_meta_is_dif(ns))
+			mo->interval = ns->lba_size + ns->ms - sizeof(struct nvme_16b_guard_dif);
+		else
+			mo->interval = ns->ms - sizeof(struct nvme_16b_guard_dif);
+	}
+
+	if (io_u->ddir == DDIR_READ)
+		return;
+
+	while (lba_idx <= nlb) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			pi = (struct nvme_16b_guard_dif *)(buf + mo->interval);
+		else
+			pi = (struct nvme_16b_guard_dif *)(mbuf + mo->interval);
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_GUARD) {
+			if (libunvmed_ns_meta_is_dif(ns))
+				guard = fio_crc_t10dif(0, buf, mo->interval);
+			else {
+				guard = fio_crc_t10dif(0, buf, ns->lba_size);
+				guard = fio_crc_t10dif(guard, mbuf, mo->interval);
+			}
+			pi->guard = cpu_to_be16(guard);
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP)
+			pi->apptag = cpu_to_be16(mo->apptag & mo->apptag_mask);
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF)
+			pi->srtag = cpu_to_be32((uint32_t)slba + lba_idx);
+
+		buf += ns->lba_size;
+		if (libunvmed_ns_meta_is_dif(ns))
+			buf += ns->ms;
+		else
+			mbuf += ns->ms;
+
+		lba_idx++;
+	}
+}
+
+static void libunvmed_fill_pi_64b_guard(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct libunvmed_meta_options *mo = io_u->engine_data;
+	struct unvme_ns *ns = ld->ns;
+	struct nvme_64b_guard_dif *pi;
+	void *buf = io_u->xfer_buf;
+	void *mbuf = mo->mbuf;
+	uint32_t lba_idx = 0;
+	uint64_t slba = libunvmed_get_slba(io_u, ns);
+	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint64_t guard;
+
+	if (ns->dps & NVME_NS_DPS_PI_FIRST) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			mo->interval = ns->lba_size;
+		else
+			mo->interval = 0;
+	} else {
+		if (libunvmed_ns_meta_is_dif(ns))
+			mo->interval = ns->lba_size + ns->ms - sizeof(struct nvme_64b_guard_dif);
+		else
+			mo->interval = ns->ms - sizeof(struct nvme_64b_guard_dif);
+	}
+
+	while (lba_idx <= nlb) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			pi = (struct nvme_64b_guard_dif *)(buf + mo->interval);
+		else
+			pi = (struct nvme_64b_guard_dif *)(mbuf + mo->interval);
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_GUARD) {
+			if (libunvmed_ns_meta_is_dif(ns))
+				guard = fio_crc64_nvme(0, buf, mo->interval);
+			else {
+				guard = fio_crc64_nvme(0, buf, ns->lba_size);
+				guard = fio_crc64_nvme(guard, mbuf, mo->interval);
+			}
+			pi->guard = cpu_to_be64(guard);
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP)
+			pi->apptag = cpu_to_be16(mo->apptag & mo->apptag_mask);
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF)
+			put_unaligned_be48(slba + lba_idx, pi->srtag);
+
+		buf += ns->lba_size;
+		if (libunvmed_ns_meta_is_dif(ns))
+			buf += ns->ms;
+		else
+			mbuf += ns->ms;
+
+		lba_idx++;
+	}
+}
+
+static void libunvmed_fill_pi(struct thread_data *td, struct io_u *io_u,
+			      struct nvme_cmd_rw *sqe)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct unvme_ns *ns = ld->ns;
+
+	uint64_t slba = libunvmed_get_slba(io_u, ns);
+
+	/*
+	 * Fill the metadata to buffer (or meta buffer). The metadata includes
+	 * guard, apptag and reftag.  This will be ignored if PRACT is set to 1.
+	 */
+	if (!o->pi_act) {
+		switch (ns->pif) {
+		case NVME_NVM_PIF_16B_GUARD:
+			libunvmed_fill_pi_16b_guard(td, io_u);
+			break;
+		case NVME_NVM_PIF_32B_GUARD:
+			break;
+		case NVME_NVM_PIF_64B_GUARD:
+			libunvmed_fill_pi_64b_guard(td, io_u);
+			break;
+		default:
+			break;
+		}
+	}
+
+	/*
+	 * Fill the tags and flags to SQE.
+	 * XXX: The storage tag is not supported, yet.
+	 */
+	if (o->pi_act)
+		sqe->control |= NVME_IO_PRINFO_PRACT;
+	sqe->control |= o->prchk;
+
+	if (o->prchk & NVME_IO_PRINFO_PRCHK_APP) {
+		sqe->apptag = cpu_to_le16(o->apptag);
+		sqe->appmask = cpu_to_le16(o->apptag_mask);
+	}
+
+	if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
+		switch (ns->dps & NVME_NS_DPS_PI_MASK) {
+		case NVME_NS_DPS_PI_TYPE1:
+		case NVME_NS_DPS_PI_TYPE2:
+			if (ns->pif == NVME_NVM_PIF_16B_GUARD)
+				sqe->reftag = cpu_to_le32((uint32_t)slba);
+			else if (ns->pif == NVME_NVM_PIF_64B_GUARD) {
+				sqe->reftag = cpu_to_le32(slba & 0xffffffff);
+				sqe->cdw3 = cpu_to_le32(((slba >> 32) & 0xffff));
+			}
+			break;
+		case NVME_NS_DPS_PI_TYPE3:
+			break;
+		default:
+			break;
+		}
+	}
+}
+
 static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 					  struct io_u *io_u)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
 	struct libunvmed_options *o = td->eo;
+	struct libunvmed_meta_options *mo = io_u->engine_data;
 
 	struct unvme_ns *ns = ld->ns;
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_rw sqe = {0, };
 
-	uint64_t slba;
-	uint32_t nlb;
+	uint64_t slba = libunvmed_get_slba(io_u, ns);
+	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
 
 	void *buf = io_u->xfer_buf;
 	void *list = NULL;
 	size_t len = io_u->xfer_buflen;
+	void *mbuf = mo->mbuf;
+	size_t mlen = mo->mlen;
 	int ret;
 
 	if (o->prp1_offset)
 		buf = libunvmed_prp_iomem(ld, io_u);
 
-	cmd = unvmed_alloc_cmd(ld->u, ld->usq, buf, len);
+	if (mlen)
+		cmd = unvmed_alloc_cmd_meta(ld->u, ld->usq, buf, len, mbuf, mlen);
+	else
+		cmd = unvmed_alloc_cmd(ld->u, ld->usq, buf, len);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
@@ -685,9 +1105,6 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	if (o->prp1_offset && io_u->ddir == DDIR_WRITE)
 		memcpy(buf + o->prp1_offset, io_u->xfer_buf, io_u->xfer_buflen);
 
-	slba = io_u->offset >> ilog2(ns->lba_size);
-	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
-
 	sqe.opcode = (io_u->ddir == DDIR_READ) ? nvme_cmd_read : ld->write_opcode;
 	sqe.nsid = cpu_to_le32(ns->nsid);
 	sqe.slba = cpu_to_le64(slba);
@@ -695,6 +1112,12 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 		cpu_to_le32(ld->cdw12_flags[io_u->ddir] | nlb);
 	((union nvme_cmd *)&sqe)->cdw13 =
 		cpu_to_le32(ld->cdw13_flags[io_u->ddir]);
+
+	/*
+	 * Set metadata to SQE and buffer
+	 */
+	if (libunvmed_pi_enabled(ns))
+		libunvmed_fill_pi(td, io_u, &sqe);
 
 	/*
 	 * XXX: Making a decision whether PRP or SGL is to be used should be
@@ -722,6 +1145,17 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 		return -errno;
 	}
 
+	if (mbuf) {
+		uint64_t iova;
+		if (o->enable_sgl) {
+			libunvmed_log("metadata with sgl is not supported yet\n");
+			return -EINVAL;
+		}
+
+		iova = libunvmed_to_meta_iova(td, mbuf);
+		sqe.mptr = cpu_to_le64(iova);
+	}
+
 	cmd->opaque = io_u;
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
 	return FIO_Q_QUEUED;
@@ -738,17 +1172,14 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 
 	const size_t dsm_range_size = 4096;
 	struct nvme_dsm_range *range;
-	uint64_t slba;
-	uint32_t nlb;
+	uint64_t slba = libunvmed_get_slba(io_u, ns);
+	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
 
 	cmd = unvmed_alloc_cmd(ld->u, ld->usq, NULL, dsm_range_size);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
 	range = cmd->buf.va;
-
-	slba = io_u->offset >> ilog2(ns->lba_size);
-	nlb = (io_u->xfer_buflen >> ilog2(ns->lba_size));
 
 	sqe.opcode = nvme_cmd_dsm;
 	sqe.nsid = cpu_to_le32(ns->nsid);
@@ -827,6 +1258,194 @@ static int fio_libunvmed_commit(struct thread_data *td)
 	return 0;
 }
 
+static int libunvmed_verify_pi_16b_guard(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct libunvmed_meta_options *mo = io_u->engine_data;
+	struct unvme_ns *ns = ld->ns;
+	struct nvme_16b_guard_dif *pi;
+	void *buf = io_u->xfer_buf;
+	void *mbuf = mo->mbuf;
+	uint32_t lba_idx = 0;
+	uint64_t slba = libunvmed_get_slba(io_u, ns);
+	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+
+	while (lba_idx <= nlb) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			pi = (struct nvme_16b_guard_dif *)(buf + mo->interval);
+		else
+			pi = (struct nvme_16b_guard_dif *)(mbuf + mo->interval);
+
+		/*
+		 * When the namespace is formatted for Type 1 or 2, if the apptag
+		 * values are all `1`s, the pi validation will be skipped.
+		 */
+		if (((ns->dps & NVME_NS_DPS_PI_MASK) == NVME_NS_DPS_PI_TYPE1 ||
+		    (ns->dps & NVME_NS_DPS_PI_MASK) == NVME_NS_DPS_PI_TYPE2) &&
+		    be16_to_cpu(pi->apptag) == 0xffff)
+			goto next;
+
+		/*
+		 * When the namespace is formatted for Type 3, if the apptag
+		 * and reftag values are all `1`s, the pi validation will be skipped.
+		 */
+		if ((ns->dps & NVME_NS_DPS_PI_TYPE3) == NVME_NS_DPS_PI_TYPE3 &&
+		    be16_to_cpu(pi->apptag) == 0xffff &&
+		    be32_to_cpu(pi->srtag) == 0xffffffff)
+			goto next;
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_GUARD) {
+			uint16_t guard = be16_to_cpu(pi->guard);
+			uint16_t guard_exp;
+			if (libunvmed_ns_meta_is_dif(ns))
+				guard_exp = fio_crc_t10dif(0, buf, mo->interval);
+			else {
+				guard_exp = fio_crc_t10dif(0, buf, ns->lba_size);
+				guard_exp = fio_crc_t10dif(guard_exp, mbuf, mo->interval);
+			}
+			if (guard != guard_exp)
+				return -EIO;
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP) {
+			uint16_t at = be16_to_cpu(pi->apptag & mo->apptag_mask);
+			uint16_t at_exp = mo->apptag & mo->apptag_mask;
+			if (at != at_exp)
+				return -EIO;
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
+			switch (ns->dps & NVME_NS_DPS_PI_MASK) {
+			case NVME_NS_DPS_PI_TYPE1:
+			case NVME_NS_DPS_PI_TYPE2:
+				uint32_t rt = be32_to_cpu(pi->srtag);
+				uint32_t rt_exp = (uint32_t)slba + lba_idx;
+				if (rt != rt_exp)
+					return -EIO;
+				break;
+			case NVME_NS_DPS_PI_TYPE3:
+				break;
+			default:
+				assert(false);
+			}
+		}
+
+next:
+		buf += ns->lba_size;
+		if (libunvmed_ns_meta_is_dif(ns))
+			buf += ns->ms;
+		else
+			mbuf += ns->ms;
+
+		lba_idx++;
+	}
+
+	return 0;
+}
+
+static int libunvmed_verify_pi_64b_guard(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct libunvmed_meta_options *mo = io_u->engine_data;
+	struct unvme_ns *ns = ld->ns;
+	struct nvme_64b_guard_dif *pi;
+	void *buf = io_u->xfer_buf;
+	void *mbuf = mo->mbuf;
+	uint32_t lba_idx = 0;
+	uint64_t slba = libunvmed_get_slba(io_u, ns);
+	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+
+	while (lba_idx <= nlb) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			pi = (struct nvme_64b_guard_dif *)(buf + mo->interval);
+		else
+			pi = (struct nvme_64b_guard_dif *)(mbuf + mo->interval);
+		/*
+		 * When the namespace is formatted for Type 1 or 2, if the apptag
+		 * values are all `1`s, the pi validation will be skipped.
+		 */
+		if (((ns->dps & NVME_NS_DPS_PI_MASK) == NVME_NS_DPS_PI_TYPE1 ||
+		    (ns->dps & NVME_NS_DPS_PI_MASK) == NVME_NS_DPS_PI_TYPE2) &&
+		    be16_to_cpu(pi->apptag) == 0xffff)
+			goto next;
+
+		/*
+		 * When the namespace is formatted for Type 3, if the apptag
+		 * and reftag values are all `1`s, the pi validation will be skipped.
+		 */
+		if ((ns->dps & NVME_NS_DPS_PI_MASK) == NVME_NS_DPS_PI_TYPE3 &&
+		    be16_to_cpu(pi->apptag) == 0xffff &&
+		    get_unaligned_be48(pi->srtag) == 0xffffffffffff)
+			goto next;
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_GUARD) {
+			uint64_t guard = be64_to_cpu(pi->guard);
+			uint64_t guard_exp;
+			if (libunvmed_ns_meta_is_dif(ns))
+				guard_exp = fio_crc64_nvme(0, buf, mo->interval);
+			else {
+				guard_exp = fio_crc64_nvme(0, buf, ns->lba_size);
+				guard_exp = fio_crc64_nvme(guard_exp, mbuf, mo->interval);
+			}
+			if (guard != guard_exp)
+				return -EIO;
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP) {
+			uint16_t at = be16_to_cpu(pi->apptag & mo->apptag_mask);
+			uint16_t at_exp = mo->apptag & mo->apptag_mask;
+			if (at != at_exp)
+				return -EIO;
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
+			switch (ns->dps & NVME_NS_DPS_PI_MASK) {
+			case NVME_NS_DPS_PI_TYPE1:
+			case NVME_NS_DPS_PI_TYPE2:
+				uint64_t rt = get_unaligned_be48(pi->srtag);
+				uint64_t rt_exp = slba + lba_idx;
+				if (rt != rt_exp)
+					return -EIO;
+				break;
+			case NVME_NS_DPS_PI_TYPE3:
+				break;
+			default:
+				assert(false);
+			}
+		}
+
+next:
+		buf += ns->lba_size;
+		if (libunvmed_ns_meta_is_dif(ns))
+			buf += ns->ms;
+		else
+			mbuf += ns->ms;
+
+		lba_idx++;
+	}
+
+	return 0;
+}
+
+static int libunvmed_verify_pi(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct unvme_ns *ns = ld->ns;
+
+	if (ns->pif == NVME_NVM_PIF_16B_GUARD)
+		return libunvmed_verify_pi_16b_guard(td, io_u);
+	else if (ns->pif == NVME_NVM_PIF_32B_GUARD) {
+		libunvmed_log("Not support 32B guard PI\n");
+		return -EINVAL;
+	}
+	else if (ns->pif == NVME_NVM_PIF_64B_GUARD)
+		return libunvmed_verify_pi_64b_guard(td, io_u);
+
+	return -EINVAL;
+}
+
 static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
@@ -834,7 +1453,9 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 
 	struct nvme_cqe *cqe = &ld->cqes[event];
 	struct unvme_cmd *cmd = &ld->usq->cmds[cqe->cid];
+	struct unvme_ns *ns = ld->ns;
 	struct io_u *io_u;
+	int ret;
 
 	assert(le16_to_cpu(cqe->sqid) == unvmed_sq_id(ld->usq));
 	assert(cmd != NULL);
@@ -851,6 +1472,13 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	 */
 	if (o->prp1_offset && io_u->ddir == DDIR_READ)
 		memcpy(io_u->xfer_buf, cmd->buf.iov.iov_base, io_u->xfer_buflen);
+
+	if (libunvmed_pi_enabled(ns) &&
+	     io_u->ddir == DDIR_READ && !o->pi_act) {
+		ret = libunvmed_verify_pi(td, io_u);
+		if (ret)
+			io_u->error = ret;
+	}
 
 	unvmed_cmd_free(cmd);
 
@@ -942,6 +1570,9 @@ static struct ioengine_ops ioengine_libunvmed_cmd = {
 
 	.iomem_alloc = fio_libunvmed_iomem_alloc,
 	.iomem_free = fio_libunvmed_iomem_free,
+
+	.io_u_init = fio_libunvmed_io_u_init,
+	.io_u_free = fio_libunvmed_io_u_free,
 
 	.queue = fio_libunvmed_queue,
 	.commit = fio_libunvmed_commit,

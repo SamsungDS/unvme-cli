@@ -62,6 +62,7 @@ struct name {			\
 	uint16_t ms;		\
 	uint8_t mset;		\
 	uint8_t pif;		\
+	uint8_t dps;		\
 	uint8_t sts;		\
 	uint64_t lbstm;		\
 }

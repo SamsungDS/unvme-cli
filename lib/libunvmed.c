@@ -840,6 +840,7 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	ns->format_idx = format_idx;
 	ns->mset = (id_ns->flbas >> 4) & 0x1;
 	ns->ms = le16_to_cpu(id_ns->lbaf[format_idx].ms);
+	ns->dps = id_ns->dps;
 
 	if (!prev) {
 		ns->refcnt = 1;
