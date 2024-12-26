@@ -43,7 +43,6 @@ static void __attribute__((constructor)) unvmed_cmds_init(void)
 		if (arg_boolv(help)) {							\
 			unvme_print_help(__stdout, argv[1], desc, argtable);		\
 											\
-			pthread_spin_unlock(&__arglock);				\
 			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
 			return 0;							\
 		}									\
@@ -52,7 +51,6 @@ static void __attribute__((constructor)) unvmed_cmds_init(void)
 			arg_print_errors(__stdout, end, "unvme");                       \
 			unvme_print_help(__stdout, argv[1], desc, argtable);		\
 											\
-			pthread_spin_unlock(&__arglock);				\
 			arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable));	\
 			return EINVAL;							\
 		}									\
