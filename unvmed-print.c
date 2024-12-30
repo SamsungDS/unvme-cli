@@ -79,13 +79,14 @@ void unvme_pr_nvm_id_ns(void *vaddr)
 {
 	struct nvme_nvm_id_ns *nvm_id_ns = (struct nvme_nvm_id_ns *)vaddr;
 
-	unvme_pr("lbstm    : %#lx\n", le64_to_cpu(nvm_id_ns->lbstm));
-	unvme_pr("pic      : %#x\n", nvm_id_ns->pic);
-	unvme_pr("pifa     : %#x\n", nvm_id_ns->pifa);
+	unvme_pr("%10s:\t%#lx\n", "lbstm", le64_to_cpu(nvm_id_ns->lbstm));
+	unvme_pr("%10s:\t%#x\n", "pic", nvm_id_ns->pic);
+	unvme_pr("%10s:\t%#x\n", "pifa", nvm_id_ns->pifa);
 	for (int i = 0; i < 64; i++) {
 		uint32_t elbaf = le32_to_cpu(nvm_id_ns->elbaf[i]);
-		unvme_pr("elbaf[%2d]: qpif:%d pif:%d sts:%-2d\n",
-				i, (elbaf >> 9) & 0xF, (elbaf >> 7) & 0x3, elbaf & 0x7F);
+		unvme_pr("%c%6s[%2d]:\tqpif: %4d, pif: %4d, sts: %4d\n",
+				' ', "elbaf", i,
+				(elbaf >> 9) & 0xf, (elbaf >> 7) & 0x3, elbaf & 0x7f);
 	}
 }
 
