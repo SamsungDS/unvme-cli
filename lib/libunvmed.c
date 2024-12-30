@@ -2317,7 +2317,7 @@ int unvmed_format(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 
 	sqe.opcode = nvme_admin_format_nvm;
 	sqe.nsid = cpu_to_le32(nsid);
-	sqe.cdw10 = ((lbaf >> 12 & 3) << 12) | ((ses & 0x7) << 9) |
+	sqe.cdw10 = ((lbaf >> 4 & 3) << 12) | ((ses & 0x7) << 9) |
 		((pil & 0x1) << 8) | ((pi & 0x7) << 5) | ((mset & 0x1) << 4) |
 		(lbaf & 0xf);
 
