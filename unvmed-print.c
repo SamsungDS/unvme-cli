@@ -7,6 +7,7 @@
 #include <vfn/nvme.h>
 #include <sys/msg.h>
 #include <nvme/types.h>
+#include <nvme/util.h>
 
 #include "libunvmed.h"
 #include "unvme.h"
@@ -21,6 +22,8 @@ void unvme_pr_raw(void *vaddr, size_t len)
 void unvme_pr_id_ns(void *vaddr)
 {
 	struct nvme_id_ns *id_ns = (struct nvme_id_ns *)vaddr;
+	uint8_t in_use;
+	nvme_id_ns_flbas_to_lbaf_inuse(id_ns->flbas, &in_use);
 
 	unvme_pr("%10s:\t%#lx\n", "nsze", le64_to_cpu(id_ns->nsze));
 	unvme_pr("%10s:\t%#lx\n", "ncap", le64_to_cpu(id_ns->ncap));
@@ -67,7 +70,7 @@ void unvme_pr_id_ns(void *vaddr)
 		struct nvme_lbaf *lbaf = &id_ns->lbaf[i];
 
 		unvme_pr("%c%6s[%2d]:\tms: %4d, ds: %4d, rp: %4d\n",
-				i == id_ns->flbas ? '*' : ' ', "lbaf", i,
+				i == in_use ? '*' : ' ', "lbaf", i,
 				le16_to_cpu(lbaf->ms), lbaf->ds, lbaf->rp);
 	}
 }

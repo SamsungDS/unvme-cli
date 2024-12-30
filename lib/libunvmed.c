@@ -10,6 +10,7 @@
 #include <vfn/support/atomic.h>
 
 #include <nvme/types.h>
+#include <nvme/util.h>
 
 #include <ccan/list/list.h>
 
