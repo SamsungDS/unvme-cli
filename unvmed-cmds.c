@@ -2054,6 +2054,9 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 		ret = unvmed_init_ns(u, arg_dblv(nsid), NULL);
 		if (ret)
 			unvme_pr_err("failed to identify formatted namespace\n");
+		ret = unvmed_init_meta_ns(u, arg_dblv(nsid), NULL);
+		if (ret)
+			unvme_pr_err("failed to identify formatted namespace\n");
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 	else
