@@ -138,10 +138,9 @@ static bool __is_nvme_device(const char *bdf)
 	return ((class >> 8) & 0xffff) == 0x108;
 }
 
-static int unvmed_pci_bind(const char *bdf)
+static int unvmed_pci_bind(const char *bdf, const char *target)
 {
 	char *path = "/sys/module/vfio_pci";
-	const char *target = "vfio-pci";
 	unsigned long long vendor, device;
 	struct stat st;
 
@@ -264,7 +263,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_pci_bind(arg_strv(dev))) {
+	if (unvmed_pci_bind(arg_strv(dev), "vfio-pci")) {
 		unvme_pr_err("failed to bind PCI device to vfio-pci driver\n");
 		ret = errno;
 		goto out;
@@ -285,6 +284,7 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_lit *nvme;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -294,6 +294,7 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		nvme = arg_lit0("n", "nvme", "Bind back to nvme kernel driver from vfio-pci driver"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -310,6 +311,17 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvmed_pci_unbind(arg_strv(dev))) {
 		unvme_pr_err("failed to unbind PCI device from vfio-pci driver\n");
 		ret = errno;
+	}
+
+	/*
+	 * If --nvme is not given, keep the device being binded to vfio-pci
+	 * kernel driver, otherwise, bind it to nvme kernel drive back.
+	 */
+	if (arg_boolv(nvme)) {
+		if (unvmed_pci_bind(arg_strv(dev), "nvme")) {
+			unvme_pr_err("failed to bind PCI device to nvme driver\n");
+			ret = errno;
+		}
 	}
 
 out:
