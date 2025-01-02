@@ -303,10 +303,8 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (!u)
-		goto out;
-
-	unvmed_free_ctrl(u);
+	if (u)
+		unvmed_free_ctrl(u);
 
 	if (unvmed_pci_unbind(arg_strv(dev))) {
 		unvme_pr_err("failed to unbind PCI device from vfio-pci driver\n");
@@ -324,7 +322,6 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-out:
 	unvme_free_args(argtable);
 	return ret;
 }
