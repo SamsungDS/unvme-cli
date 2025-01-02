@@ -32,6 +32,7 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 {
 	int (*main)(int, char *[], char *[]);
 	char **__argv;
+	const int nr_def_argc = 2;
 	int ret = 0;
 
 	void *fio;
@@ -82,9 +83,11 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 
 	/*
 	 * Put a default argument '--eta=always' to print output in stdio
-	 * successfully.
+	 * successfully and '--thread=1' for those who forget to give this
+	 * mandatory option for libunvmed ioengine.
+	 * The last +1 is for NULL.
 	 */
-	__argv = malloc(sizeof(char *) * (argc + 2));
+	__argv = malloc(sizeof(char *) * (argc + nr_def_argc + 1));
 	for (int i = 0; i < argc; i++) {
 		/* job file path */
 		if (argv[i][0] != '-')
@@ -102,7 +105,8 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 			__argv[i] = argv[i];
 	}
 	__argv[argc] = "--eta=always";
-	__argv[argc + 1] = NULL;
+	__argv[argc + 1] = "--thread=1";
+	__argv[argc + 2] = NULL;
 
 	/*
 	 * If fio is terminated by exit() call inside of the shared object,
@@ -119,7 +123,7 @@ int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd)
 	if (ret == EINTR)
 		goto out;
 
-	ret = main(argc + 1, __argv, environ);
+	ret = main(argc + nr_def_argc, __argv, environ);
 
 out:
 	free(__argv);
