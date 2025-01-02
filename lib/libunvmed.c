@@ -1506,6 +1506,11 @@ int unvmed_create_adminq(struct unvme *u)
 		goto out;
 	}
 
+	if (unvmed_init_irq(u, 0)) {
+		errno = EINVAL;
+		return -1;
+	}
+
 	if (nvme_configure_adminq(&u->ctrl, qid))
 		goto out;
 
