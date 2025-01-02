@@ -550,6 +550,9 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 	struct unvme_cq_reaper *r = &u->reapers[vector];
 	int ret;
 
+	if (!atomic_load_acquire(&r->refcnt))
+		return 0;
+
 	if (atomic_dec_fetch(&r->refcnt) > 0)
 		return 0;
 
