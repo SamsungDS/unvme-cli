@@ -638,7 +638,7 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 	int refcnt;
 
 	refcnt = unvmed_ns_put(ld->u, ld->ns);
-	assert(refcnt > 0);
+	assert(refcnt >= 0);
 
 	if (ld->mbuf) {
 		unvmed_unmap_vaddr(ld->u, ld->mbuf);
