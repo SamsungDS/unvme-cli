@@ -820,10 +820,11 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 		}
 	} else {
 		int refcnt;
-
 		ns = (struct __unvme_ns *)prev;
-		refcnt = unvmed_ns_put(u, prev);
-		assert(refcnt > 0);
+		if (ns->enabled) {
+			refcnt = unvmed_ns_put(u, prev);
+			assert(refcnt > 0);
+		}
 	}
 
 	if (id_ns->nlbaf < 16)
