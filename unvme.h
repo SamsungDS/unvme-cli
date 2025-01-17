@@ -187,7 +187,7 @@ static inline void unvme_print_help(FILE *fp, char *cmd, const char *desc, void 
 	arg_freetable(argtable, sizeof(argtable) / sizeof(*argtable))
 
 #define UNVME_ARG_MAX_ERROR	20
-#define UNVME_BDF_PATTERN	"^[0-9]+:[0-9]+(:[0-9]+)?(.[0-9]+)?|[0-9]+.[0-9]+"
+#define UNVME_BDF_PATTERN	"^[0-9a-z]+:[0-9a-z]+(:[0-9a-z]+)?(.[0-9]+)?|[0-9a-z]+.[0-9]+"
 
 /*
  * Command handlers
