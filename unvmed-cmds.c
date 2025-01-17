@@ -2065,7 +2065,7 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_dbl *nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID");
-	struct arg_int *lbaf = arg_int1("l", "lbaf", "<n>", "[M] LBA Format index");
+	struct arg_int *lbaf = arg_int0("l", "lbaf", "<n>", "[O] LBA Format index");
 	struct arg_int *ses = arg_int0("s", "ses", "<n>", "[O] Secure Erase Setting (*0: No secure, 1: User data erase, 2: Cryptographic erase)");
 	struct arg_int *pil = arg_int0("p", "pil", "<n>", "[O] Protection Info Location (*0: First bytes of metadata, 1: Last bytes of metadata)");
 	struct arg_int *pi = arg_int0("i", "pi", "<n>", "[O] Protection Info (*0: PI disabled, 1: Type 1, 2: Type 2, 3: Type 3)");
@@ -2102,6 +2102,18 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 
 		ret = errno;
 		goto out;
+	}
+
+	if (!arg_boolv(lbaf)) {
+		struct unvme_ns *ns = unvmed_ns_get(u, arg_dblv(nsid));
+		if (ns) {
+			arg_intv(lbaf) = ns->format_idx;
+			unvmed_ns_put(u, ns);
+		} else {
+			unvme_pr_err("failed to get a namespace instance\n");
+			ret = -EINVAL;
+			goto out;
+		}
 	}
 
 	ret = unvmed_format(u, cmd, arg_dblv(nsid), arg_intv(lbaf),
