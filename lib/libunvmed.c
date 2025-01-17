@@ -2537,7 +2537,11 @@ static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 					ctx->ctrl.iocqes, ctx->ctrl.mps,
 					ctx->ctrl.css);
 		case UNVME_CTX_T_NS:
-			return unvmed_init_ns(u, ctx->ns.nsid, NULL);
+			int ret;
+			ret = unvmed_init_ns(u, ctx->ns.nsid, NULL);
+			if (ret)
+				return ret;
+			return unvmed_init_meta_ns(u, ctx->ns.nsid, NULL);
 		case UNVME_CTX_T_CQ:
 			return unvmed_create_cq(u, ctx->cq.qid, ctx->cq.qsize,
 					ctx->cq.vector);
