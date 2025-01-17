@@ -628,15 +628,17 @@ static int unvmed_alloc_irqs(struct unvme *u)
 	return 0;
 }
 
-static int unvmed_free_irqs(struct unvme *u)
+static void unvmed_free_irq_all(struct unvme *u)
 {
 	int vector;
 
 	for (vector = 0; vector < u->nr_efds; vector++)
 		unvmed_free_irq(u, vector);
+}
 
-	if (vfio_disable_irq_all(&u->ctrl.pci.dev))
-		return -1;
+static int unvmed_free_irqs(struct unvme *u)
+{
+	unvmed_free_irq_all(u);
 
 	free(u->reapers);
 	u->reapers = NULL;
@@ -1628,19 +1630,15 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 	struct __unvme_cq *ucq, *next;
 	struct nvme_cq *cq;
 
+	unvmed_free_irq_all(u);
+
 	pthread_rwlock_wrlock(&u->cq_list_lock);
 	list_for_each_safe(&u->cq_list, ucq, next, list) {
-		int vector = unvmed_cq_iv(ucq);
-		bool irq = unvmed_cq_irq_enabled(__to_cq(ucq));
-
 		cq = ucq->q;
 
 		unvmed_log_info("Deleting ucq (qid=%d)", unvmed_cq_id(ucq));
 		__unvmed_cq_put(u, __to_cq(ucq));
 		nvme_discard_cq(&u->ctrl, cq);
-
-		if (irq)
-			unvmed_free_irq(u, vector);
 	}
 	pthread_rwlock_unlock(&u->cq_list_lock);
 }
