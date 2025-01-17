@@ -2166,13 +2166,19 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 	 * If --reinit is given, we should gather all the driver context here
 	 * to restore them back when enabling the controller back again.
 	 */
-	if (arg_boolv(reinit))
-		unvmed_ctx_init(u);
+	if (arg_boolv(reinit) && unvmed_ctx_init(u)) {
+		unvme_pr_err("failed to save the current driver context\n");
+		ret = errno;
+		goto out;
+	}
 
 	unvmed_reset_ctrl(u);
 
-	if (arg_boolv(reinit))
-		unvmed_ctx_restore(u);
+	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
+		unvme_pr_err("failed to restore the previous driver context\n");
+		ret = errno;
+		goto out;
+	}
 out:
 	unvme_free_args(argtable);
 	return ret;
