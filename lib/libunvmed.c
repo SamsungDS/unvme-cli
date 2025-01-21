@@ -981,6 +981,13 @@ static void __unvmed_free_usq(struct __unvme_sq *usq)
 	free(usq);
 }
 
+static void unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
+{
+	pthread_rwlock_wrlock(&u->sq_list_lock);
+	__unvmed_free_usq((struct __unvme_sq *)usq);
+	pthread_rwlock_unlock(&u->sq_list_lock);
+}
+
 static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 {
 	struct __unvme_cq *ucq;
@@ -1584,24 +1591,27 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 
 int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 {
-	struct unvme_sq *usq;
+	struct unvme_sq *adminq;
 	struct unvme_cq *ucq;
-
-	usq = __to_sq(unvmed_sq_find(u, 0));
-	if (!usq) {
-		errno = EPERM;
-		return -1;
-	}
+	struct unvme_cmd *cmd;
+	struct nvme_cmd_create_cq sqe = {0, };
+	struct nvme_cqe cqe;
+	uint16_t qflags = NVME_Q_PC;
+	uint16_t iv = 0;
 
 	if (vector >= 0 && unvmed_init_irq(u, vector))
 		return -1;
 
-	unvmed_sq_enter(usq);
-	if (nvme_create_iocq(&u->ctrl, qid, qsize, vector)) {
-		unvmed_sq_exit(usq);
+	adminq = unvmed_sq_find(u, 0);
+	if (!adminq) {
+		errno = EPERM;
 		return -1;
 	}
-	unvmed_sq_exit(usq);
+
+	if (nvme_configure_cq(&u->ctrl, qid, qsize, vector)) {
+		unvmed_log_err("could not configure io completion queue");
+		return -1;
+	}
 
 	ucq = unvmed_init_ucq(u, qid);
 	if (!ucq) {
@@ -1612,6 +1622,31 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		return -1;
 	}
 
+	cmd = unvmed_alloc_cmd_nodata(u, adminq);
+	if (!cmd) {
+		unvmed_free_ucq(u, ucq);
+		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+		return -1;
+	}
+
+	if (vector >= 0) {
+		qflags |= NVME_CQ_IEN;
+		iv = (uint16_t)vector;
+	}
+
+	sqe.opcode = nvme_admin_create_cq;
+	sqe.qid = cpu_to_le16(qid);
+	sqe.prp1 = cpu_to_le64(u->ctrl.cq[qid].iova);
+	sqe.qsize = cpu_to_le16((uint16_t)(qsize - 1));
+	sqe.qflags = cpu_to_le16(qflags);
+	sqe.iv = cpu_to_le16(iv);
+
+	unvmed_sq_enter(cmd->usq);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
+	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
+	unvmed_sq_exit(cmd->usq);
+
+	unvmed_cmd_free(cmd);
 	return 0;
 }
 
@@ -1690,15 +1725,19 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		    uint32_t cqid)
 {
 	struct unvme_sq *usq;
+	struct unvme_sq *adminq;
 	struct unvme_cq *ucq;
+	struct unvme_cmd *cmd;
+	struct nvme_cmd_create_sq sqe = {0, };
+	struct nvme_cqe cqe;
 
 	if (!unvme_is_enabled(u)) {
 		errno = EPERM;
 		return -1;
 	}
 
-	usq = __to_sq(unvmed_sq_find(u, 0));
-	if (!usq) {
+	adminq = unvmed_sq_find(u, 0);
+	if (!adminq) {
 		errno = EPERM;
 		return -1;
 	}
@@ -1709,12 +1748,10 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
-	unvmed_sq_enter(usq);
-	if (nvme_create_iosq(&u->ctrl, qid, qsize, ucq->q, 0)) {
-		unvmed_sq_exit(usq);
+	if (nvme_configure_sq(&u->ctrl, qid, qsize, ucq->q, 0)) {
+		unvmed_log_err("could not configure io submission queue\n");
 		return -1;
 	}
-	unvmed_sq_exit(usq);
 
 	usq = unvmed_init_usq(u, qid, qsize, ucq);
 	if (!usq) {
@@ -1725,6 +1762,25 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
+	cmd = unvmed_alloc_cmd_nodata(u, adminq);
+	if (!cmd) {
+		unvmed_free_usq(u, usq);
+		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+		return -1;
+	}
+
+	sqe.opcode = nvme_admin_create_sq;
+	sqe.qid = cpu_to_le16(qid);
+	sqe.prp1 = cpu_to_le64(u->ctrl.cq[qid].iova);
+	sqe.qsize = cpu_to_le16((uint16_t)(qsize - 1));
+	sqe.qflags = cpu_to_le16(NVME_Q_PC);
+	sqe.cqid = cpu_to_le16((uint16_t)ucq->q->id);
+
+	unvmed_sq_enter(cmd->usq);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
+	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
+	unvmed_sq_exit(cmd->usq);
+	unvmed_cmd_free(cmd);
 	return 0;
 }
 
