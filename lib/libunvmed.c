@@ -1702,7 +1702,6 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 
 	cmd = unvmed_alloc_cmd_nodata(u, adminq);
 	if (!cmd) {
-		unvmed_sq_put(u, adminq);
 		return -1;
 	}
 
@@ -1828,7 +1827,6 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 
 	cmd = unvmed_alloc_cmd_nodata(u, adminq);
 	if (!cmd) {
-		unvmed_sq_put(u, adminq);
 		return -1;
 	}
 
