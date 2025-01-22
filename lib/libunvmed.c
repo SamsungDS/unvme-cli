@@ -1814,7 +1814,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	struct nvme_cmd_delete_q sqe = {0, };
 	struct nvme_cqe cqe;
 
-	usq = __to_sq(unvmed_sq_find(u, qid));
+	usq = unvmed_sq_find(u, qid);
 	if (!usq) {
 		errno = EINVAL;
 		return -1;
@@ -1901,7 +1901,7 @@ struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe)
 	 * might want to seek the command instance for the corresponding
 	 * completion queue entry.
 	 */
-	usq = __to_sq(unvmed_sq_find(u, cqe->sqid));
+	usq = unvmed_sq_find(u, cqe->sqid);
 	if (!usq)
 		return NULL;
 
