@@ -18,6 +18,7 @@
 #include <ccan/list/list.h>
 
 #include <vfn/nvme.h>
+#include <execinfo.h>
 
 #include "libunvmed.h"
 #include "unvme.h"
@@ -39,6 +40,21 @@ static LIST_HEAD(__jobs);
 static pthread_mutex_t __job_mutex;
 
 __thread struct unvme_msg *__msg;
+
+static void unvme_callstack_dump(void)
+{
+	void *callstack[128];
+	int i, nr_frames;
+	char **strs;
+
+	nr_frames = backtrace(callstack, sizeof(callstack) / sizeof(void *));
+	strs = backtrace_symbols(callstack, nr_frames);
+
+	for (i = 0; i < nr_frames; i++)
+		unvmed_log_err("%s", strs[i]);
+
+	free(strs);
+}
 
 static inline struct unvme_job *unvme_add_job(int client_pid)
 {
@@ -301,6 +317,8 @@ static void unvme_release(int signum)
 
 	unvmed_log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
 			getpid(), signum, strsignal(signum));
+
+	unvme_callstack_dump();
 
 	if (signum == SIGTERM)
 		exit(EXIT_SUCCESS);
