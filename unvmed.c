@@ -461,7 +461,15 @@ static void unvme_signal_job(struct unvme_msg *msg)
 	struct unvme_job *job;
 
 	job = unvme_get_job(unvme_msg_pid(msg));
-	assert(job != NULL);
+	/* 
+	 * When sig occurs more than twice, the unvmed can't find a job.
+	 * client continues to wait to receive msg. unvmed should send msg
+	 */
+	if (!job) {
+		unvme_msg_to_client(msg, unvme_msg_pid(msg), 0);
+		unvme_send_msg(msg);
+		return;
+	}
 
 	if (unvme_msg_signum(msg) == SIGINT || unvme_msg_signum(msg) == SIGTERM)
 		unvme_del_job(unvme_msg_pid(msg));
