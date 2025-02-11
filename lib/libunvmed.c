@@ -2116,6 +2116,37 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 	return unvmed_cqe_status(&cqe);
 }
 
+int unvmed_id_ctrl(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+		 struct iovec *iov, int nr_iov, unsigned long flags)
+{
+	struct nvme_cmd_identify sqe = {0, };
+	struct nvme_cqe cqe;
+
+	sqe.opcode = nvme_admin_identify;
+	sqe.nsid = cpu_to_le32(nsid);
+	sqe.cns = NVME_IDENTIFY_CNS_CTRL;
+
+	if (nr_iov > 0) {
+		if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+			unvmed_log_err("failed to map iovec for prp");
+			return -1;
+		}
+	}
+
+	unvmed_sq_enter(cmd->usq);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
+
+	if (flags & UNVMED_CMD_F_NODB) {
+		unvmed_sq_exit(cmd->usq);
+		return 0;
+	}
+
+	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
+	unvmed_sq_exit(cmd->usq);
+
+	return unvmed_cqe_status(&cqe);
+}
+
 int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
 			    uint32_t nsid, struct iovec *iov, int nr_iov)
 {

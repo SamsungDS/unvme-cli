@@ -208,6 +208,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg);

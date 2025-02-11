@@ -75,6 +75,107 @@ void unvme_pr_id_ns(void *vaddr)
 	}
 }
 
+void unvme_pr_id_ctrl(void *vaddr)
+{
+	struct nvme_id_ctrl *id_ctrl = (struct nvme_id_ctrl *)vaddr;
+
+	unvme_pr("%10s: \t%#x\n", "vid", le16_to_cpu(id_ctrl->vid));
+	unvme_pr("%10s: \t%#x\n", "ssvid", le16_to_cpu(id_ctrl->ssvid));
+	unvme_pr("%10s: \t%-.*s\n", "sn", (int)sizeof(id_ctrl->sn), id_ctrl->sn);
+	unvme_pr("%10s: \t%-.*s\n", "mn", (int)sizeof(id_ctrl->mn), id_ctrl->mn);
+	unvme_pr("%10s: \t%-.*s\n", "fr", (int)sizeof(id_ctrl->fr), id_ctrl->fr);
+	unvme_pr("%10s: \t%#x\n", "rab", id_ctrl->rab);
+	unvme_pr("%10s: \t%02x%02x%02x\n", "ieee", id_ctrl->ieee[2],
+			id_ctrl->ieee[1], id_ctrl->ieee[0]);
+	unvme_pr("%10s: \t%#x\n", "cmic", id_ctrl->cmic);
+	unvme_pr("%10s: \t%#x\n", "mdts", id_ctrl->mdts);
+	unvme_pr("%10s: \t%#x\n", "cntlid", le16_to_cpu(id_ctrl->cntlid));
+	unvme_pr("%10s: \t%#x\n", "ver", le32_to_cpu(id_ctrl->ver));
+	unvme_pr("%10s: \t%#x\n", "rtd3r", le32_to_cpu(id_ctrl->rtd3r));
+	unvme_pr("%10s: \t%#x\n", "rtd3e", le32_to_cpu(id_ctrl->rtd3e));
+	unvme_pr("%10s: \t%#x\n", "oaes", le32_to_cpu(id_ctrl->oaes));
+	unvme_pr("%10s: \t%#x\n", "ctratt", le32_to_cpu(id_ctrl->ctratt));
+	unvme_pr("%10s: \t%#x\n", "rrls", le16_to_cpu(id_ctrl->rrls));
+	unvme_pr("%10s: \t%#x\n", "cntrltype", id_ctrl->cntrltype);
+	unvme_pr("%10s: \t", "fguid");
+	for (int i = 0; i < 16; i++) {
+		unvme_pr("%02x", id_ctrl->fguid[i]);
+		if (i == 3 || i == 5 || i == 7 || i == 9)
+			unvme_pr("-");
+	}
+	unvme_pr("\n%10s: \t%#x\n", "crdt1", le16_to_cpu(id_ctrl->crdt1));
+	unvme_pr("%10s: \t%#x\n", "crdt2", le16_to_cpu(id_ctrl->crdt2));
+	unvme_pr("%10s: \t%#x\n", "crdt3", le16_to_cpu(id_ctrl->crdt3));
+	unvme_pr("%10s: \t%#x\n", "nvmsr", id_ctrl->nvmsr);
+	unvme_pr("%10s: \t%#x\n", "vwci", id_ctrl->vwci);
+	unvme_pr("%10s: \t%#x\n", "mec", id_ctrl->mec);
+	unvme_pr("%10s: \t%#x\n", "oacs", le16_to_cpu(id_ctrl->oacs));
+	unvme_pr("%10s: \t%#x\n", "acl", id_ctrl->acl);
+	unvme_pr("%10s: \t%#x\n", "aerl", id_ctrl->aerl);
+	unvme_pr("%10s: \t%#x\n", "frmw", id_ctrl->frmw);
+	unvme_pr("%10s: \t%#x\n", "lpa", id_ctrl->lpa);
+	unvme_pr("%10s: \t%#x\n", "elpe", id_ctrl->elpe);
+	unvme_pr("%10s: \t%#x\n", "npss", id_ctrl->npss);
+	unvme_pr("%10s: \t%#x\n", "avscc", id_ctrl->avscc);
+	unvme_pr("%10s: \t%#x\n", "apsta", id_ctrl->apsta);
+	unvme_pr("%10s: \t%#x\n", "wctemp", le16_to_cpu(id_ctrl->wctemp));
+	unvme_pr("%10s: \t%#x\n", "cctemp", le16_to_cpu(id_ctrl->cctemp));
+	unvme_pr("%10s: \t%#x\n", "mtfa", le16_to_cpu(id_ctrl->mtfa));
+	unvme_pr("%10s: \t%#x\n", "hmpre", le32_to_cpu(id_ctrl->hmpre));
+	unvme_pr("%10s: \t%#x\n", "hmmin", le32_to_cpu(id_ctrl->hmmin));
+	unvme_pr("%10s:\tlo: %#lx, hi: %#lx\n", "tnvmcap",
+			le64_to_cpu(*(leint64_t *)&id_ctrl->tnvmcap[0]),
+			le64_to_cpu(*(leint64_t *)&id_ctrl->tnvmcap[8]));
+	unvme_pr("%10s:\tlo: %#lx, hi: %#lx\n", "unvmcap",
+			le64_to_cpu(*(leint64_t *)&id_ctrl->unvmcap[0]),
+			le64_to_cpu(*(leint64_t *)&id_ctrl->unvmcap[8]));
+	unvme_pr("%10s: \t%#x\n", "rpmbs", le32_to_cpu(id_ctrl->rpmbs));
+	unvme_pr("%10s: \t%#x\n", "edstt", le16_to_cpu(id_ctrl->edstt));
+	unvme_pr("%10s: \t%#x\n", "dsto", id_ctrl->dsto);
+	unvme_pr("%10s: \t%#x\n", "fwug", id_ctrl->fwug);
+	unvme_pr("%10s: \t%#x\n", "kas", le16_to_cpu(id_ctrl->kas));
+	unvme_pr("%10s: \t%#x\n", "hctma", le16_to_cpu(id_ctrl->hctma));
+	unvme_pr("%10s: \t%#x\n", "mntmt", le16_to_cpu(id_ctrl->mntmt));
+	unvme_pr("%10s: \t%#x\n", "mxtmt", le16_to_cpu(id_ctrl->mxtmt));
+	unvme_pr("%10s: \t%#x\n", "sanicap", le32_to_cpu(id_ctrl->sanicap));
+	unvme_pr("%10s: \t%#x\n", "hmminds", le32_to_cpu(id_ctrl->hmminds));
+	unvme_pr("%10s: \t%#x\n", "hmmaxd", le16_to_cpu(id_ctrl->hmmaxd));
+	unvme_pr("%10s: \t%#x\n", "nsetidmax", le16_to_cpu(id_ctrl->nsetidmax));
+	unvme_pr("%10s: \t%#x\n", "endgidmax", le16_to_cpu(id_ctrl->endgidmax));
+	unvme_pr("%10s: \t%#x\n", "anatt", id_ctrl->anatt);
+	unvme_pr("%10s: \t%#x\n", "anacap", id_ctrl->anacap);
+	unvme_pr("%10s: \t%#x\n", "anagrpmax", le32_to_cpu(id_ctrl->anagrpmax));
+	unvme_pr("%10s: \t%#x\n", "nanagrpid", le32_to_cpu(id_ctrl->nanagrpid));
+	unvme_pr("%10s: \t%#x\n", "pels", le32_to_cpu(id_ctrl->pels));
+	unvme_pr("%10s: \t%#x\n", "domainid", le16_to_cpu(id_ctrl->domainid));
+	unvme_pr("%10s:\tlo: %#lx, hi: %#lx\n", "megcap",
+			le64_to_cpu(*(leint64_t *)&id_ctrl->megcap[0]),
+			le64_to_cpu(*(leint64_t *)&id_ctrl->megcap[8]));
+	unvme_pr("%10s: \t%#x\n", "tmpthha", id_ctrl->tmpthha);
+	unvme_pr("%10s: \t%#x\n", "sqes", id_ctrl->sqes);
+	unvme_pr("%10s: \t%#x\n", "cqes", id_ctrl->cqes);
+	unvme_pr("%10s: \t%#x\n", "maxcmd", le16_to_cpu(id_ctrl->maxcmd));
+	unvme_pr("%10s: \t%#x\n", "nn", le32_to_cpu(id_ctrl->nn));
+	unvme_pr("%10s: \t%#x\n", "oncs", le16_to_cpu(id_ctrl->oncs));
+	unvme_pr("%10s: \t%#x\n", "fuses", le16_to_cpu(id_ctrl->fuses));
+	unvme_pr("%10s: \t%#x\n", "fna", id_ctrl->fna);
+	unvme_pr("%10s: \t%#x\n", "vwc", id_ctrl->vwc);
+	unvme_pr("%10s: \t%#x\n", "awun", le16_to_cpu(id_ctrl->awun));
+	unvme_pr("%10s: \t%#x\n", "awupf", le16_to_cpu(id_ctrl->awupf));
+	unvme_pr("%10s: \t%#x\n", "icsvscc", id_ctrl->icsvscc);
+	unvme_pr("%10s: \t%#x\n", "nwpc", id_ctrl->nwpc);
+	unvme_pr("%10s: \t%#x\n", "acwu", le16_to_cpu(id_ctrl->acwu));
+	unvme_pr("%10s: \t%#x\n", "ocfs", le16_to_cpu(id_ctrl->ocfs));
+	unvme_pr("%10s: \t%#x\n", "sgls", le32_to_cpu(id_ctrl->sgls));
+	unvme_pr("%10s: \t%#x\n", "mnan", le32_to_cpu(id_ctrl->mnan));
+	unvme_pr("%10s:\tlo: %#lx, hi: %#lx\n", "maxdna",
+			le64_to_cpu(*(leint64_t *)&id_ctrl->maxdna[0]),
+			le64_to_cpu(*(leint64_t *)&id_ctrl->maxdna[8]));
+	unvme_pr("%10s: \t%#x\n", "maxcna", le32_to_cpu(id_ctrl->maxcna));
+	unvme_pr("%10s: \t%#x\n", "oaqd", le32_to_cpu(id_ctrl->oaqd));
+	unvme_pr("%10s: \t%-.*s\n", "subnqn", (int)sizeof(id_ctrl->subnqn), id_ctrl->subnqn);
+}
+
 void unvme_pr_nvm_id_ns(void *vaddr)
 {
 	struct nvme_nvm_id_ns *nvm_id_ns = (struct nvme_nvm_id_ns *)vaddr;

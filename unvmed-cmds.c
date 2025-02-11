@@ -885,6 +885,106 @@ out:
 	return ret;
 }
 
+int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Submit an Identify Controller admin command to the target <device>.";
+
+	struct unvme *u;
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_dbl *nsid = arg_dbl0("n", "namespace-id", "<n>", "[O] Namespace ID");
+	struct arg_int *prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)");
+	struct arg_lit *vendor_specific = arg_lit0("V", "vendor-specific", "[O] Dump binary vendor field");
+	struct arg_lit *binary = arg_lit0("b", "raw-binary", "[O] Show identify in binary format");
+	struct arg_lit *nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = {dev, nsid, prp1_offset, vendor_specific, binary, nodb, help, end};
+
+	const size_t size = NVME_IDENTIFY_DATA_SIZE;
+	const uint16_t sqid = 0;
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
+	ssize_t len;
+	void *buf = NULL;
+	unsigned long flags = 0;
+	struct iovec iov;
+	int ret;
+
+	/* Set default argument values prior to parsing */
+	arg_intv(prp1_offset) = 0x0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	if (arg_intv(prp1_offset) >= getpagesize()) {
+		unvme_pr_err("invalid --prp1-offset\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	if (arg_boolv(nodb))
+		flags |= UNVMED_CMD_F_NODB;
+
+	/* allocate a buffer with a consieration of --prp1-offset=<n> */
+	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
+	if (len < 0) {
+		unvme_pr_err("failed to allocate user data buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
+	buf += arg_intv(prp1_offset);
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = size,
+	};
+
+	ret = unvmed_id_ctrl(u, cmd, arg_dblv(nsid), &iov, 1, flags);
+
+	if (arg_boolv(nodb)) {
+		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
+			UNVME_CMD_BUF_F_IOVA_UNMAP;
+		goto out;
+	}
+
+	if (!ret)
+		__unvme_cmd_pr(arg_boolv(binary) ? "binary" : "normal", buf, size, unvme_pr_id_ctrl);
+	else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+	else
+		unvme_pr_err("failed to identify namespace\n");
+
+	unvmed_cmd_free(cmd);
+	pgunmap(buf - arg_intv(prp1_offset), len);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
