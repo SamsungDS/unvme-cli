@@ -879,7 +879,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to identify namespace\n");
 
 	unvmed_cmd_free(cmd);
-	pgunmap(buf, len);
+	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -975,7 +975,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to identify active namespace list\n");
 
 	unvmed_cmd_free(cmd);
-	pgunmap(buf, len);
+	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1085,7 +1085,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to NVM identify namespace\n");
 
 	unvmed_cmd_free(cmd);
-	pgunmap(buf, len);
+	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1487,9 +1487,9 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvmed_cmd_free(cmd);
 unmap:
-	pgunmap(buf, len);
+	pgunmap(buf - arg_intv(prp1_offset), len);
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE)
-		pgunmap(mbuf, mlen);
+		pgunmap(mbuf - arg_intv(prp1_offset), mlen);
 out:
 	if (ns)
 		unvmed_ns_put(u, ns);
@@ -1720,12 +1720,12 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvmed_cmd_free(cmd);
 unmap:
-	pgunmap(buf, len);
+	pgunmap(buf - arg_intv(prp1_offset), len);
 
 	if (arg_intv(metadata_size)) {
 		free(wmdata);
 		if (ns->mset == NVME_FORMAT_MSET_SEPARATE)
-			pgunmap(mbuf, mlen);
+			pgunmap(mbuf - arg_intv(prp1_offset), mlen);
 	}
 	free(wdata);
 out:
