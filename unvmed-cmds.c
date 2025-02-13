@@ -581,12 +581,6 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_intv(qid) > unvmed_get_max_qid(u)) {
-		unvme_pr_err("invalid -q|--qid\n");
-		ret = EINVAL;
-		goto out;
-	}
-
 	if (arg_intv(vector) < 0)
 		arg_intv(vector) = -1;
 
@@ -695,12 +689,6 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
-		goto out;
-	}
-
-	if (arg_intv(qid) > unvmed_get_max_qid(u)) {
-		unvme_pr_err("invalid -q|--qid\n");
-		ret = EINVAL;
 		goto out;
 	}
 

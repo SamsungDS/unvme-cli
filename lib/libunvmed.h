@@ -461,18 +461,6 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify);
 int unvmed_nr_cmds(struct unvme *u);
 
 /**
- * unvmed_get_max_qid - Get a maximum number of QID supported
- * @u: &struct unvme
- *
- * It returns a maximum number of queue identifier supported for the
- * corresponding controller @u.  If it returns 8, I/O queues can be created
- * with qid=8, and no larger qid.
- *
- * Return: Maximum number of QID supported
- */
-int unvmed_get_max_qid(struct unvme *u);
-
-/**
  * unvmed_get_sqs - Get created SQ list
  * @u: &struct unvme
  * @sqs: submission queue instance list

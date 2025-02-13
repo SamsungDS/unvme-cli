@@ -311,11 +311,6 @@ int unvmed_ns_put(struct unvme *u, struct unvme_ns *ns)
 	return refcnt;
 }
 
-int unvmed_get_max_qid(struct unvme *u)
-{
-	return u->nr_cqs - 1;
-}
-
 int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs)
 {
 	int nr_sqs = 0;
