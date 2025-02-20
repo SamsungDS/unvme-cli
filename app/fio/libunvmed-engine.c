@@ -1304,15 +1304,19 @@ static int libunvmed_verify_pi_16b_guard(struct thread_data *td, struct io_u *io
 				guard_exp = fio_crc_t10dif(0, buf, ns->lba_size);
 				guard_exp = fio_crc_t10dif(guard_exp, mbuf, mo->interval);
 			}
-			if (guard != guard_exp)
+			if (guard != guard_exp) {
+				libunvmed_log("Guard check error, guard=%#x, expected=%#x\n", guard, guard_exp);
 				return -EIO;
+			}
 		}
 
 		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP) {
 			uint16_t at = be16_to_cpu(pi->apptag & mo->apptag_mask);
 			uint16_t at_exp = mo->apptag & mo->apptag_mask;
-			if (at != at_exp)
+			if (at != at_exp) {
+				libunvmed_log("Apptag check error, apptag=%#x, expected=%#x\n", at, at_exp);
 				return -EIO;
+			}
 		}
 
 		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
@@ -1321,8 +1325,10 @@ static int libunvmed_verify_pi_16b_guard(struct thread_data *td, struct io_u *io
 			case NVME_NS_DPS_PI_TYPE2:
 				uint32_t rt = be32_to_cpu(pi->srtag);
 				uint32_t rt_exp = (uint32_t)slba + lba_idx;
-				if (rt != rt_exp)
+				if (rt != rt_exp) {
+					libunvmed_log("Reftag check error, reftag=%#x, expected=%#x\n", rt, rt_exp);
 					return -EIO;
+				}
 				break;
 			case NVME_NS_DPS_PI_TYPE3:
 				break;
@@ -1389,15 +1395,19 @@ static int libunvmed_verify_pi_64b_guard(struct thread_data *td, struct io_u *io
 				guard_exp = fio_crc64_nvme(0, buf, ns->lba_size);
 				guard_exp = fio_crc64_nvme(guard_exp, mbuf, mo->interval);
 			}
-			if (guard != guard_exp)
+			if (guard != guard_exp) {
+				libunvmed_log("Guard check error, guard=%#lx, expected=%#lx\n", guard, guard_exp);
 				return -EIO;
+			}
 		}
 
 		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP) {
 			uint16_t at = be16_to_cpu(pi->apptag & mo->apptag_mask);
 			uint16_t at_exp = mo->apptag & mo->apptag_mask;
-			if (at != at_exp)
+			if (at != at_exp) {
+				libunvmed_log("Apptag check error, apptag=%#x, expected=%#x\n", at, at_exp);
 				return -EIO;
+			}
 		}
 
 		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
@@ -1406,8 +1416,10 @@ static int libunvmed_verify_pi_64b_guard(struct thread_data *td, struct io_u *io
 			case NVME_NS_DPS_PI_TYPE2:
 				uint64_t rt = get_unaligned_be48(pi->srtag);
 				uint64_t rt_exp = slba + lba_idx;
-				if (rt != rt_exp)
+				if (rt != rt_exp) {
+					libunvmed_log("Reftag check error, reftag=%#lx, expected=%#lx\n", rt, rt_exp);
 					return -EIO;
+				}
 				break;
 			case NVME_NS_DPS_PI_TYPE3:
 				break;
