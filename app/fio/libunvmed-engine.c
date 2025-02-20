@@ -1464,8 +1464,10 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 
 	if (nvme_cqe_ok(cqe))
 		io_u->error = 0;
-	else
+	else {
 		io_u->error = le16_to_cpu(cqe->sfp) >> 1;
+		goto ret;
+	}
 
 	/*
 	 * Copy read data to the original buffer for verify phase
@@ -1480,12 +1482,16 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 			io_u->error = ret;
 	}
 
+ret:
 	unvmed_cmd_free(cmd);
 
 	ld->nr_queued--;
 
 	if ((int)io_u->error > 0)
 		io_u_set(td, io_u, IO_U_F_DEVICE_ERROR);
+	else
+		io_u_clear(td, io_u, IO_U_F_DEVICE_ERROR);
+	io_u->error = abs(ret);
 
 	return io_u;
 }
