@@ -34,6 +34,8 @@ struct libunvmed_options {
 	unsigned int dspec;
 	unsigned int cmb_data;
 	unsigned int cmb_list;
+	unsigned char meta_err_injection;
+	char *meta_error_injection;
 
 	/*
 	 * io_uring_cmd ioengine options
@@ -60,6 +62,29 @@ enum uring_cmd_write_mode {
 	FIO_URING_CMD_WMODE_ZEROES,
 	FIO_URING_CMD_WMODE_VERIFY,
 };
+
+enum libunvmed_error_injections {
+	UNVME_ERR_GUARD = 1,
+	UNVME_ERR_REFTAG,
+	UNVME_ERR_ILBRT,
+	UNVME_ERR_LBAT,
+};
+
+static int libunvmed_cb_meta_error_injection(void *data, const char *str)
+{
+	struct libunvmed_options *o = data;
+
+	if (strstr(str, "GUARD"))
+		o->meta_err_injection |= UNVME_ERR_GUARD;
+	if (strstr(str, "REFTAG"))
+		o->meta_err_injection |= UNVME_ERR_REFTAG;
+	if (strstr(str, "ILBRT"))
+		o->meta_err_injection |= UNVME_ERR_ILBRT;
+	if (strstr(str, "LBAT"))
+		o->meta_err_injection |= UNVME_ERR_LBAT;
+
+	return 0;
+}
 
 static struct fio_option options[] = {
 	{
@@ -139,6 +164,17 @@ static struct fio_option options[] = {
 		.off1 = offsetof(struct libunvmed_options, cmb_list),
 		.help = "Place read/write PRP list or SGL segment within CMB",
 		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "meta_error_injection",
+		.lname = "Inject metadata errors",
+		.type = FIO_OPT_STR_STORE,
+		.off1 = offsetof(struct libunvmed_options, meta_error_injection),
+		.help = "Inject some metadata relative errors to command or buffer",
+		.def = NULL,
+		.cb = libunvmed_cb_meta_error_injection,
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
 	},
@@ -410,6 +446,11 @@ static inline uint32_t libunvmed_get_nlba(struct io_u *io_u, struct unvme_ns *ns
 		return (io_u->xfer_buflen / (ns->lba_size + ns->ms)) - 1;  /* zero-based */
 	else
 		return (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
+}
+
+static inline void libunvmed_inject_err_to_meta(uint8_t *data)
+{
+	*data ^= 1;
 }
 
 static void *__cmb_ptr;
@@ -932,13 +973,18 @@ static void libunvmed_fill_pi_16b_guard(struct thread_data *td, struct io_u *io_
 				guard = fio_crc_t10dif(guard, mbuf, mo->interval);
 			}
 			pi->guard = cpu_to_be16(guard);
+			if (o->meta_err_injection & UNVME_ERR_GUARD)
+				libunvmed_inject_err_to_meta((uint8_t *)&(pi->guard));
 		}
 
 		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP)
 			pi->apptag = cpu_to_be16(mo->apptag & mo->apptag_mask);
 
-		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF)
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
 			pi->srtag = cpu_to_be32((uint32_t)slba + lba_idx);
+			if (o->meta_err_injection & UNVME_ERR_REFTAG)
+				libunvmed_inject_err_to_meta((uint8_t *)&(pi->srtag));
+		}
 
 		buf += ns->lba_size;
 		if (libunvmed_ns_meta_is_dif(ns))
@@ -990,13 +1036,18 @@ static void libunvmed_fill_pi_64b_guard(struct thread_data *td, struct io_u *io_
 				guard = fio_crc64_nvme(guard, mbuf, mo->interval);
 			}
 			pi->guard = cpu_to_be64(guard);
+			if (o->meta_err_injection & UNVME_ERR_GUARD)
+				libunvmed_inject_err_to_meta((uint8_t *)&(pi->guard));
 		}
 
 		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP)
 			pi->apptag = cpu_to_be16(mo->apptag & mo->apptag_mask);
 
-		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF)
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
 			put_unaligned_be48(slba + lba_idx, pi->srtag);
+			if (o->meta_err_injection & UNVME_ERR_REFTAG)
+				libunvmed_inject_err_to_meta((uint8_t *)&(pi->srtag));
+		}
 
 		buf += ns->lba_size;
 		if (libunvmed_ns_meta_is_dif(ns))
@@ -1047,6 +1098,8 @@ static void libunvmed_fill_pi(struct thread_data *td, struct io_u *io_u,
 	if (o->prchk & NVME_IO_PRINFO_PRCHK_APP) {
 		sqe->apptag = cpu_to_le16(o->apptag);
 		sqe->appmask = cpu_to_le16(o->apptag_mask);
+		if (o->meta_err_injection & UNVME_ERR_LBAT)
+			libunvmed_inject_err_to_meta((uint8_t *)&(sqe->apptag));
 	}
 
 	if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
@@ -1065,6 +1118,8 @@ static void libunvmed_fill_pi(struct thread_data *td, struct io_u *io_u,
 		default:
 			break;
 		}
+		if (o->meta_err_injection & UNVME_ERR_ILBRT)
+			libunvmed_inject_err_to_meta((uint8_t *)&(sqe->reftag));
 	}
 }
 
