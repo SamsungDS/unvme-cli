@@ -428,25 +428,27 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
  * unvmed_init_meta_ns - Initialize namespace instance with metadata info
  * @u: &struct unvme
  * @nsid: namespace identifier
- * @identify: identify namespace data structure (can be NULL)
+ * @nvm_id_ns: identify namespace (NVM command set) data structure (can be NULL)
  *
  * This API sets some metadata informations to the given namespace instance,
  * which has @nsid as its id.
  *
- * If @identify is given with non-NULL, it will skip issuing Identify Namespace
- * admin command to identify the namespace, instead it assumes that Identify
- * command has already been issued and the given @identify is the data returned
- * by the device controller.  Based on the @identify data, it will register a
- * namespace instance to the given controller @u.
+ * If @nvm_id_nsis given with non-NULL, it will skip issuing Identify Namespace
+ * for NVM command set admin command to identify the namespace, instead it
+ * assumes that Identify command has already been issued and the given
+ * @nvm_id_ns is the data returned by the device controller.  Based on the
+ * @nvm_id_ns data, it will register a namespace instance to the given
+ * controller @u.
  *
- * If @identify is NULL, it will issue an Identify Namespace admin command to
- * the controller and register a namespace instance to the driver context.
+ * If @nvm_id_nsis NULL, it will issue an Identify Namespace for NVM command
+ * set admin command to the controller and register a namespace instance to the
+ * driver context.
  *
  * This API is thread-safe.
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify);
+int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns);
 
 /**
  * unvmed_nr_cmds - Get a number of in-flight commands

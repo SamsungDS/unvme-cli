@@ -857,10 +857,10 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	return 0;
 }
 
-int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify)
+int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 {
 	struct nvme_nvm_id_ns *nvm_id_ns_local = NULL;
-	struct nvme_nvm_id_ns *nvm_id_ns = identify;
+	struct nvme_nvm_id_ns *__nvm_id_ns = nvm_id_ns;
 	struct unvme_ns *ns;
 	uint32_t elbaf;
 	ssize_t size;
@@ -873,7 +873,7 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify)
 		return -1;
 	}
 
-	if (!nvm_id_ns) {
+	if (!__nvm_id_ns) {
 		struct unvme_cmd *cmd;
 		struct unvme_sq *usq;
 		struct iovec iov;
@@ -910,15 +910,15 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify)
 		}
 
 		unvmed_cmd_free(cmd);
-		nvm_id_ns = nvm_id_ns_local;
+		__nvm_id_ns = nvm_id_ns_local;
 	}
 
-	elbaf = le32_to_cpu(nvm_id_ns->elbaf[ns->format_idx]);
+	elbaf = le32_to_cpu(__nvm_id_ns->elbaf[ns->format_idx]);
 
-	ns->lbstm = le64_to_cpu(nvm_id_ns->lbstm);
+	ns->lbstm = le64_to_cpu(__nvm_id_ns->lbstm);
 	ns->sts = elbaf & NVME_NVM_ELBAF_STS_MASK;
 	ns->pif = (elbaf & NVME_NVM_ELBAF_PIF_MASK) >> 7;
-	if (ns->pif == NVME_NVM_PIF_QTYPE && (nvm_id_ns->pic & 0x8))
+	if (ns->pif == NVME_NVM_PIF_QTYPE && (__nvm_id_ns->pic & 0x8))
 		ns->pif = (elbaf & NVME_NVM_ELBAF_QPIF_MASK) >> 9;
 
 	refcnt = unvmed_ns_put(u, ns);
