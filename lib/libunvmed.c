@@ -930,12 +930,58 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 	return 0;
 }
 
+/*
+ * Issue an Identify Controller admin command to the given @u and keep the data
+ * structure inside of @u->id_ctrl.
+ */
+static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
+{
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq;
+	struct iovec iov;
+	int ret;
+
+	if (!id_ctrl) {
+		unvmed_log_err("'id_ctrl' is given NULL");
+		errno = EINVAL;
+		return -1;
+	}
+
+	usq = unvmed_sq_find(u, 0);
+	if (!usq) {
+		unvmed_log_err("failed to find enabled adminq");
+		errno = EINVAL;
+		return -1;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, id_ctrl, sizeof(*id_ctrl));
+	if (!cmd) {
+		unvmed_log_err("failed to allocate a command instance");
+		return -1;
+	}
+
+	iov.iov_base = id_ctrl;
+	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
+
+	ret = unvmed_id_ctrl(u, cmd, &iov, 1, 0);
+	if (ret) {
+		unvmed_log_err("failed to identify controller\n");
+		unvmed_cmd_free(cmd);
+		return -1;
+	}
+
+	unvmed_cmd_free(cmd);
+	return 0;
+}
+
 int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 {
 	struct nvme_nvm_id_ns *__nvm_id_ns = nvm_id_ns;
+	struct nvme_id_ctrl *id_ctrl = NULL;
 	struct unvme_ns *ns;
 	uint32_t elbaf;
 	int refcnt;
+	int ret = 0;
 
 	ns = unvmed_ns_get(u, nsid);
 	if (!ns) {
@@ -943,12 +989,43 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 		return -1;
 	}
 
+	/*
+	 * XXX: Do we really have to issue id-ctrl command here in this library
+	 * function rather than letting application issue id-ctrl command prior
+	 * to calling this function?
+	 */
+	if (!u->id_ctrl) {
+		pgmap((void **)&id_ctrl, sizeof(struct nvme_id_ctrl));
+		if (!id_ctrl) {
+			unvmed_log_err("failed to allocate a buffer");
+			ret = -1;
+			goto out;
+		}
+
+		if (__unvmed_id_ctrl(u, id_ctrl)) {
+			unvmed_log_err("failed to identify controller");
+			pgunmap(id_ctrl, sizeof(struct nvme_id_ctrl));
+			ret = -1;
+			goto out;
+		}
+
+		unvmed_init_id_ctrl(u, id_ctrl);
+		pgunmap(id_ctrl, sizeof(struct nvme_id_ctrl));
+	}
+
+	/*
+	 * Before send ``nvm-id-ns`` command, we have to check whether the
+	 * device supports Extended LBA Format by Identify Controller command.
+	 */
+	if (!(u->id_ctrl->ctratt & NVME_CTRL_CTRATT_ELBAS))
+		goto out;
+
 	if (!__nvm_id_ns) {
 		pgmap((void **)&__nvm_id_ns, sizeof(struct nvme_nvm_id_ns));
 		if (!__nvm_id_ns) {
 			unvmed_log_err("failed to allocate a buffer");
-			unvmed_ns_put(u, ns);
-			return -1;
+			ret = -1;
+			goto out;
 		}
 
 		__unvmed_nvm_id_ns(u, nsid, __nvm_id_ns);
@@ -962,13 +1039,14 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 	if (ns->pif == NVME_NVM_PIF_QTYPE && (__nvm_id_ns->pic & 0x8))
 		ns->pif = (elbaf & NVME_NVM_ELBAF_QPIF_MASK) >> 9;
 
+out:
 	refcnt = unvmed_ns_put(u, ns);
 	assert(refcnt > 0);
 
 	if (__nvm_id_ns != nvm_id_ns)
 		pgunmap(__nvm_id_ns, sizeof(struct nvme_nvm_id_ns));
 
-	return 0;
+	return ret;
 }
 
 static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,

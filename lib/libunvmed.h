@@ -433,6 +433,10 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify);
  * This API sets some metadata informations to the given namespace instance,
  * which has @nsid as its id.
  *
+ * This function issues an Identify Controller admin command to figure out
+ * whether ELBAS(Extended LBA Support) or not if caller has not
+ * issued(identified) the controller before calling this function.
+ *
  * If @nvm_id_nsis given with non-NULL, it will skip issuing Identify Namespace
  * for NVM command set admin command to identify the namespace, instead it
  * assumes that Identify command has already been issued and the given
