@@ -880,14 +880,13 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 
 	struct unvme *u;
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
-	struct arg_dbl *nsid = arg_dbl0("n", "namespace-id", "<n>", "[O] Namespace ID");
 	struct arg_int *prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)");
 	struct arg_lit *vendor_specific = arg_lit0("V", "vendor-specific", "[O] Dump binary vendor field");
 	struct arg_lit *binary = arg_lit0("b", "raw-binary", "[O] Show identify in binary format");
 	struct arg_lit *nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, nsid, prp1_offset, vendor_specific, binary, nodb, help, end};
+	void *argtable[] = {dev, prp1_offset, vendor_specific, binary, nodb, help, end};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	const uint16_t sqid = 0;
@@ -951,7 +950,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_ctrl(u, cmd, arg_dblv(nsid), &iov, 1, flags);
+	ret = unvmed_id_ctrl(u, cmd, &iov, 1, flags);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |

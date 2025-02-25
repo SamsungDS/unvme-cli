@@ -996,7 +996,6 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  * unvmed_id_ctrl - Identify Controller (CNS 1h)
  * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
- * @nsid: namespace identifier to identify
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
  * @flags: control flags (enum unvmed_cmd_flags)
@@ -1007,8 +1006,8 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  *
  * Return: ``0`` on success, otherwise CQE status field.
  */
-int unvmed_id_ctrl(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		 struct iovec *iov, int nr_iov, unsigned long flags);
+int unvmed_id_ctrl(struct unvme *u, struct unvme_cmd *cmd, struct iovec *iov,
+		   int nr_iov, unsigned long flags);
 
 /**
  * unvmed_id_active_nslist - Identify Active Namespace ID list (CNS 2h)

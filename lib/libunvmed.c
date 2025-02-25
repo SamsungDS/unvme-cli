@@ -2111,14 +2111,13 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 	return unvmed_cqe_status(&cqe);
 }
 
-int unvmed_id_ctrl(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		 struct iovec *iov, int nr_iov, unsigned long flags)
+int unvmed_id_ctrl(struct unvme *u, struct unvme_cmd *cmd, struct iovec *iov,
+		   int nr_iov, unsigned long flags)
 {
 	struct nvme_cmd_identify sqe = {0, };
 	struct nvme_cqe cqe;
 
 	sqe.opcode = nvme_admin_identify;
-	sqe.nsid = cpu_to_le32(nsid);
 	sqe.cns = NVME_IDENTIFY_CNS_CTRL;
 
 	if (nr_iov > 0) {
