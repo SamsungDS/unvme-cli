@@ -1522,7 +1522,6 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	struct unvme_cmd *cmd = &ld->usq->cmds[cqe->cid];
 	struct unvme_ns *ns = ld->ns;
 	struct io_u *io_u;
-	int ret;
 
 	assert(le16_to_cpu(cqe->sqid) == unvmed_sq_id(ld->usq));
 	assert(cmd != NULL);
@@ -1544,9 +1543,7 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 
 	if (libunvmed_pi_enabled(ns) &&
 	     io_u->ddir == DDIR_READ && !o->pi_act) {
-		ret = libunvmed_verify_pi(td, io_u);
-		if (ret)
-			io_u->error = ret;
+		io_u->error = libunvmed_verify_pi(td, io_u);
 	}
 
 ret:
@@ -1558,7 +1555,7 @@ ret:
 		io_u_set(td, io_u, IO_U_F_DEVICE_ERROR);
 	else
 		io_u_clear(td, io_u, IO_U_F_DEVICE_ERROR);
-	io_u->error = abs(ret);
+	io_u->error = abs((int)io_u->error);
 
 	return io_u;
 }
