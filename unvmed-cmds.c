@@ -2168,6 +2168,12 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme_cmd *cmd;
 	int ret;
 
+	/* Set default argument values prior to parsing */
+	arg_intv(ses) = 0;
+	arg_intv(pil) = 0;
+	arg_intv(pi) = 0;
+	arg_intv(mset) = 0;
+
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
