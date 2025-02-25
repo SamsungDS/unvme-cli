@@ -857,15 +857,54 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	return 0;
 }
 
+static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
+			      struct nvme_nvm_id_ns *nvm_id_ns)
+{
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq;
+	struct iovec iov;
+	int ret;
+
+	if (!nvm_id_ns) {
+		unvmed_log_err("'nvm_id_ns' is given NULL");
+		errno = EINVAL;
+		return -1;
+	}
+
+	usq = unvmed_sq_find(u, 0);
+	if (!usq) {
+		unvmed_log_err("failed to find enabled adminq");
+		errno = EINVAL;
+		return -1;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, nvm_id_ns, sizeof(*nvm_id_ns));
+	if (!cmd) {
+		unvmed_log_err("failed to allocate a command instance");
+		return -1;
+	}
+
+	iov.iov_base = nvm_id_ns;
+	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
+
+	ret = unvmed_nvm_id_ns(u, cmd, nsid, &iov, 1);
+	if (ret) {
+		unvmed_log_err("failed to identify namespace");
+
+		unvmed_cmd_free(cmd);
+		return -1;
+	}
+
+	unvmed_cmd_free(cmd);
+	return 0;
+}
+
 int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 {
-	struct nvme_nvm_id_ns *nvm_id_ns_local = NULL;
 	struct nvme_nvm_id_ns *__nvm_id_ns = nvm_id_ns;
 	struct unvme_ns *ns;
 	uint32_t elbaf;
-	ssize_t size;
 	int refcnt;
-	int ret;
 
 	ns = unvmed_ns_get(u, nsid);
 	if (!ns) {
@@ -874,43 +913,14 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 	}
 
 	if (!__nvm_id_ns) {
-		struct unvme_cmd *cmd;
-		struct unvme_sq *usq;
-		struct iovec iov;
-
-		size = pgmap((void **)&nvm_id_ns_local, NVME_IDENTIFY_DATA_SIZE);
-		assert(size == NVME_IDENTIFY_DATA_SIZE);
-
-		usq = unvmed_sq_find(u, 0);
-		if (!usq) {
-			unvmed_log_err("failed to find enabled adminq");
-			ret = EINVAL;
+		pgmap((void **)&__nvm_id_ns, sizeof(struct nvme_nvm_id_ns));
+		if (!__nvm_id_ns) {
+			unvmed_log_err("failed to allocate a buffer");
+			unvmed_ns_put(u, ns);
 			return -1;
 		}
 
-		cmd = unvmed_alloc_cmd(u, usq, nvm_id_ns_local, size);
-		if (!cmd) {
-			pgunmap(nvm_id_ns_local, size);
-
-			unvmed_log_err("failed to allocate a command instance");
-			ret = errno;
-			return -1;
-		}
-
-		iov.iov_base = nvm_id_ns_local;
-		iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
-
-		ret = unvmed_nvm_id_ns(u, cmd, nsid, &iov, 1);
-		if (ret) {
-			unvmed_log_err("failed to identify namespace");
-
-			unvmed_cmd_free(cmd);
-			pgunmap(nvm_id_ns_local, size);
-			return -1;
-		}
-
-		unvmed_cmd_free(cmd);
-		__nvm_id_ns = nvm_id_ns_local;
+		__unvmed_nvm_id_ns(u, nsid, __nvm_id_ns);
 	}
 
 	elbaf = le32_to_cpu(__nvm_id_ns->elbaf[ns->format_idx]);
@@ -924,8 +934,9 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 	refcnt = unvmed_ns_put(u, ns);
 	assert(refcnt > 0);
 
-	if (nvm_id_ns_local)
-		pgunmap(nvm_id_ns_local, size);
+	if (__nvm_id_ns != nvm_id_ns)
+		pgunmap(__nvm_id_ns, sizeof(struct nvme_nvm_id_ns));
+
 	return 0;
 }
 
