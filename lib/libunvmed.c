@@ -58,6 +58,13 @@ struct unvme {
 
 	struct list_head ctx_list;
 
+	/*
+	 * Identify Controller data structure made in the runtime.  Application
+	 * should set this pointer to an allocated buffer after issuing
+	 * Identify command to the controller.
+	 */
+	struct nvme_id_ctrl *id_ctrl;
+
 	struct list_node list;
 };
 
@@ -499,6 +506,30 @@ int unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
 	pthread_rwlock_unlock(&u->cq_list_lock);
 
 	return refcnt;
+}
+
+int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl)
+{
+	if (!id_ctrl) {
+		unvmed_log_err("'id_ctrl' is given NULL");
+		errno = EINVAL;
+		return -1;
+	}
+
+	/*
+	 * If the current controller has been identified before, update the
+	 * previous @id_ctrl buffer to the newly given one.
+	 */
+	if (!u->id_ctrl) {
+		u->id_ctrl = malloc(sizeof(*u->id_ctrl));
+		if (!u->id_ctrl) {
+			unvmed_log_err("failed to malloc()");
+			return -1;
+		}
+	}
+
+	memcpy(u->id_ctrl, id_ctrl, sizeof(*u->id_ctrl));
+	return 0;
 }
 
 static void unvmed_init_irq_rcq(struct unvme *u, int vector)
@@ -1079,6 +1110,9 @@ void unvmed_free_ctrl(struct unvme *u)
 	pthread_rwlock_unlock(&u->cq_list_lock);
 
 	unvmed_free_ns_all(u);
+
+	if (u->id_ctrl)
+		free(u->id_ctrl);
 
 	list_del(&u->list);
 	free(u);

@@ -958,9 +958,10 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!ret)
+	if (!ret) {
+		unvmed_init_id_ctrl(u, buf);
 		__unvme_cmd_pr(arg_boolv(binary) ? "binary" : "normal", buf, size, unvme_pr_id_ctrl);
-	else if (ret > 0)
+	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 	else
 		unvme_pr_err("failed to identify namespace\n");

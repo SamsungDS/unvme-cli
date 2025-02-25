@@ -563,6 +563,17 @@ struct unvme_sq *unvmed_sq_find(struct unvme *u, uint32_t qid);
 struct unvme_cq *unvmed_cq_find(struct unvme *u, uint32_t qid);
 
 /**
+ * unvmed_init_id_ctrl - Keep identify controller data structure
+ * @u: &struct unvme
+ * @id_ctrl: identify controller data structure to keep
+ *
+ * Copy the given @id_ctrl data and keep the data inside of @u->id_ctrl.  This
+ * is to retrieve the controller identify attributes during the runtime from
+ * application and this library.
+ */
+int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl);
+
+/**
  * unvmed_alloc_cmd - Allocate a NVMe command instance.
  * @u: &struct unvme
  * @usq: submission queue instance (&struct unvme_sq)
