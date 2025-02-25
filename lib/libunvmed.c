@@ -902,7 +902,7 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *identify)
 
 		ret = unvmed_nvm_id_ns(u, cmd, nsid, &iov, 1);
 		if (ret) {
-			unvmed_log_err("failed to identify namespace\n");
+			unvmed_log_err("failed to identify namespace");
 
 			unvmed_cmd_free(cmd);
 			pgunmap(nvm_id_ns_local, size);
