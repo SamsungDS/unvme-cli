@@ -787,63 +787,72 @@ static void __unvmed_free_ns(struct __unvme_ns *ns)
 	free(ns);
 }
 
-int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
+static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
+			  struct nvme_id_ns *id_ns)
 {
-	struct nvme_id_ns *id_ns_local = NULL;
-	struct nvme_id_ns *id_ns = identify;
-	struct __unvme_ns *ns;
-	struct unvme_ns *prev;
 	unsigned long flags = 0;
-	uint8_t format_idx;
-	ssize_t size;
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq;
+	struct iovec iov;
 	int ret;
 
 	if (!id_ns) {
-		struct unvme_cmd *cmd;
-		struct unvme_sq *usq;
-		struct iovec iov;
+		unvmed_log_err("'id_ns' is given NULL");
+		errno = EINVAL;
+		return -1;
+	}
 
-		size = pgmap((void **)&id_ns_local, NVME_IDENTIFY_DATA_SIZE);
-		assert(size == NVME_IDENTIFY_DATA_SIZE);
+	usq = unvmed_sq_find(u, 0);
+	if (!usq) {
+		unvmed_log_err("failed to find enabled adminq");
+		errno = EINVAL;
+		return -1;
+	}
 
-		usq = unvmed_sq_find(u, 0);
-		if (!usq) {
-			unvmed_log_err("failed to find enabled adminq");
-			ret = EINVAL;
-			return -1;
-		}
+	cmd = unvmed_alloc_cmd(u, usq, id_ns, sizeof(*id_ns));
+	if (!cmd) {
+		unvmed_log_err("failed to allocate a command instance");
+		return -1;
+	}
 
-		cmd = unvmed_alloc_cmd(u, usq, id_ns_local, size);
-		if (!cmd) {
-			pgunmap(id_ns_local, size);
+	iov.iov_base = id_ns;
+	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
 
-			unvmed_log_err("failed to allocate a command instance");
-			ret = errno;
-			return -1;
-		}
-
-		iov.iov_base = id_ns_local;
-		iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
-
-		ret = unvmed_id_ns(u, cmd, nsid, &iov, 1, flags);
-		if (ret) {
-			unvmed_log_err("failed to identify namespace");
-
-			unvmed_cmd_free(cmd);
-			pgunmap(id_ns_local, size);
-			return -1;
-		}
+	ret = unvmed_id_ns(u, cmd, nsid, &iov, 1, flags);
+	if (ret) {
+		unvmed_log_err("failed to identify namespace");
 
 		unvmed_cmd_free(cmd);
-		id_ns = id_ns_local;
+		return -1;
+	}
+
+	unvmed_cmd_free(cmd);
+	return 0;
+}
+
+int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
+{
+	struct nvme_id_ns *id_ns = identify;
+	struct __unvme_ns *ns;
+	struct unvme_ns *prev;
+	uint8_t format_idx;
+
+	if (!id_ns) {
+		pgmap((void **)&id_ns, sizeof(struct nvme_id_ns));
+		if (!id_ns) {
+			unvmed_log_err("failed to allocate a buffer");
+			return -1;
+		}
+
+		__unvmed_id_ns(u, nsid, id_ns);
 	}
 
 	prev = unvmed_ns_get(u, nsid);
 	if (!prev) {
 		ns = zmalloc(sizeof(struct __unvme_ns));
 		if (!ns) {
-			if (id_ns_local)
-				pgunmap(id_ns_local, size);
+			if (id_ns != identify)
+				pgunmap(id_ns, sizeof(*id_ns));
 			return -1;
 		}
 	} else {
@@ -883,8 +892,8 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 
 	ns->enabled = true;
 
-	if (id_ns_local)
-		pgunmap(id_ns_local, size);
+	if (id_ns != identify)
+		pgunmap(id_ns, sizeof(*id_ns));
 	return 0;
 }
 
