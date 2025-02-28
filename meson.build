@@ -22,39 +22,6 @@ if buildtype == 'debug'
   conf.set('UNVME_DEBUG', '')
 endif
 
-add_project_arguments(args, language: 'c')
-add_project_link_arguments(link_args, language: 'c')
-
-c = meson.get_compiler('c')
-vfn_lib_path = get_option('with-libvfn')
-if vfn_lib_path != ''
-  vfn_lib = c.find_library('libvfn', dirs : [vfn_lib_path])
-else
-  vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
-endif
-
-nvme_lib = dependency('libnvme', version: '>=1.8.0', static: static)
-
-subdir('ccan')
-subdir('lib')
-subdir('argtable3')
-
-fio_lib = []
-perf_lib = []
-subdir('app')
-
-executable(
-  'unvme',
-  ['unvmed.c', 'unvme.c', 'unvmed-cmds.c', 'unvmed-print.c', 'unvmed-file.c',
-   'unvme-cmds.c',],
-  dependencies: [vfn_lib, nvme_lib, unvmed_dep],
-  link_with: [ccan_lib, argtable3_lib],
-  link_whole: [fio_lib, perf_lib],
-  include_directories: [ccan_inc, libunvmed_inc],
-  install: true,
-  install_dir: get_option('bindir'),
-)
-
 # Set the unvme-cli version
 is_git = run_command('git', 'describe', 'HEAD', check: false)
 if is_git.returncode() == 0
@@ -70,7 +37,20 @@ else
   conf.set('UNVME_VERSION', '"' + meson.project_version() + '"')
 endif
 
-configure_file(
-    output: 'config.h',
-    configuration: conf
-)
+add_project_arguments(args, language: 'c')
+add_project_link_arguments(link_args, language: 'c')
+
+c = meson.get_compiler('c')
+vfn_lib_path = get_option('with-libvfn')
+if vfn_lib_path != ''
+  vfn_lib = c.find_library('libvfn', dirs : [vfn_lib_path])
+else
+  vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
+endif
+
+nvme_lib = dependency('libnvme', version: '>=1.8.0', static: static)
+
+subdir('ccan')
+subdir('argtable3')
+subdir('lib')
+subdir('src')

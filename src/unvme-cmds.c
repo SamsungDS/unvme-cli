@@ -17,7 +17,7 @@
 
 #include "unvme.h"
 
-#include "argtable3/argtable3.h"
+#include <argtable3.h>
 
 static FILE *__stdout;
 static FILE *__stderr;

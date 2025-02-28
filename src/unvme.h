@@ -13,7 +13,7 @@
 #include <sys/signal.h>
 #include <ccan/list/list.h>
 
-#include <argtable3/argtable3.h>
+#include <argtable3.h>
 
 #define UNVME_MAX_OPT		64
 #define UNVME_MAX_STR		32

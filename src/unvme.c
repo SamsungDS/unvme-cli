@@ -24,7 +24,7 @@
 #include "unvme.h"
 #include "config.h"
 
-#include "argtable3/argtable3.h"
+#include <argtable3.h>
 
 /*
  * for async stdio print handlers
