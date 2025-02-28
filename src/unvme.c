@@ -38,38 +38,38 @@ static struct command *__cmd;
 static int unvme_help(int argc, char *argv[], struct unvme_msg *msg);
 static int unvme_version(int argc, char *argv[], struct unvme_msg *msg);
 static struct command cmds[] = {
-	{"help",		"Show usage help message",		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_help},
-	{"version", 		"Show unvme-cli version", 		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_version},
-	{"start",		"Start unvmed daemon process",		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_start},
-	{"stop",		"Stop unvmed daemon process",		UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_stop},
-	{"log",			"Show logs written by unvmed process",	UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_log},
-	{"list",		"Show NVMe PCIe devices",		UNVME_DAEMON_CMD | UNVME_NODEV_CMD,	unvme_list},
-	{"add",			"Add NVMe PCI device to unvmed",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_add},
-	{"del",			"Delete NVMe PCI device from unvmed",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_del},
-	{"show-regs",		"Show NVMe controller properties",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_show_regs},
-	{"status",		"Show device resource status",   	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_status},
-	{"enable",		"Enable controller with adminq",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_enable},
-	{"disable",		"Disable controller",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
-	{"cmb",			"Enable controller memory buffer",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_cmb},
-	{"create-iocq",		"Create I/O Completion Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iocq},
-	{"delete-iocq",		"Delete I/O Completion Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_delete_iocq},
-	{"create-iosq",		"Create I/O Submission Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iosq},
-	{"delete-iosq",		"Delete I/O Submission Queue",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_delete_iosq},
-	{"id-ns",		"Identify Namespace (CNS 0h)",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_ns},
-	{"id-ctrl",		"Identify Controller (CNS 1h)",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_ctrl},
-	{"id-active-nslist",	"Identify Active Namespace List (CNS 2h)",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_active_nslist},
-	{"nvm-id-ns",		"Identify Namespace NVM (CNS 5h)",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_nvm_id_ns},
-	{"set-features",	"Set Features",				UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_set_features},
-	{"set-features-noq",	"Set Features for Number of Queue (FID 7h)",	UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_set_features_noq},
-	{"read",		"NVM Read command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_read},
-	{"write",		"NVM Write command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_write},
-	{"passthru",		"Passthrough command",			UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_passthru},
-	{"update-sqdb",		"Update SQ tail doorbell",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_update_sqdb},
-	{"format",		"Format NVM",				UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_format},
-	{"reset",		"Reset NVMe controller",		UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
-	{"perf",		"Microbenchmark for simple read/write with N QD",	UNVME_DAEMON_CMD | UNVME_DEV_CMD | UNVME_APP_CMD,	unvme_perf},
+	{"help",		"Show usage help message",				UNVME_GENERIC_CMD | UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_help},
+	{"version", 		"Show unvme-cli version",				UNVME_GENERIC_CMD | UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_version},
+	{"start",		"Start unvmed daemon process",				UNVME_GENERIC_CMD | UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_start},
+	{"stop",		"Stop unvmed daemon process",				UNVME_GENERIC_CMD | UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_stop},
+	{"log",			"Show logs written by unvmed process",			UNVME_GENERIC_CMD | UNVME_CLIENT_CMD | UNVME_NODEV_CMD,	unvme_log},
+	{"list",		"Show NVMe PCIe devices",				UNVME_GENERIC_CMD | UNVME_DAEMON_CMD | UNVME_NODEV_CMD,	unvme_list},
+	{"add",			"Add NVMe PCI device to unvmed",			UNVME_GENERIC_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_add},
+	{"del",			"Delete NVMe PCI device from unvmed",			UNVME_GENERIC_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_del},
+	{"status",		"Show device resource status",				UNVME_DRIVER_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_status},
+	{"show-regs",		"Show NVMe controller properties",			UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_show_regs},
+	{"enable",		"Enable controller with adminq",			UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_enable},
+	{"disable",		"Disable controller",					UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
+	{"cmb",			"Enable controller memory buffer",			UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_cmb},
+	{"create-iocq",		"Create I/O Completion Queue",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iocq},
+	{"delete-iocq",		"Delete I/O Completion Queue",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_delete_iocq},
+	{"create-iosq",		"Create I/O Submission Queue",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_create_iosq},
+	{"delete-iosq",		"Delete I/O Submission Queue",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_delete_iosq},
+	{"id-ns",		"Identify Namespace (CNS 0h)",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_ns},
+	{"id-ctrl",		"Identify Controller (CNS 1h)",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_ctrl},
+	{"id-active-nslist",	"Identify Active Namespace List (CNS 2h)",		UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_active_nslist},
+	{"nvm-id-ns",		"Identify Namespace NVM (CNS 5h)",			UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_nvm_id_ns},
+	{"set-features",	"Set Features",						UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_set_features},
+	{"set-features-noq",	"Set Features for Number of Queue (FID 7h)",		UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_set_features_noq},
+	{"read",		"NVM Read command",					UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_read},
+	{"write",		"NVM Write command",					UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_write},
+	{"passthru",		"Passthrough command",					UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_passthru},
+	{"update-sqdb",		"Update SQ tail doorbell",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_update_sqdb},
+	{"format",		"Format NVM",						UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_format},
+	{"reset",		"Reset NVMe controller",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
+	{"perf",		"Microbenchmark for simple read/write with N QD",	UNVME_APP_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_perf},
 #ifdef UNVME_FIO
-	{"fio",			"Run fio built as shared object",	UNVME_DAEMON_CMD | UNVME_NODEV_CMD | UNVME_APP_CMD,	unvme_fio},
+	{"fio",			"Run fio built as shared object",			UNVME_APP_CMD | UNVME_DAEMON_CMD | UNVME_NODEV_CMD,	unvme_fio},
 #endif
 	UNVME_CMDS_END
 };
@@ -81,11 +81,23 @@ static int unvme_help(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_pr("Submit or trigger a given command to <device>. <device> is a bus-device-func\n"
 		 "address of a PCI device (e.g., 0000:01:00.0).  <device> can be found from\n"
 		 "'unvme list' command result.\n");
-	unvme_pr("\n");
-	unvme_pr("Supported commands:\n");
 
-	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++)
-		unvme_pr("\t%-16s\t%s\n", cmds[i].name, cmds[i].summary);
+	unvme_pr("\nGeneric Commands:\n");
+	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
+		if (cmds[i].ctype & UNVME_GENERIC_CMD)
+			unvme_pr("\t%-16s\t%s\n", cmds[i].name, cmds[i].summary);
+	}
+	unvme_pr("\nNVMe Commands:\n");
+	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
+		if (cmds[i].ctype & UNVME_NVME_CMD)
+			unvme_pr("\t%-16s\t%s\n", cmds[i].name, cmds[i].summary);
+	}
+	unvme_pr("\nApp. Commands:\n");
+	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
+		if (cmds[i].ctype & UNVME_APP_CMD)
+			unvme_pr("\t%-16s\t%s\n", cmds[i].name, cmds[i].summary);
+	}
+
 
 	return 0;
 }

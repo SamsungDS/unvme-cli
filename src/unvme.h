@@ -92,11 +92,17 @@ static inline void unvme_msg_to_client(struct unvme_msg *msg, pid_t pid, int ret
 }
 
 enum command_type {
+	/* Where to run the command */
 	UNVME_CLIENT_CMD	= 1 << 0,
 	UNVME_DAEMON_CMD	= 1 << 1,
+	/* Whether target device (e.g., bdf) is required */
 	UNVME_DEV_CMD		= 1 << 2,
 	UNVME_NODEV_CMD		= 1 << 3,
-	UNVME_APP_CMD		= 1 << 4,
+	/* Command types */
+	UNVME_GENERIC_CMD	= 1 << 4,
+	UNVME_DRIVER_CMD	= 1 << 5,
+	UNVME_NVME_CMD		= 1 << 6,
+	UNVME_APP_CMD		= 1 << 7,
 };
 
 struct command {
