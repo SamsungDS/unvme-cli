@@ -3,8 +3,10 @@
 
 #include <vfn/nvme.h>
 #include <nvme/types.h>
+#include <ccan/list/list.h>
 
 #include "libunvmed.h"
+#include "libunvmed-private.h"
 
 /*
  * This function is from `libnvme` with few modifications.  It updates the
@@ -68,6 +70,206 @@ static int unvmed_sqe_set_tags(struct unvme *u, uint32_t nsid, struct nvme_cmd_r
 	sqe->cdw3 = cpu_to_le32(cdw3);
 	sqe->reftag = cpu_to_le32(cdw14);
 	return 0;
+}
+
+static void unvmed_buf_free(struct unvme *u, struct unvme_buf *buf)
+{
+	if (buf->flags & UNVME_CMD_BUF_F_IOVA_UNMAP)
+		unvmed_unmap_vaddr(u, buf->va);
+
+	if (buf->flags & UNVME_CMD_BUF_F_VA_UNMAP)
+		pgunmap(buf->va, buf->len);
+
+	buf->va = 0;
+	buf->len = 0;
+	buf->iov = (struct iovec) {.iov_base = 0, .iov_len = 0};
+}
+
+static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u, struct unvme_sq *usq)
+{
+	struct unvme_cmd *cmd;
+	struct nvme_rq *rq;
+
+	rq = nvme_rq_acquire_atomic(usq->q);
+	if (!rq) {
+		unvmed_log_err("failed to acquire nvme request instance");
+		return NULL;
+	}
+
+	atomic_inc(&usq->nr_cmds);
+
+	cmd = &usq->cmds[rq->cid];
+	cmd->u = u;
+	cmd->usq = usq;
+	cmd->rq = rq;
+
+	rq->opaque = cmd;
+
+	return cmd;
+}
+
+static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
+			   void *buf, uint32_t len)
+{
+	void *__buf = NULL;
+	ssize_t __len;
+
+	/*
+	 * If caller gives NULL buf and non-zero len, it will allocate a user
+	 * data buffer and keep the pointer and the size allocated in
+	 * cmd->buf.va and cmd->buf.len.  They will be freed up in
+	 * unvmed_cmd_free().  But, if caller gives non-NULL buf and non-zero
+	 * len, caller *must* free up the user data buffer before or after
+	 * unvmed_cmd_free().
+	 */
+	if (!buf && len) {
+		__len = pgmap(&__buf, len);
+		if (!__buf) {
+			unvmed_log_err("failed to mmap() for data buffer");
+			return -1;
+		}
+
+		buf = __buf;
+		len = __len;  /* Update length with a newly aligned size */
+
+		ubuf->flags |= UNVME_CMD_BUF_F_VA_UNMAP;
+	}
+
+	if (buf && len) {
+		uint64_t iova;
+
+		if (unvmed_to_iova(u, buf, &iova)) {
+			if (unvmed_map_vaddr(u, buf, len, &iova, 0x0)) {
+				unvmed_log_err("failed to map vaddr for data buffer");
+
+				if (__buf)
+					pgunmap(buf, len);
+				return -1;
+			}
+			ubuf->flags |= UNVME_CMD_BUF_F_IOVA_UNMAP;
+		}
+	}
+
+	ubuf->va = buf;
+	ubuf->len = len;
+	ubuf->iov = (struct iovec) {.iov_base = buf, .iov_len = len};
+
+	return 0;
+}
+
+static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, struct unvme_sq *usq,
+					   void *buf, size_t len, void *mbuf,
+					   size_t mlen)
+{
+	struct unvme_cmd *cmd;
+
+	cmd = __unvmed_cmd_alloc(u, usq);
+	if (!cmd)
+		return NULL;
+
+	if (unvmed_buf_init(u, &cmd->buf, buf, len)) {
+		__unvmed_cmd_free(cmd);
+		return NULL;
+	}
+
+	if (unvmed_buf_init(u, &cmd->mbuf, mbuf, mlen)) {
+		unvmed_buf_free(u, &cmd->buf);
+		__unvmed_cmd_free(cmd);
+		return NULL;
+	}
+
+	return cmd;
+}
+
+void __unvmed_cmd_free(struct unvme_cmd *cmd)
+{
+	struct unvme_sq *usq = cmd->usq;
+
+	nvme_rq_release_atomic(cmd->rq);
+	memset(cmd, 0, sizeof(*cmd));
+
+	atomic_dec(&usq->nr_cmds);
+}
+
+void unvmed_cmd_free(struct unvme_cmd *cmd)
+{
+	unvmed_buf_free(cmd->u, &cmd->buf);
+	unvmed_buf_free(cmd->u, &cmd->mbuf);
+
+	__unvmed_cmd_free(cmd);
+}
+
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq,
+				   void *buf, size_t len)
+{
+	if (!buf || !len) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	return __unvmed_cmd_init(u, usq, buf, len, NULL, 0);
+}
+
+struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, struct unvme_sq *usq)
+{
+	return __unvmed_cmd_init(u, usq, NULL, 0, NULL, 0);
+}
+
+struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
+					void *buf, size_t len, void *mbuf,
+					size_t mlen)
+{
+	if (!buf || !len) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	return __unvmed_cmd_init(u, usq, buf, len, mbuf, mlen);
+}
+
+int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		      struct iovec *iov, int nr_iov)
+{
+	if (nvme_rq_mapv_prp(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov))
+		return -1;
+	return 0;
+}
+
+int __unvmed_mapv_prp_list(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			   void *prplist, struct iovec *iov, int nr_iov)
+{
+	if (!prplist)
+		prplist = cmd->rq->page.vaddr;
+
+	if (nvme_mapv_prp(&cmd->u->ctrl, prplist, sqe, iov, nr_iov))
+		return -1;
+	return 0;
+}
+
+int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe)
+{
+	return __unvmed_mapv_prp(cmd, sqe, &cmd->buf.iov, 1);
+}
+
+int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		      struct iovec *iov, int nr_iov)
+{
+	if (nvme_rq_mapv_sgl(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov))
+		return -1;
+	return 0;
+}
+
+int __unvmed_mapv_sgl_seg(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			  struct nvme_sgld *seg, struct iovec *iov, int nr_iov)
+{
+	if (nvme_mapv_sgl(&cmd->u->ctrl, seg, sqe, iov, nr_iov))
+		return -1;
+	return 0;
+}
+
+int unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe)
+{
+	return __unvmed_mapv_sgl(cmd, sqe, &cmd->buf.iov, 1);
 }
 
 int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,

@@ -3,6 +3,7 @@
 
 #include <vfn/nvme.h>
 #include <nvme/types.h>
+#include <ccan/list/list.h>
 
 #include "libunvmed.h"
 #include "libunvmed-private.h"
