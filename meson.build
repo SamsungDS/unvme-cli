@@ -43,7 +43,13 @@ add_project_link_arguments(link_args, language: 'c')
 c = meson.get_compiler('c')
 vfn_lib_path = get_option('with-libvfn')
 if vfn_lib_path != ''
-  vfn_lib = c.find_library('libvfn', dirs : [vfn_lib_path])
+  vfn_lib = declare_dependency(
+    # It will search libvfn.so* in the given directory with no recursive search.
+    # To make sure that libvfn.so* to be in <path>/lib directory, give '--libdir=lib'
+    # when you run meson setup.
+    dependencies: c.find_library('libvfn', dirs : [vfn_lib_path + '/lib']),
+    include_directories: include_directories(vfn_lib_path + '/include')
+  )
 else
   vfn_lib = dependency('libvfn', version: '>=5.1.0', static: static)
 endif
