@@ -18,6 +18,8 @@
 #include <vfn/nvme.h>
 #include "libunvmed.h"
 
+#include "verify.h"
+
 #define libunvmed_log(fmt, ...)						\
 	do {								\
 		fprintf(stdout, "libunvmed: "fmt, ##__VA_ARGS__);	\
@@ -44,6 +46,7 @@ struct libunvmed_options {
 	unsigned int deac;
 	unsigned int readfua;
 	unsigned int writefua;
+	unsigned int verify_mode;
 	unsigned int md_per_io_size;
 	unsigned int apptag;
 	unsigned int apptag_mask;
@@ -61,6 +64,11 @@ enum uring_cmd_write_mode {
 	FIO_URING_CMD_WMODE_UNCOR,
 	FIO_URING_CMD_WMODE_ZEROES,
 	FIO_URING_CMD_WMODE_VERIFY,
+};
+
+enum uring_cmd_verify_mode {
+	FIO_URING_CMD_VMODE_READ = 1,
+	FIO_URING_CMD_VMODE_COMPARE,
 };
 
 enum libunvmed_error_injections {
@@ -222,6 +230,26 @@ static struct fio_option options[] = {
 			  { .ival = "verify",
 			    .oval = FIO_URING_CMD_WMODE_VERIFY,
 			    .help = "Issue Verify commands for write operations"
+			  },
+		},
+		.category = FIO_OPT_C_ENGINE,
+		.group	= FIO_OPT_G_INVALID,
+	},
+	{
+		.name	= "verify_mode",
+		.lname	= "Do verify based on the configured command (e.g., Read or Compare command)",
+		.type	= FIO_OPT_STR,
+		.off1	= offsetof(struct libunvmed_options, verify_mode),
+		.help	= "Issue Read or Compare command in the verification phase",
+		.def	= "read",
+		.posval = {
+			  { .ival = "read",
+			    .oval = FIO_URING_CMD_VMODE_READ,
+			    .help = "Issue Read commands in the verification phase"
+			  },
+			  { .ival = "compare",
+			    .oval = FIO_URING_CMD_VMODE_COMPARE,
+			    .help = "Issue Compare commands in the verification phase"
 			  },
 		},
 		.category = FIO_OPT_C_ENGINE,
@@ -1136,6 +1164,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 
 	uint64_t slba = libunvmed_get_slba(io_u, ns);
 	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint8_t read_opcode = nvme_cmd_read;
 
 	void *buf = io_u->xfer_buf;
 	void *list = NULL;
@@ -1160,7 +1189,18 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	if (o->prp1_offset && io_u->ddir == DDIR_WRITE)
 		memcpy(buf + o->prp1_offset, io_u->xfer_buf, io_u->xfer_buflen);
 
-	sqe.opcode = (io_u->ddir == DDIR_READ) ? nvme_cmd_read : ld->write_opcode;
+	/*
+	 * If READ command belongs to the verification phase and the
+	 * verify_mode=compare, convert READ to COMPARE command.
+	 */
+	if (io_u->flags & IO_U_F_VER_LIST && io_u->ddir == DDIR_READ &&
+			o->verify_mode == FIO_URING_CMD_VMODE_COMPARE) {
+		populate_verify_io_u(td, io_u);
+		read_opcode = nvme_cmd_compare;
+		io_u_set(td, io_u, IO_U_F_VER_IN_DEV);
+	}
+
+	sqe.opcode = (io_u->ddir == DDIR_READ) ? read_opcode : ld->write_opcode;
 	sqe.nsid = cpu_to_le32(ns->nsid);
 	sqe.slba = cpu_to_le64(slba);
 	((union nvme_cmd *)&sqe)->cdw12 =
