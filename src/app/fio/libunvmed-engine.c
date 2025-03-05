@@ -1284,7 +1284,8 @@ static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 		break;
 	default:
 		unvmed_sq_exit(ld->usq);
-		return -ENOTSUP;
+		io_u->error = -ENOTSUP;
+		return FIO_Q_COMPLETED;
 	}
 
 	ld->nr_queued++;
