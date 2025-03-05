@@ -418,12 +418,13 @@ static inline int ilog2(uint32_t i)
 	return log;
 }
 
-static inline char *libunvmed_to_bdf(struct fio_file *f)
+static void libunvmed_to_bdf(struct fio_file *f, char *bdf)
 {
 	char *str = f->file_name;
-	int nr_dots = 2;
+	int nr_dots = strcount(str, ".");
 
-	while (*str && nr_dots > 0) {
+	/* '1.0' means '0000:00:01.0' */
+	while (*str && nr_dots > 1) {
 		if (*str == '.') {
 			*str = ':';
 			nr_dots--;
@@ -431,7 +432,7 @@ static inline char *libunvmed_to_bdf(struct fio_file *f)
 		str++;
 	}
 
-	return f->file_name;
+	unvmed_parse_bdf(f->file_name, bdf);
 }
 
 static inline uint64_t libunvmed_to_iova(struct thread_data *td, void *buf)
@@ -558,7 +559,7 @@ static int libunvmed_init_data(struct thread_data *td)
 	struct libunvmed_options *o = td->eo;
 	/* libunvmed ioengine supports a single --filename= for a job */
 	struct fio_file *f = td->files[0];
-	const char *bdf = libunvmed_to_bdf(f);
+	char bdf[32];
 	struct libunvmed_data *ld;
 	struct unvme *u;
 	struct unvme_ns *ns;
@@ -567,6 +568,8 @@ static int libunvmed_init_data(struct thread_data *td)
 
 	if (td->io_ops_data)
 		goto out;
+
+	libunvmed_to_bdf(f, bdf);
 
 	ld = calloc(1, sizeof(*ld));
 	ld->cqes = calloc(td->o.iodepth, sizeof(struct nvme_cqe));
