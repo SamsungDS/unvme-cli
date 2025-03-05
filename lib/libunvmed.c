@@ -87,6 +87,58 @@ void unvmed_init(const char *logfile)
 		__unvmed_logfd = unvmed_create_logfile(logfile);
 }
 
+int unvmed_parse_bdf(const char *input, char *bdf)
+{
+	unsigned int domain = 0, bus = 0, dev = 0, func = 0;
+	int nr_dot = strcount(input, ".");
+	int nr_col = strcount(input, ":");
+
+	switch (nr_dot) {
+	case 0:
+		switch (nr_col) {
+		case 1:
+			if (sscanf(input, "%x:%x", &bus, &dev) != 2)
+				return -1;
+			break;
+		case 2:
+			if (sscanf(input, "%x:%x:%x",
+					&domain, &bus, &dev) != 3)
+				return -1;
+			break;
+		default:
+			errno = EINVAL;
+			return -1;
+		}
+		break;
+	case 1:
+		switch (nr_col) {
+		case 0:
+			if (sscanf(input, "%x.%d", &dev, &func) != 2)
+				return -1;
+			break;
+		case 1:
+			if (sscanf(input, "%x:%x.%d", &bus, &dev, &func) != 3)
+				return -1;
+			break;
+		case 2:
+			if (sscanf(input, "%x:%x:%x.%d",
+					&domain, &bus, &dev, &func) != 4)
+				return -1;
+			break;
+		default:
+			errno = EINVAL;
+			return -1;
+		}
+		break;
+	default:
+		errno = EINVAL;
+		return -1;
+	}
+
+	sprintf(bdf, "%04x:%02x:%02x.%1d", domain, bus, dev, func);
+	return 0;
+}
+
 struct unvme *unvmed_get(const char *bdf)
 {
 	struct unvme *u;

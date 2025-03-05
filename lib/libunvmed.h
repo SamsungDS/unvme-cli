@@ -283,6 +283,16 @@ static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 void unvmed_init(const char *logfile);
 
 /**
+ * unvmed_parse_bdf - Parse a given input string to fully formed bdf
+ * @input: input string to be parsed (e.g., "0:1")
+ * @bdf: output string which is fully formed as a PCI BDF format (e.g.
+ *	 "0000:01:00.0"
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_parse_bdf(const char *input, char *bdf);
+
+/**
  * unvmed_init_ctrl - Initialize PCI NVMe controller device
  * @bdf: bus-device-function address of PCI NVMe controller
  * @max_nr_ioqs: maximum number of I/O queue identifier (QID) to be supported
