@@ -150,6 +150,7 @@ static int unvme_msg_init(struct unvme_msg *msg, int argc, char **argv)
 	char *oneline = __argv;
 	FILE *file;
 	char buf[128];
+	char *basename;
 	int i = 0;
 
 	file = fopen(msg->msg.argv_file, "r");
@@ -169,7 +170,10 @@ static int unvme_msg_init(struct unvme_msg *msg, int argc, char **argv)
 
 		/* remove \n newline character */
 		buf[strcspn(buf, "\n")] = '\0';
-		strcpy(argv[i], buf);
+		if (i == 0 && (basename = strrchr(buf, '/'))) {
+			strcpy(argv[i], basename + 1);
+		} else
+			strcpy(argv[i], buf);
 		oneline += sprintf(oneline, "%s%s", (i == 0) ? "":" ", argv[i]);
 		i++;
 	}
