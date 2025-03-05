@@ -211,6 +211,7 @@ int unvme_log(int argc, char *argv[], struct unvme_msg *msg)
 	if (line)
 		free(line);
 
+	ret = 0;
 out:
 	unvme_free_args(argtable);
 	return ret;
