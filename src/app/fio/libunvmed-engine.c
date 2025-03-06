@@ -1298,6 +1298,27 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	return FIO_Q_QUEUED;
 }
 
+static enum fio_q_status fio_libunvmed_fsync(struct thread_data *td,
+					     struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+
+	struct unvme_ns *ns = ld->ns;
+	struct unvme_cmd *cmd;
+	union nvme_cmd sqe = {0, };
+
+	cmd = unvmed_alloc_cmd_nodata(ld->u, ld->usq);
+	if (!cmd)
+		return FIO_Q_BUSY;
+
+	sqe.opcode = nvme_cmd_flush;
+	sqe.nsid = cpu_to_le32(ns->nsid);
+
+	cmd->opaque = io_u;
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
+	return FIO_Q_QUEUED;
+}
+
 static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 					  struct io_u *io_u)
 {
@@ -1324,6 +1345,9 @@ static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 		break;
 	case DDIR_TRIM:
 		ret = fio_libunvmed_trim(td, io_u);
+		break;
+	case DDIR_SYNC:
+		ret = fio_libunvmed_fsync(td, io_u);
 		break;
 	default:
 		unvmed_sq_exit(ld->usq);
