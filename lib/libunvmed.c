@@ -1408,6 +1408,8 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	uint32_t csts;
 
 	if (NVME_CC_EN(cc)) {
+		unvmed_log_err("Controller (%s) has already been enabled (CC.EN=1)",
+			       unvmed_bdf(u));
 		errno = EEXIST;
 		return -1;
 	}
