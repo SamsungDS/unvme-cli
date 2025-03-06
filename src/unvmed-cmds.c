@@ -263,6 +263,12 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if(!pci_get_iommu_group(arg_strv(dev))){
+		unvme_pr_err("failed to find iommu group\n");
+		ret = EINVAL;
+		goto out;
+	}
+
 	if (unvmed_pci_bind(arg_strv(dev), "vfio-pci")) {
 		unvme_pr_err("failed to bind PCI device to vfio-pci driver\n");
 		ret = errno;
