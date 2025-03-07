@@ -322,8 +322,6 @@ static void unvme_release(int signum)
 	unvmed_log_info("unvmed(pid=%d) terminated (signum=%d, sigtype='%s')",
 			getpid(), signum, strsignal(signum));
 
-	unvme_callstack_dump();
-
 	if (signum == SIGTERM)
 		exit(EXIT_SUCCESS);
 	exit(EXIT_FAILURE);
@@ -334,6 +332,7 @@ static void unvme_error(int signum)
 	unvmed_log_err("signal trapped (signum=%d, type='%s')",
 			signum, strsignal(signum));
 
+	unvme_callstack_dump();
 	unvme_release(signum);
 }
 
