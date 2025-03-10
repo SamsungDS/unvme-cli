@@ -414,8 +414,6 @@ void unvme_exit_job(int ret)
 
 	unvme_del_job(unvme_msg_pid(__msg));
 
-	pthread_mutex_unlock(&__app_mutex);
-
 	free(__msg);
 	__msg = NULL;
 }
