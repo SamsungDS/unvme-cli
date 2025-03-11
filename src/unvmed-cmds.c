@@ -2384,6 +2384,69 @@ out:
 	return ret;
 }
 
+int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc = "Submit a Virtualization management command, which is"
+		" supported by primary controller that support the Virtualization"
+		" Enhancements capability";
+
+	struct unvme *u;
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_int *cntlid = arg_int1("c", "cntlid", "<n>", "[M] Controller Identifier");
+	struct arg_int *rt = arg_int0("r", "rt", "<n>", "[O] Resource Type (*0: VQ Resource, 1: VI Resource)");
+	struct arg_int *act = arg_int1("a", "act", "<n>", "[M] Action (*1: Primary Flexible, 7: Secondary Offline, 8:Secondary Assign, 9:Secondary Online)");
+	struct arg_int *nr = arg_int0("n", "nr", "<n>", "[O] Number of Controller Resources");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+
+	void *argtable[] = {dev, cntlid, rt, act, nr, help, end};
+
+	struct unvme_sq *usq = NULL;
+	struct unvme_cmd *cmd;
+	int sqid = 0;
+	int ret = 0;
+
+	/* Set default argument values prior to parsing */
+	arg_intv(rt) = 0;
+	arg_intv(nr) = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		ret = errno;
+		goto out;
+	}
+
+	ret = unvmed_virt_mgmt(u, cmd, arg_intv(cntlid), arg_intv(rt),
+			arg_intv(act), arg_intv(nr));
+
+	if (ret > 0)
+		unvme_pr_cqe_status(ret);
+	else if (ret < 0)
+		unvme_pr_err("failed to submit virt-mgmt command\n");
+
+	unvmed_cmd_free(cmd);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 #ifdef UNVME_FIO
 extern int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd);
 int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)

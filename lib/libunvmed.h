@@ -1195,6 +1195,26 @@ int unvmed_format(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		  uint8_t mset);
 
 /**
+ * unvmed_virt_mgmt - Manage NVMe virtualization
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @cntlid: controller identifier
+ * @rt: resource type (e.g., VI Resource, VQ Resource)
+ * @act: action (e.g., manage primary or secondary controller)
+ * @nr: number of resources to manage
+ *
+ * This function handles Virtualization Management command, such as
+ * managing flexible reosurce or setting the online/offline state of
+ * secondary controllers
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+ */
+int unvmed_virt_mgmt(struct unvme *u, struct unvme_cmd *cmd, uint32_t cntlid,
+                     uint32_t rt, uint32_t act, uint32_t nr);
+
+/**
  * unvmed_ctx_init - Snapshot current driver context
  * @u: &struct unvme
  *

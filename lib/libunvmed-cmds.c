@@ -607,3 +607,21 @@ int unvmed_format(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 
 	return unvmed_cqe_status(&cqe);
 }
+
+int unvmed_virt_mgmt(struct unvme *u, struct unvme_cmd *cmd, uint32_t cntlid,
+                     uint32_t rt, uint32_t act, uint32_t nr)
+{
+	union nvme_cmd sqe = {0, };
+	struct nvme_cqe cqe;
+
+	sqe.opcode = nvme_admin_virtual_mgmt;
+	sqe.cdw10 = ((act & 0xf) | ((rt & 0x7) << 8) | ((cntlid & 0xffff) << 16));
+	sqe.cdw11 = (nr & 0xffff);
+
+	unvmed_sq_enter(cmd->usq);
+	unvmed_cmd_post(cmd, &sqe, 0x0);
+	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
+	unvmed_sq_exit(cmd->usq);
+
+	return unvmed_cqe_status(&cqe);
+}
