@@ -6,8 +6,8 @@ project('unvme-cli', 'c',
 static = get_option('static')
 buildtype = get_option('buildtype')
 
-args = []
-link_args = []
+args = ['-g']
+link_args = ['-g']
 
 if static
   link_args += ['-static']
