@@ -15,6 +15,7 @@
 #undef cpu_to_be16
 
 #include <nvme/types.h>
+#include <ccan/str/str.h>
 #include <vfn/nvme.h>
 #include "libunvmed.h"
 

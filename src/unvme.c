@@ -17,10 +17,12 @@
 #include <sys/msg.h>
 #include <sys/ipc.h>
 
+#include <vfn/nvme.h>
 #include <ccan/str/str.h>
 #include <ccan/array_size/array_size.h>
 #include <ccan/build_assert/build_assert.h>
 
+#include "libunvmed.h"
 #include "unvme.h"
 #include "config.h"
 
