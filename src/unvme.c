@@ -70,6 +70,7 @@ static struct command cmds[] = {
 	{"format",		"Format NVM",						UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_format},
 	{"reset",		"Reset NVMe controller",				UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
 	{"virt-mgmt",		"NVM Virtualization Management Command",		UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_virt_mgmt},
+	{"primary-ctrl-caps",	"Identify Primary Controller Capability",		UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_id_primary_ctrl_caps},
 	{"perf",		"Microbenchmark for simple read/write with N QD",	UNVME_APP_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_perf},
 #ifdef UNVME_FIO
 	{"fio",			"Run fio built as shared object",			UNVME_APP_CMD | UNVME_DAEMON_CMD | UNVME_NODEV_CMD,	unvme_fio},

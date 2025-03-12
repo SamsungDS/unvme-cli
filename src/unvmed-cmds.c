@@ -2447,6 +2447,84 @@ out:
 	return ret;
 }
 
+int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Submit an Identify Primary Controller Capabilities admin command to the target <device>.";
+
+	struct unvme *u;
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_int *cntlid = arg_int1("c", "cntlid", "<n>", "[M] Controller Identifier");
+	struct arg_str *format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = {dev, cntlid, format, help, end};
+
+	const size_t size = NVME_IDENTIFY_DATA_SIZE;
+	const uint16_t sqid = 0;
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
+	ssize_t len;
+	void *buf = NULL;
+	struct iovec iov;
+	int ret;
+
+	/* Set default argument values prior to parsing */
+	arg_strv(format) = "normal";
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	len = pgmap(&buf, size + getpagesize());
+	if (len < 0) {
+		unvme_pr_err("failed to allocate user data buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = size,
+	};
+
+	ret = unvmed_id_primary_ctrl_caps(u, cmd, &iov, 1, arg_intv(cntlid));
+
+	if (!ret)
+		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_primary_ctrl_caps);
+	else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+	else
+		unvme_pr_err("failed to identify primary controller capabilities\n");
+
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 #ifdef UNVME_FIO
 extern int unvmed_run_fio(int argc, char *argv[], const char *libfio, const char *pwd);
 int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)

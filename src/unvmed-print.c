@@ -202,6 +202,27 @@ void unvme_pr_id_active_nslist(void *vaddr)
 	unvme_pr("\n");
 }
 
+void unvme_pr_id_primary_ctrl_caps(void *vaddr)
+{
+	struct nvme_primary_ctrl_cap *id_primary = (struct nvme_primary_ctrl_cap *)vaddr;
+
+	unvme_pr("%10s: \t%#x\n", "cntlid", le16_to_cpu(id_primary->cntlid));
+	unvme_pr("%10s: \t%#x\n", "portid", le16_to_cpu(id_primary->portid));
+	unvme_pr("%10s: \t%#x\n", "crt", id_primary->crt);
+	unvme_pr("%10s: \t%#x\n", "vqfrt", le32_to_cpu(id_primary->vqfrt));
+	unvme_pr("%10s: \t%#x\n", "vqrfa", le32_to_cpu(id_primary->vqrfa));
+	unvme_pr("%10s: \t%#x\n", "vqrfap", le16_to_cpu(id_primary->vqrfap));
+	unvme_pr("%10s: \t%#x\n", "vqprt", le16_to_cpu(id_primary->vqprt));
+	unvme_pr("%10s: \t%#x\n", "vqfrsm", le16_to_cpu(id_primary->vqfrsm));
+	unvme_pr("%10s: \t%#x\n", "vqgran", le16_to_cpu(id_primary->vqgran));
+	unvme_pr("%10s: \t%#x\n", "vifrt", le32_to_cpu(id_primary->vifrt));
+	unvme_pr("%10s: \t%#x\n", "virfa", le32_to_cpu(id_primary->virfa));
+	unvme_pr("%10s: \t%#x\n", "virfap", le16_to_cpu(id_primary->virfap));
+	unvme_pr("%10s: \t%#x\n", "viprt", le16_to_cpu(id_primary->viprt));
+	unvme_pr("%10s: \t%#x\n", "vifrsm", le16_to_cpu(id_primary->vifrsm));
+	unvme_pr("%10s: \t%#x\n", "vigran", le16_to_cpu(id_primary->vigran));
+}
+
 void unvme_pr_get_features_noq(uint32_t dw0)
 {
 	unvme_pr("nsqa: %d\n", dw0 & 0xffff);

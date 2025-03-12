@@ -27,6 +27,7 @@ void unvme_pr_raw(void *vaddr, size_t len);
 void unvme_pr_id_ns(void *vaddr);
 void unvme_pr_id_ctrl(void *vaddr);
 void unvme_pr_id_active_nslist(void *vaddr);
+void unvme_pr_id_primary_ctrl_caps(void *vaddr);
 void unvme_pr_get_features_noq(uint32_t cdw0);
 void unvme_pr_nvm_id_ns(void *vaddr);
 void unvme_pr_show_regs(struct unvme *u);

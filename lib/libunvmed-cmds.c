@@ -625,3 +625,28 @@ int unvmed_virt_mgmt(struct unvme *u, struct unvme_cmd *cmd, uint32_t cntlid,
 
 	return unvmed_cqe_status(&cqe);
 }
+
+int unvmed_id_primary_ctrl_caps(struct unvme *u, struct unvme_cmd *cmd,
+				struct iovec *iov, int nr_iov, uint32_t cntlid)
+{
+	struct nvme_cmd_identify sqe = {0, };
+	struct nvme_cqe cqe;
+
+	sqe.opcode = nvme_admin_identify;
+	sqe.ctrlid = cntlid;
+	sqe.cns = NVME_IDENTIFY_CNS_PRIMARY_CTRL_CAP;
+
+	if (nr_iov > 0) {
+		if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+			unvmed_log_err("failed to map iovec for prp");
+			return -1;
+		}
+	}
+
+	unvmed_sq_enter(cmd->usq);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
+	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
+	unvmed_sq_exit(cmd->usq);
+
+	return unvmed_cqe_status(&cqe);
+}

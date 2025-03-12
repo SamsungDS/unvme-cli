@@ -1215,6 +1215,24 @@ int unvmed_virt_mgmt(struct unvme *u, struct unvme_cmd *cmd, uint32_t cntlid,
                      uint32_t rt, uint32_t act, uint32_t nr);
 
 /**
+ * unvmed_id_primary_ctrl_caps - Identify Primary Controller Capabilities (CNS 14h)
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs attached to @iov
+ * @cntlid: controller identifier
+ *
+ * Issues an Identify Primary Controller Capabilities command to the controller @u.
+ * This command retrieves the capabilities of the specified primary controller.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+**/
+
+int unvmed_id_primary_ctrl_caps(struct unvme *u, struct unvme_cmd *cmd,
+                                struct iovec *iov, int nr_iov, uint32_t cntlid);
+/**
  * unvmed_ctx_init - Snapshot current driver context
  * @u: &struct unvme
  *
