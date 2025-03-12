@@ -1232,6 +1232,27 @@ int unvmed_virt_mgmt(struct unvme *u, struct unvme_cmd *cmd, uint32_t cntlid,
 
 int unvmed_id_primary_ctrl_caps(struct unvme *u, struct unvme_cmd *cmd,
                                 struct iovec *iov, int nr_iov, uint32_t cntlid);
+
+
+/**
+ * unvmed_id_secondary_ctrl_list - Identify Secondary Controller List (CNS 15h)
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs attached to @iov
+ * @cntlid: lowest controller identifier to display
+ *
+ * Issues an Identify Secondary Controller List command to the controller @u.
+ * This command retrieves the list of secondary controllers associated with
+ * the specified @cntlid.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+**/
+int unvmed_id_secondary_ctrl_list(struct unvme *u, struct unvme_cmd *cmd,
+				  struct iovec *iov, int nr_iov, uint32_t cntlid);
+
 /**
  * unvmed_ctx_init - Snapshot current driver context
  * @u: &struct unvme

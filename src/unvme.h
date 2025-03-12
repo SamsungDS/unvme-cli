@@ -226,6 +226,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_format(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_reset(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_perf(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_fio(int argc, char *argv[], struct unvme_msg *msg);

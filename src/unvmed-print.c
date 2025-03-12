@@ -223,6 +223,26 @@ void unvme_pr_id_primary_ctrl_caps(void *vaddr)
 	unvme_pr("%10s: \t%#x\n", "vigran", le16_to_cpu(id_primary->vigran));
 }
 
+void unvme_pr_id_secondary_ctrl_list(void *vaddr)
+{
+	struct nvme_secondary_ctrl_list *sc_list = (struct nvme_secondary_ctrl_list *)vaddr;
+	const struct nvme_secondary_ctrl *sc_entry = &sc_list->sc_entry[0];
+
+	unvme_pr("Identify Secondary Controller List:\n");
+	unvme_pr("%13s: \t%#x\n", "nument", sc_list->num);
+
+	for (int i = 0; i < sc_list->num; i++){
+		unvme_pr("..............\n");
+		unvme_pr("SC Entry[%-3d]:\n", i);
+		unvme_pr("%13s: \t%#x\n", "scid", le16_to_cpu(sc_entry[i].scid));
+		unvme_pr("%13s: \t%#x\n", "pcid", le16_to_cpu(sc_entry[i].pcid));
+		unvme_pr("%13s: \t%#x (%s)\n", "crt", sc_entry[i].scs, sc_entry[i].scs & 0x1 ? "Online" : "Offline");
+		unvme_pr("%13s: \t%#x\n", "vfn", le16_to_cpu(sc_entry[i].vfn));
+		unvme_pr("%13s: \t%#x\n", "nvq", le16_to_cpu(sc_entry[i].nvq));
+		unvme_pr("%13s: \t%#x\n", "nvi", le16_to_cpu(sc_entry[i].nvi));
+	}
+}
+
 void unvme_pr_get_features_noq(uint32_t dw0)
 {
 	unvme_pr("nsqa: %d\n", dw0 & 0xffff);
