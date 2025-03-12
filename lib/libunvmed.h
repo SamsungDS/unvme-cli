@@ -1278,6 +1278,12 @@ int unvmed_id_secondary_ctrl_list(struct unvme *u, struct unvme_cmd *cmd,
 				  struct iovec *iov, int nr_iov, uint32_t cntlid);
 
 /**
+ * unvmed_subsystem_reset - NVM Subsystem Reset
+ * @u: &struct unvme
+ */
+int unvmed_subsystem_reset(struct unvme *u);
+
+/**
  * unvmed_ctx_init - Snapshot current driver context
  * @u: &struct unvme
  *

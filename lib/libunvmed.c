@@ -8,6 +8,7 @@
 
 #include <vfn/nvme.h>
 #include <vfn/support/atomic.h>
+#include <vfn/vfio/pci.h>
 
 #include <nvme/types.h>
 #include <nvme/util.h>
@@ -1308,15 +1309,8 @@ static inline void unvmed_cancel_cmd_all(struct unvme *u)
 	pthread_rwlock_unlock(&u->sq_list_lock);
 }
 
-/*
- * Reset NVMe controller instance memory resources along with de-asserting
- * controller enable register.  The instance itself will not be freed which can
- * be re-used in later time.
- */
-void unvmed_reset_ctrl(struct unvme *u)
+static void unvmed_reset_ctx(struct unvme *u)
 {
-	__unvme_reset_ctrl(u);
-
 	u->state = UNVME_DISABLED;
 
 	unvmed_disable_sq_all(u);
@@ -1340,6 +1334,18 @@ void unvmed_reset_ctrl(struct unvme *u)
 
 	__unvmed_delete_sq_all(u);
 	__unvmed_delete_cq_all(u);
+}
+
+/*
+ * Reset NVMe controller instance memory resources along with de-asserting
+ * controller enable register.  The instance itself will not be freed which can
+ * be re-used in later time.
+ */
+void unvmed_reset_ctrl(struct unvme *u)
+{
+	__unvme_reset_ctrl(u);
+
+	unvmed_reset_ctx(u);
 }
 
 static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
@@ -1938,6 +1944,125 @@ int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
 	} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds + nr_sqes));
 
 	return nr_sqes;
+}
+
+static inline int unvmed_pci_backup_config(struct unvme *u, void *config)
+{
+	return vfio_pci_read_config(&u->ctrl.pci, config, 0x1000, 0x0);
+}
+
+static inline int unvmed_pci_restore_config(struct unvme *u, void *config)
+{
+	char *path = NULL;
+	int ret;
+	int fd;
+
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/config", unvmed_bdf(u));
+	if (ret < 0)
+		return -1;
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		free(path);
+		return -1;
+	}
+
+	/*
+	 * Restoring PCI configuration space register should proceed without
+	 * vfio-pci driver awareness since writing config space registers might
+	 * be blocked in vfio-pci driver in the kernel.
+	 */
+	ret = write(fd, config, 4096);
+	if (ret < 0) {
+		close(fd);
+		free(path);
+		return -1;
+	}
+
+	close(fd);
+	free(path);
+	return 0;
+}
+
+static int unvmed_pci_backup_state(struct unvme *u, void *config)
+{
+	return unvmed_pci_backup_config(u, config);
+}
+
+static int unvmed_pci_restore_state(struct unvme *u, void *config)
+{
+	uint32_t csts;
+	int ret;
+
+	while (true) {
+		/*
+		 * Restore the first common configuration space header first to
+		 * access MMIO area.
+		 */
+		vfio_pci_write_config(&u->ctrl.pci, config, 0x40, 0x0);
+
+		/*
+		 * Check whether NVMe is properly reset due to PCIe reset.
+		 */
+		csts = unvmed_read32(u, NVME_REG_CSTS);
+		if (!NVME_CSTS_RDY(csts))
+			break;
+
+		usleep(1000);
+	}
+
+	ret = unvmed_pci_restore_config(u, config);
+	if (ret < 0)
+		return -1;
+
+	return 0;
+}
+
+static int unvmed_pci_wait_link_up(struct unvme *u)
+{
+	char config[4096];
+
+	while (true) {
+		if (vfio_pci_read_config(&u->ctrl.pci, config, 4096, 0x0) < 0) {
+			unvmed_log_err("failed to read config register");
+			return -1;
+		}
+
+		if (config[0] == 0xff && config[1] == 0xff) {
+			usleep(1000);
+			continue;
+		}
+
+		break;
+	}
+
+	return 0;
+}
+
+int unvmed_subsystem_reset(struct unvme *u)
+{
+	char config[4096];
+
+	if (unvmed_pci_backup_state(u, config) < 0) {
+		unvmed_log_err("failed to read pci config register");
+		return -1;
+	}
+
+	unvmed_write32(u, NVME_REG_NSSR, 0x4E564D65);
+
+	unvmed_reset_ctx(u);
+
+	if (unvmed_pci_wait_link_up(u) < 0) {
+		unvmed_log_err("failed to wait for PCI to be link up");
+		return -1;
+	}
+
+	if (unvmed_pci_restore_state(u, config) < 0) {
+		unvmed_log_err("failed to write pci config register");
+		return -1;
+	}
+
+	return 0;
 }
 
 int unvmed_ctx_init(struct unvme *u)
