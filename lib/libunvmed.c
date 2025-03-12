@@ -1024,13 +1024,6 @@ static void __unvmed_free_usq(struct __unvme_sq *usq)
 	free(usq);
 }
 
-static void unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
-{
-	pthread_rwlock_wrlock(&u->sq_list_lock);
-	__unvmed_free_usq((struct __unvme_sq *)usq);
-	pthread_rwlock_unlock(&u->sq_list_lock);
-}
-
 static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 {
 	struct __unvme_cq *ucq;
@@ -1506,18 +1499,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		return -1;
 	}
 
-	ucq = unvmed_init_ucq(u, qid);
-	if (!ucq) {
-		unvmed_log_err("failed to initialize ucq instance. "
-				"discard cq instance from libvfn (qid=%d)",
-				qid);
-		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-		return -1;
-	}
-
 	cmd = unvmed_alloc_cmd_nodata(u, adminq);
 	if (!cmd) {
-		unvmed_free_ucq(u, ucq);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		return -1;
 	}
@@ -1538,6 +1521,22 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
 	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
 	unvmed_sq_exit(cmd->usq);
+
+	if (!nvme_cqe_ok(&cqe)) {
+		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+		unvmed_cmd_free(cmd);
+		return -1;
+	}
+
+	ucq = unvmed_init_ucq(u, qid);
+	if (!ucq) {
+		unvmed_log_err("failed to initialize ucq instance. "
+				"discard cq instance from libvfn (qid=%d)",
+				qid);
+		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+		unvmed_cmd_free(cmd);
+		return -1;
+	}
 
 	unvmed_cmd_free(cmd);
 	return 0;
@@ -1645,18 +1644,8 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
-	usq = unvmed_init_usq(u, qid, qsize, ucq);
-	if (!usq) {
-		unvmed_log_err("failed to initialize usq instance. "
-				"discard sq instance from libvfn (qid=%d)",
-				qid);
-		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
-		return -1;
-	}
-
 	cmd = unvmed_alloc_cmd_nodata(u, adminq);
 	if (!cmd) {
-		unvmed_free_usq(u, usq);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		return -1;
 	}
@@ -1672,6 +1661,23 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
 	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
 	unvmed_sq_exit(cmd->usq);
+
+	if (!nvme_cqe_ok(&cqe)) {
+		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+		unvmed_cmd_free(cmd);
+		return -1;
+	}
+
+	usq = unvmed_init_usq(u, qid, qsize, ucq);
+	if (!usq) {
+		unvmed_log_err("failed to initialize usq instance. "
+				"discard sq instance from libvfn (qid=%d)",
+				qid);
+		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+		unvmed_cmd_free(cmd);
+		return -1;
+	}
+
 	unvmed_cmd_free(cmd);
 	return 0;
 }
