@@ -1284,6 +1284,12 @@ int unvmed_id_secondary_ctrl_list(struct unvme *u, struct unvme_cmd *cmd,
 int unvmed_subsystem_reset(struct unvme *u);
 
 /**
+ * unvmed_flr - Function Level Reset
+ * @u: &struct unvme
+ */
+int unvmed_flr(struct unvme *u);
+
+/**
  * unvmed_ctx_init - Snapshot current driver context
  * @u: &struct unvme
  *

@@ -2065,6 +2065,59 @@ int unvmed_subsystem_reset(struct unvme *u)
 	return 0;
 }
 
+int unvmed_flr(struct unvme *u)
+{
+	char *path = NULL;
+	char *reset = NULL;
+	char orig[32];
+	const char *flr = "flr";
+	const char *echo = "1";
+	int ret;
+
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/reset_method", unvmed_bdf(u));
+	if (ret < 0)
+		return -1;
+
+	ret = readmax(path, orig, sizeof(orig));
+	if (ret < 0) {
+		free(path);
+		return -1;
+	}
+	orig[ret] = '\0';
+
+	ret = writeall(path, flr, 3);
+	if (ret < 0) {
+		free(path);
+		errno = ENOTSUP;
+		return -1;
+	}
+
+	ret = asprintf(&reset, "/sys/bus/pci/devices/%s/reset", unvmed_bdf(u));
+	if (ret < 0)
+		return -1;
+
+	ret = writeall(reset, echo, 1);
+	if (ret < 0) {
+		free(reset);
+		free(path);
+		return -1;
+	}
+
+	free(reset);
+
+	unvmed_reset_ctx(u);
+
+	ret = writeall(path, orig, strlen(orig));
+	if (ret < 0) {
+		free(path);
+		errno = ENOTSUP;
+		return -1;
+	}
+
+	free(path);
+	return 0;
+}
+
 int unvmed_ctx_init(struct unvme *u)
 {
 	struct __unvme_sq *usq;
