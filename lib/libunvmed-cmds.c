@@ -82,6 +82,7 @@ static void unvmed_buf_free(struct unvme *u, struct unvme_buf *buf)
 
 	buf->va = 0;
 	buf->len = 0;
+	buf->flags = 0;
 	buf->iov = (struct iovec) {.iov_base = 0, .iov_len = 0};
 }
 
