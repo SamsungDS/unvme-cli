@@ -749,12 +749,32 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 
 	ld->f = f;
 
+	ret = pthread_mutex_lock(&g_serialize);
+	if (ret) {
+		libunvmed_log("failed to grab mutex lock\n");
+		return ret;
+	}
+
 	if (!o->sqid)
 		o->sqid = td->thread_number;
 
 	ld->usq = unvmed_sq_get(u, o->sqid);
 	if (!ld->usq) {
 		libunvmed_log("submission queue (--sqid=%d) not found\n", o->sqid);
+		pthread_mutex_unlock(&g_serialize);
+		return -1;
+	}
+
+	/*
+	 * unvmed daemon itself has grabbed the first usq instance and the
+	 * very first fio job should grab the second refcnt, and the following
+	 * attempts should be rejected until libunvmed supports multi-jobs for
+	 * a single queue.
+	 */
+	if (atomic_load_acquire(&ld->usq->refcnt) > 2) {
+		libunvmed_log("submission queue (--sqid=%d) already in use\n", o->sqid);
+		unvmed_sq_put(u, ld->usq);
+		pthread_mutex_unlock(&g_serialize);
 		return -1;
 	}
 
@@ -762,19 +782,16 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	if (!ld->ucq) {
 		libunvmed_log("completion queue (--cqid=%d) not found\n",
 				unvmed_sq_cqid(ld->usq));
+		unvmed_sq_put(u, ld->usq);
+		pthread_mutex_unlock(&g_serialize);
 		return -1;
 	}
 
 	if (td->o.iodepth >= unvmed_sq_size(ld->usq)) {
 		libunvmed_log("--iodepth=%d is greater than SQ queue size %d\n",
 				td->o.iodepth, unvmed_sq_size(ld->usq));
-		return -1;
-	}
-
-	ret = pthread_mutex_lock(&g_serialize);
-	if (ret) {
-		libunvmed_log("failed to grab mutex lock\n");
-		return ret;
+		ret = -1;
+		goto out;
 	}
 
 	/*
@@ -788,8 +805,11 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		else {
 			ret = unvmed_map_vaddr(u, td->orig_buffer, ld->orig_buffer_size,
 					&ld->orig_buffer_iova, 0);
-			if (ret)
+			if (ret) {
 				libunvmed_log("failed to map io_u buffers to iommu\n");
+				ret = -1;
+				goto out;
+			}
 		}
 	}
 
@@ -798,22 +818,30 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 
 		ret = unvmed_map_vaddr(u, ld->prp_iomem, ld->prp_iomem_size,
 				&iova, 0);
-		if (ret)
+		if (ret) {
 			libunvmed_log("failed to map prp iomem to iommu\n");
-		goto out;
+			ret = -1;
+			goto out;
+		}
 	}
 
 	if (libunvmed_parse_prchk(o)) {
 		libunvmed_log("'pi_chk=' has neither GUARD, APPTAG, or REFTAG\n");
-		return -1;
+		ret = -1;
+		goto out;
 	}
 
 	if (o->write_mode != FIO_URING_CMD_WMODE_WRITE && !td_write(td)) {
 		libunvmed_log("'readwrite=|rw=' has no write\n");
-		return -1;
+		ret = -1;
+		goto out;
 	}
 
 out:
+	if (ret) {
+		unvmed_cq_put(u, ld->ucq);
+		unvmed_sq_put(u, ld->usq);
+	}
 	pthread_mutex_unlock(&g_serialize);
 	return ret;
 }
