@@ -125,7 +125,7 @@ static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
 	 */
 	if (!buf && len) {
 		__len = pgmap(&__buf, len);
-		if (!__buf) {
+		if (__len < 0) {
 			unvmed_log_err("failed to mmap() for data buffer");
 			return -1;
 		}
