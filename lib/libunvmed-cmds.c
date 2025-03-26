@@ -110,7 +110,7 @@ static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
 	void *__buf = NULL;
 	ssize_t __len;
 
-	memset(buf, 0, sizeof(*buf));
+	memset(ubuf, 0, sizeof(*ubuf));
 
 	/*
 	 * If caller gives NULL buf and non-zero len, it will allocate a user
