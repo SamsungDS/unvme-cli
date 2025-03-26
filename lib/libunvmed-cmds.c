@@ -79,11 +79,6 @@ static void unvmed_buf_free(struct unvme *u, struct unvme_buf *buf)
 
 	if (buf->flags & UNVME_CMD_BUF_F_VA_UNMAP)
 		pgunmap(buf->va, buf->len);
-
-	buf->va = 0;
-	buf->len = 0;
-	buf->flags = 0;
-	buf->iov = (struct iovec) {.iov_base = 0, .iov_len = 0};
 }
 
 static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u, struct unvme_sq *usq)
@@ -114,6 +109,8 @@ static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
 {
 	void *__buf = NULL;
 	ssize_t __len;
+
+	memset(buf, 0, sizeof(*buf));
 
 	/*
 	 * If caller gives NULL buf and non-zero len, it will allocate a user
