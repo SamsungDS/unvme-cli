@@ -51,7 +51,7 @@ static void unvme_callstack_dump(void)
 	strs = backtrace_symbols(callstack, nr_frames);
 
 	for (i = 0; i < nr_frames; i++)
-		unvmed_log_err("%s", strs[i]);
+		unvmed_log_err("(tid=%ld) %s", gettid(), strs[i]);
 
 	free(strs);
 }
