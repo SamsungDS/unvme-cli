@@ -525,6 +525,7 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 
 	if (vector >= nr_irqs) {
 		unvmed_log_err("invalid vector %d", vector);
+		errno = EINVAL;
 		return -1;
 	}
 
