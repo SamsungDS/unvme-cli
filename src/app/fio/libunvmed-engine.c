@@ -360,6 +360,13 @@ struct libunvmed_data {
 	uint64_t mbuf_iova;
 
 	/*
+	 * for TRIM-only workloads.
+	 */
+	void *trim_iomem;
+	size_t trim_iomem_size;
+	uint64_t trim_iomem_iova;
+
+	/*
 	 * Target I/O submission queue instance per a thread.  A submission
 	 * queue is fully dedicated to a thread(job), which means totally
 	 * non-sharable.
@@ -633,8 +640,22 @@ static int libunvmed_init_data(struct thread_data *td)
 	} else if (o->md_per_io_size)
 		libunvmed_log("md_per_io_size will be ignored\n");
 
-	td->io_ops_data = ld;
+	if (td->o.td_ddir == TD_DDIR_TRIM) {
+		ld->trim_iomem_size = td->o.iodepth * td_max_bs(td);
+		if (pgmap(&ld->trim_iomem, ld->trim_iomem_size) < 0) {
+			libunvmed_log("failed to mmap() for TRIM buffer\n");
+			return -ENOMEM;
+		}
 
+		if (unvmed_map_vaddr(u, ld->trim_iomem, ld->trim_iomem_size,
+					&ld->trim_iomem_iova, 0)) {
+			libunvmed_log("failed to map vaddr for TRIM buffer\n");
+			pgunmap(ld->trim_iomem, ld->trim_iomem_size);
+			return -EINVAL;
+		}
+	}
+
+	td->io_ops_data = ld;
 out:
 	return 0;
 }
@@ -709,6 +730,11 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
 	int refcnt;
+
+	if (td->o.td_ddir == TD_DDIR_TRIM) {
+		unvmed_unmap_vaddr(ld->u, ld->trim_iomem);
+		pgunmap(ld->trim_iomem, ld->trim_iomem_size);
+	}
 
 	refcnt = unvmed_ns_put(ld->u, ld->ns);
 	assert(refcnt >= 0);
@@ -978,6 +1004,11 @@ static int fio_libunvmed_io_u_init(struct thread_data *td, struct io_u *io_u)
 	}
 
 	io_u->engine_data = mo;
+
+	if (td->o.td_ddir == TD_DDIR_TRIM) {
+		io_u->buflen = td_max_bs(td) * io_u->index;
+		io_u->buf = ld->trim_iomem + io_u->buflen;
+	}
 
 	return 0;
 }
@@ -1302,7 +1333,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	uint64_t slba = libunvmed_get_slba(io_u, ns);
 	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
 
-	cmd = unvmed_alloc_cmd(ld->u, ld->usq, NULL, dsm_range_size);
+	cmd = unvmed_alloc_cmd(ld->u, ld->usq, io_u->xfer_buf, dsm_range_size);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
