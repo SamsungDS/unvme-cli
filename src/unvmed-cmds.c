@@ -1255,22 +1255,29 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 			ret = ENOENT;
 			goto out;
 		}
+		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+		if (!cmd) {
+			unvme_pr_err("failed to allocate a command instance\n");
+
+			if (buf)
+				pgunmap(buf, len);
+			ret = errno;
+			goto out;
+		}
+
+		iov = (struct iovec) {
+			.iov_base = buf,
+			.iov_len = arg_intv(data_size),
+		};
+
+	} else {
+		cmd = unvmed_alloc_cmd_nodata(u, usq);
+		if (!cmd) {
+			unvme_pr_err("failed to allocate a command instance\n");
+			ret = errno;
+			goto out;
+		}
 	}
-
-	cmd = unvmed_alloc_cmd(u, usq, buf, len);
-	if (!cmd) {
-		unvme_pr_err("failed to allocate a command instance\n");
-
-		if (buf)
-			pgunmap(buf, len);
-		ret = errno;
-		goto out;
-	}
-
-	iov = (struct iovec) {
-		.iov_base = buf,
-		.iov_len = arg_intv(data_size),
-	};
 
 	ret = unvmed_set_features(u, cmd, arg_dblv(nsid), arg_intv(fid),
 			arg_boolv(save), arg_dblv(cdw11), arg_dblv(cdw12),
