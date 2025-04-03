@@ -1095,6 +1095,30 @@ int unvmed_set_features(struct unvme *u, struct unvme_cmd *cmd,
 			struct nvme_cqe *cqe);
 
 /**
+ * unvmed_get_features - Get Features
+ * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @fid: feature identifier
+ * @sel: request attribute of the value in th returned data
+ * @cdw11: command dword 11
+ * @cdw14: command dword 14
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ * @cqe: cq entry
+ *
+ * Issue an Get Features to the controller @u.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, -1 on error, otherwise CQE status field.
+ */
+int unvmed_get_features(struct unvme *u, struct unvme_cmd *cmd,
+			uint32_t nsid, uint8_t fid, uint8_t sel, uint32_t cdw11,
+			uint32_t cdw14,	struct iovec *iov, int nr_iov,
+			struct nvme_cqe *cqe);
+
+/**
  * unvmed_read - Read I/O command
  * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)

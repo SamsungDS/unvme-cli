@@ -414,6 +414,36 @@ int unvmed_set_features(struct unvme *u, struct unvme_cmd *cmd,
 	return unvmed_cqe_status(cqe);
 }
 
+int unvmed_get_features(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+			uint8_t fid, uint8_t sel, uint32_t cdw11,
+			uint32_t cdw14, struct iovec *iov, int nr_iov,
+			struct nvme_cqe *cqe)
+{
+	struct nvme_cmd_features sqe = {0, };
+
+	sqe.opcode = nvme_admin_get_features;
+	sqe.nsid = cpu_to_le32(nsid);
+	sqe.fid = fid;
+	sqe.sel = sel;
+	sqe.cdw11 = cpu_to_le32(cdw11);
+	sqe.cdw14 = cpu_to_le32(cdw14);
+
+	if (nr_iov > 0) {
+		if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov)) {
+			unvmed_log_err("failed to map iovec for prp");
+			return -1;
+		}
+	}
+
+	unvmed_sq_enter(cmd->usq);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
+
+	unvmed_cq_run_n(u, cmd->usq->ucq, cqe, 1, 1);
+	unvmed_sq_exit(cmd->usq);
+
+	return unvmed_cqe_status(cqe);
+}
+
 int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		uint64_t slba, uint16_t nlb, uint8_t prinfo,
 		uint16_t atag, uint16_t atag_mask, uint64_t rtag,

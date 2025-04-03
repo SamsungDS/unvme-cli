@@ -1359,6 +1359,117 @@ out:
 	return ret;
 }
 
+int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Submit a Get Features admin command to the given <device> NVMe controller";
+
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_dbl *nsid = arg_dbl0("n", "namespace-id", "<n>",	"[O] Namespace ID");
+	struct arg_int *fid = arg_int1("f", "feature-id", "<n>",	"[M] Feature Identifier");
+	struct arg_int *sel = arg_int0("s", "sel", "n",			"[O] Select [0-3,8]: current/default/saved/supported/changed");
+	struct arg_file *data = arg_file0("d", "data", "<file>",	"[O] File to write dptr data");
+	struct arg_int *data_size = arg_int0("z", "data-size", "<n>",	"[O] Data size in bytes");
+	struct arg_dbl *cdw11 = arg_dbl0(NULL, "cdw11", "<n>",		"[O] CDW11 value");
+	struct arg_dbl *cdw14 = arg_dbl0(NULL, "cdw14", "<n>",		"[O] CDW14 value");
+	struct arg_lit *help = arg_lit0("h", "help",			"Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = {dev, nsid, fid, sel, data, data_size, cdw11, cdw14, help, end};
+
+	__unvme_free char *filepath = NULL;
+	const uint32_t sqid = 0;
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq = NULL;
+	struct nvme_cqe cqe;
+	struct iovec iov;
+	struct unvme *u;
+	void *buf = NULL;
+	ssize_t len = 0;
+	int ret;
+
+	arg_dblv(nsid) = 0;
+	arg_intv(sel) = 0;
+	arg_intv(data_size) = 0;
+	arg_dblv(cdw11) = 0;
+	arg_dblv(cdw14) = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, sqid);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	if (arg_boolv(data_size)) {
+		len = pgmap(&buf, arg_intv(data_size));
+		if (len < 0) {
+			unvme_pr_err("failed to allocate buffer\n");
+			ret = errno;
+			goto out;
+		}
+
+		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+		if (!cmd) {
+			unvme_pr_err("failed to allocate a command instance\n");
+
+			if (buf)
+				pgunmap(buf, len);
+			ret = errno;
+			goto out;
+		}
+
+		iov = (struct iovec) {
+			.iov_base = buf,
+			.iov_len = arg_intv(data_size),
+		};
+
+	} else {
+		cmd = unvmed_alloc_cmd_nodata(u, usq);
+		if (!cmd) {
+			unvme_pr_err("failed to allocate a command instance\n");
+			ret = errno;
+			goto out;
+		}
+	}
+
+	ret = unvmed_get_features(u, cmd, arg_dblv(nsid), arg_intv(fid),
+			arg_boolv(sel), arg_dblv(cdw11), arg_dblv(cdw14), &iov,
+			arg_intv(data_size) > 0 ? 1 : 0, &cqe);
+
+	if (!ret) {
+		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cqe.dw0));
+		unvme_pr_err("dw1: %#x\n", le32_to_cpu(cqe.dw1));
+
+		if (arg_boolv(data_size)) {
+			if (arg_boolv(data)) {
+				filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
+				unvme_write_file(filepath, buf, arg_intv(data_size));
+			} else
+				unvme_cmd_pr_raw(buf, arg_intv(data_size));
+		}
+	} else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+	else if (ret < 0)
+		unvme_pr_err("failed to get-features\n");
+
+	unvmed_cmd_free(cmd);
+
+	if (buf && len)
+		pgunmap(buf, len);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
