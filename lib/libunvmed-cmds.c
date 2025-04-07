@@ -593,10 +593,12 @@ int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
 {
 	struct nvme_cqe cqe;
 
-	if (!sqe->dptr.prp1 && !sqe->dptr.prp2) {
-		if (__unvmed_mapv_prp(cmd, sqe, iov, nr_iov)) {
-			unvmed_log_err("failed to map iovec for prp");
-			return -1;
+	if (nr_iov > 0) {
+		if (!sqe->dptr.prp1 && !sqe->dptr.prp2) {
+			if (__unvmed_mapv_prp(cmd, sqe, iov, nr_iov)) {
+				unvmed_log_err("failed to map iovec for prp");
+				return -1;
+			}
 		}
 	}
 
