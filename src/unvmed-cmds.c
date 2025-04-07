@@ -2049,12 +2049,6 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_boolv(sqid) && !arg_boolv(nsid)) {
-		unvme_pr_err("invalid -n|--namespace-id\n");
-		ret = EINVAL;
-		goto out;
-	}
-
 	if (arg_boolv(read) && arg_boolv(write)) {
 		unvme_pr_err("invalid -r|--read and -w|--write\n");
 		ret = EINVAL;
