@@ -2082,7 +2082,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	if (arg_boolv(data_len)) {
+	if (arg_intv(data_len)) {
 		len = pgmap(&buf, arg_intv(data_len));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
