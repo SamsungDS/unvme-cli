@@ -17,6 +17,7 @@ unvme enable $bdf
 unvme create-iocq $bdf -q 1 -z 32 -v 1
 unvme create-iosq $bdf -q 1 -z 32 -c 1
 
+# expect page-fault error
 unvme passthru $bdf -q 1 -n 1 -o 0x1 -w -i /dev/urandom -l 4096 --prp1=0x12340000 --prp2=0xdead0000
 
 unvme stop
