@@ -360,7 +360,13 @@ struct libunvmed_data {
 	uint64_t mbuf_iova;
 
 	/*
-	 * for TRIM-only workloads.
+	 * for --rw=trim or randtrim (TRIM-only) workload and --rw=[r]w(write)
+	 * with --trim_backlog=N is given.  If --trim_backlog is given N, TRIMs
+	 * probabily will be issued among N number of WRITEs and this case,
+	 * @io_u->xfer_buf == NULL.
+	 * If --rw=trimwrite is given, TRIM @io_u is given with @io_u->xfer_buf
+	 * != NULL by fio so that libunvmed does not have to prepare it's own
+	 * buffer.
 	 */
 	void *trim_iomem;
 	size_t trim_iomem_size;
@@ -1333,7 +1339,17 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	uint64_t slba = libunvmed_get_slba(io_u, ns);
 	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
 
-	cmd = unvmed_alloc_cmd(ld->u, ld->usq, io_u->xfer_buf, dsm_range_size);
+	void *buf = io_u->xfer_buf;
+
+	/*
+	 * Case for --trim_backlog=N is given for verify TRIM-ed logical
+	 * blocks.  In this case, fio is not giving @xfer_buf as valid buffer,
+	 * but @xfer_buflen is still > 0.
+	 */
+	if (!io_u->xfer_buf && io_u->xfer_buflen > 0)
+		buf = io_u->buf;
+
+	cmd = unvmed_alloc_cmd(ld->u, ld->usq, buf, dsm_range_size);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
