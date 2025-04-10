@@ -21,7 +21,7 @@ ioengine_lib = shared_library(
   ['libunvmed-engine.c'],
   version: ver,
   override_options: ['b_lundef=false'],  # To remove -Wl,--no-undefined
-  dependencies: [nvme_lib, unvmed_dep],
+  dependencies: [vfn_lib, nvme_lib, unvmed_dep],
   include_directories: fio_inc,
   install: true,
   install_dir: get_option('libdir'),
