@@ -164,6 +164,8 @@ static inline int unvme_msgq_get(const char *keyfile)
 #define UNVME_DAEMON_PID	"/var/run/unvmed.pid"
 #define UNVME_DAEMON_VER	"/var/run/unvmed.ver"
 
+#define UNVME_DEFAULT_UUID      "ebaad5d4-7e69-4067-ac91-930eba81317d"
+
 static inline void unvme_print_help(FILE *fp, char *cmd, const char *desc, void *argtable[]) {
 	fprintf(fp, "\nUsage: unvme %s", cmd);
 	arg_print_syntax(fp, argtable, "\n");

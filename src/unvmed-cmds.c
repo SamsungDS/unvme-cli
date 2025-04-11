@@ -232,6 +232,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *nrioqs;
+	struct arg_str *vf_token;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -243,6 +244,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		nrioqs = arg_int0("q", "nr-ioqs", "<n>", "[O] Maximum number of "
 			"I/O queues to create (defaults: # of cpu)"),
+		vf_token = arg_str0("v", "vf-token", "<n>", "[O] VF token(UUID) to override"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -250,6 +252,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 
 	/* Set default argument values prior to parsing */
 	arg_intv(nrioqs) = get_nprocs();
+	arg_strv(vf_token) = UNVME_DEFAULT_UUID;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -274,6 +277,9 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		ret = errno;
 		goto out;
 	}
+
+	/* VFTOKEN is an environmental variable used in libvfn for SR-IOV */
+	setenv("VFTOKEN", arg_strv(vf_token), 1);
 
 	if (!unvmed_init_ctrl(arg_strv(dev), arg_intv(nrioqs))) {
 		unvme_pr_err("failed to initialize unvme\n");
