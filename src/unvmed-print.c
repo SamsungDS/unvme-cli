@@ -340,7 +340,7 @@ void unvme_pr_status(struct unvme *u)
 		sq = &sqs[i];
 
 		unvme_pr("%4d %18p %#18lx %4d %4d %5d %5d\n",
-			 sq->id, sq->vaddr, sq->iova,
+			 sq->id, sq->mem.vaddr, sq->mem.iova,
 			 sq->cq->id, sq->tail, sq->ptail, sq->qsize);
 	}
 	unvme_pr("\n");
@@ -353,7 +353,7 @@ void unvme_pr_status(struct unvme *u)
 			break;
 
 		unvme_pr("%4d %18p %#18lx %4d %5d %5d %4d\n",
-			 cq->id, cq->vaddr, cq->iova,
+			 cq->id, cq->mem.vaddr, cq->mem.iova,
 			 cq->head, cq->qsize, cq->phase, cq->vector);
 	}
 	unvme_pr("\n");

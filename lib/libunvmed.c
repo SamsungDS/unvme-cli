@@ -323,7 +323,7 @@ static struct __unvme_sq *__unvmed_find_and_get_sq(struct unvme *u,
 	pthread_rwlock_rdlock(&u->sq_list_lock);
 	list_for_each(&u->sq_list, curr, list) {
 		assert(curr->q != NULL);
-		if (curr->q->vaddr && unvmed_sq_id(curr) == qid) {
+		if (curr->q->mem.vaddr && unvmed_sq_id(curr) == qid) {
 			usq = curr;
 			if (get)
 				atomic_inc(&usq->refcnt);
@@ -1194,7 +1194,7 @@ static inline void unvmed_unquiesce_sq_all(struct unvme *u)
 
 static inline struct nvme_cqe *unvmed_get_cqe(struct unvme_cq *ucq, uint32_t head)
 {
-	return (struct nvme_cqe *)(ucq->q->vaddr + (head << NVME_CQES));
+	return (struct nvme_cqe *)(ucq->q->mem.vaddr + (head << NVME_CQES));
 }
 
 static inline void unvmed_put_cqe(struct unvme_cq *ucq, uint32_t head,
@@ -1513,7 +1513,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 	sqe.opcode = nvme_admin_create_cq;
 	sqe.qid = cpu_to_le16(qid);
-	sqe.prp1 = cpu_to_le64(u->ctrl.cq[qid].iova);
+	sqe.prp1 = cpu_to_le64(u->ctrl.cq[qid].mem.iova);
 	sqe.qsize = cpu_to_le16((uint16_t)(qsize - 1));
 	sqe.qflags = cpu_to_le16(qflags);
 	sqe.iv = cpu_to_le16(iv);
@@ -1653,7 +1653,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 	sqe.opcode = nvme_admin_create_sq;
 	sqe.qid = cpu_to_le16(qid);
-	sqe.prp1 = cpu_to_le64(u->ctrl.sq[qid].iova);
+	sqe.prp1 = cpu_to_le64(u->ctrl.sq[qid].mem.iova);
 	sqe.qsize = cpu_to_le16((uint16_t)(qsize - 1));
 	sqe.qflags = cpu_to_le16(NVME_Q_PC);
 	sqe.cqid = cpu_to_le16((uint16_t)ucq->q->id);
