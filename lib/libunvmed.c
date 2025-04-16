@@ -2050,8 +2050,6 @@ int unvmed_subsystem_reset(struct unvme *u)
 
 	unvmed_write32(u, NVME_REG_NSSR, 0x4E564D65);
 
-	unvmed_reset_ctx(u);
-
 	if (unvmed_pci_wait_link_up(u) < 0) {
 		unvmed_log_err("failed to wait for PCI to be link up");
 		return -1;
@@ -2061,6 +2059,8 @@ int unvmed_subsystem_reset(struct unvme *u)
 		unvmed_log_err("failed to write pci config register");
 		return -1;
 	}
+
+	unvmed_reset_ctx(u);
 
 	return 0;
 }
