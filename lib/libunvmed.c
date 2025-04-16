@@ -2118,6 +2118,223 @@ int unvmed_flr(struct unvme *u)
 	return 0;
 }
 
+static int unvmed_get_downstream_port(struct unvme *u, char *bdf)
+{
+	char *path = NULL;
+	char *rpath;
+	char *last;
+	char *dsp;
+	int ret;
+
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s", unvmed_bdf(u));
+	if (ret < 0)
+		return -1;
+
+	rpath = realpath(path, NULL);
+	if (!rpath) {
+		free(path);
+		return -1;
+	}
+
+	last = strrchr(rpath, '/');
+	if (!last) {
+		free(path);
+		return -1;
+	}
+
+	*last = '\0';
+
+	dsp = strrchr(rpath, '/');
+	if (!dsp) {
+		free(path);
+		return -1;
+	}
+
+	strncpy(bdf, ++dsp, 12);
+
+	free(rpath);
+	free(path);
+	return 0;
+}
+
+static int unvmed_get_pcie_cap_offset(char *bdf)
+{
+	char *path = NULL;
+	uint16_t offset;
+	uint16_t cap;
+	uint16_t id;
+	uint16_t next;
+	int ret;
+	int fd;
+
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/config", bdf);
+	if (ret < 0)
+		return -1;
+
+	fd = open(path, O_RDWR);
+	if (fd < 0)
+		goto free;
+
+	ret = pread(fd, &offset, 2, 0x34);  /* Firts cap. pointer */
+	if (ret < 0)
+		goto close;
+
+	ret = -1;
+	while (offset < 0x100) {
+		if (pread(fd, &cap, 2, offset) < 0)
+			goto close;
+
+		id = cap & 0xff;
+		next = cap >> 8;
+
+		if (id == 0x10) {  /* PCI Express Cap. ID */
+			ret = offset;
+			break;
+		}
+
+		offset = next;
+	}
+
+close:
+	close(fd);
+free:
+	free(path);
+	return ret;
+}
+
+int unvmed_hot_reset(struct unvme *u)
+{
+	char *path = NULL;
+	char config[4096];
+	char dsp[13];
+	uint16_t control;
+	int ret;
+	int fd;
+
+	if (unvmed_get_downstream_port(u, dsp) < 0)
+		return -1;
+
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/config", dsp);
+	if (ret < 0)
+		return -1;
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		ret = fd;
+		goto free;
+	}
+
+	ret = pread(fd, &control, 2, 0x3E);
+	if (ret < 0)
+		goto close;
+
+	ret = unvmed_pci_backup_state(u, config);
+	if (ret < 0) {
+		unvmed_log_err("failed to read pci config register");
+		goto close;
+	}
+
+	control |= 1 << 6;
+	ret = pwrite(fd, &control, 2, 0x3E);
+	if (ret < 0)
+		goto close;
+
+	control &= ~(1 << 6);
+	ret = pwrite(fd, &control, 2, 0x3E);
+	if (ret < 0)
+		goto close;
+
+	unvmed_reset_ctx(u);
+
+	ret = unvmed_pci_wait_link_up(u);
+	if (ret < 0) {
+		unvmed_log_err("failed to wait for PCI to be link up");
+		goto close;
+	}
+
+	ret = unvmed_pci_restore_state(u, config);
+	if (ret < 0) {
+		unvmed_log_err("failed to write pci config register");
+		goto close;
+	}
+
+close:
+	close(fd);
+free:
+	free(path);
+	return ret;
+}
+
+int unvmed_link_disable(struct unvme *u)
+{
+	char *path = NULL;
+	char config[4096];
+	char dsp[13];
+	uint16_t pcie_offset;
+	uint16_t control;
+	int ret;
+	int fd;
+
+	if (unvmed_get_downstream_port(u, dsp) < 0)
+		return -1;
+
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/config", dsp);
+	if (ret < 0)
+		return -1;
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		ret = fd;
+		goto free;
+	}
+
+	pcie_offset = unvmed_get_pcie_cap_offset(dsp);
+	if (pcie_offset == -1) {
+		ret = -1;
+		goto close;
+	}
+
+	ret = pread(fd, &control, 2, pcie_offset + 0x10);
+	if (ret < 0)
+		goto close;
+
+	ret = unvmed_pci_backup_state(u, config);
+	if (ret < 0) {
+		unvmed_log_err("failed to read pci config register");
+		goto close;
+	}
+
+	control |= 1 << 4;
+	ret = pwrite(fd, &control, 2, pcie_offset + 0x10);
+	if (ret < 0)
+		goto close;
+
+	control &= ~(1 << 4);
+	ret = pwrite(fd, &control, 2, pcie_offset + 0x10);
+	if (ret < 0)
+		goto close;
+
+	unvmed_reset_ctx(u);
+
+	ret = unvmed_pci_wait_link_up(u);
+	if (ret < 0) {
+		unvmed_log_err("failed to wait for PCI to be link up");
+		goto close;
+	}
+
+	ret = unvmed_pci_restore_state(u, config);
+	if (ret < 0) {
+		unvmed_log_err("failed to write pci config register");
+		goto close;
+	}
+
+close:
+	close(fd);
+free:
+	free(path);
+	return 0;
+}
+
 int unvmed_ctx_init(struct unvme *u)
 {
 	struct __unvme_sq *usq;

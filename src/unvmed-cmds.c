@@ -2543,6 +2543,94 @@ out:
 	return ret;
 }
 
+int unvme_hot_reset(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc = "Trigger Hot Reset to corresponding downstream port of \n"
+			"the given endpoint device.";
+
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_lit *reinit = arg_lit0(NULL, "reinit", "[O] Re-initialize the controller with the current driver context (e.g., I/O queues)");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = {dev, reinit, help, end};
+
+	struct unvme *u;
+	int ret;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (arg_boolv(reinit) && unvmed_ctx_init(u)) {
+		unvme_pr_err("failed to save the current driver context\n");
+		ret = errno;
+		goto out;
+	}
+
+	ret = unvmed_hot_reset(u);
+	if (ret)
+		unvme_pr_err("failed to hot reset\n");
+
+	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
+		unvme_pr_err("failed to restore the previous driver context\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
+int unvme_link_disable(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc = "Trigger Link Disable to corresponding downstream port of \n"
+			"the given endpoint device.";
+
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_lit *reinit = arg_lit0(NULL, "reinit", "[O] Re-initialize the controller with the current driver context (e.g., I/O queues)");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = {dev, reinit, help, end};
+
+	struct unvme *u;
+	int ret;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (arg_boolv(reinit) && unvmed_ctx_init(u)) {
+		unvme_pr_err("failed to save the current driver context\n");
+		ret = errno;
+		goto out;
+	}
+
+	ret = unvmed_link_disable(u);
+	if (ret)
+		unvme_pr_err("failed to link disable\n");
+
+	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
+		unvme_pr_err("failed to restore the previous driver context\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_perf(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;

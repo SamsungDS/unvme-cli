@@ -233,6 +233,8 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_reset(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_subsystem_reset(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_flr(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_hot_reset(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_link_disable(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_perf(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_fio(int argc, char *argv[], struct unvme_msg *msg);
 

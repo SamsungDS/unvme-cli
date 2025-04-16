@@ -1290,6 +1290,18 @@ int unvmed_subsystem_reset(struct unvme *u);
 int unvmed_flr(struct unvme *u);
 
 /**
+ * unvmed_hot_reset - Trigger Hot Reset to corresponding downstream port
+ * @u: &struct unvme
+ */
+int unvmed_hot_reset(struct unvme *u);
+
+/**
+ * unvmed_link_disable - Trigger Link Disable to corresponding downstream port
+ * @u: &struct unvme
+ */
+int unvmed_link_disable(struct unvme *u);
+
+/**
  * unvmed_ctx_init - Snapshot current driver context
  * @u: &struct unvme
  *
