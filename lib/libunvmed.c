@@ -29,8 +29,12 @@ static void *unvmed_rcq_run(void *opaque);
 static void __unvmed_free_ns(struct __unvme_ns *ns);
 static void __unvmed_free_usq(struct __unvme_sq *usq);
 static void __unvmed_free_ucq(struct __unvme_cq *ucq);
+static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq);
+static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq);
 static void __unvmed_delete_sq_all(struct unvme *u);
 static void __unvmed_delete_cq_all(struct unvme *u);
+static void unvmed_delete_iosq_all(struct unvme *u);
+static void unvmed_delete_iocq_all(struct unvme *u);
 
 static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
 {
@@ -1345,6 +1349,55 @@ void unvmed_reset_ctrl(struct unvme *u)
 	unvmed_reset_ctx(u);
 }
 
+void unvmed_reset_ctrl_graceful(struct unvme *u)
+{
+	struct __unvme_sq *usq;
+
+	unvmed_disable_sq_all(u);
+	unvmed_disable_cq_all(u);
+	unvmed_disable_ns_all(u);
+
+	/*
+	 * Quiesce all submission queues to prevent I/O submission from upper
+	 * layer.  The queues should be re-enabled (unquiesced) back once
+	 * create I/O queue command is issued.
+	 */
+	unvmed_quiesce_sq_all(u);
+
+	/*
+	 * Wait for all the in-flight commands to complete, meaning that upper
+	 * layer application consumed all the completion queue entries that
+	 * issued.
+	 */
+	pthread_rwlock_rdlock(&u->sq_list_lock);
+	list_for_each(&u->sq_list, usq, list) {
+		while (atomic_load_acquire(&usq->nr_cmds) > 0)
+			;
+	}
+	pthread_rwlock_unlock(&u->sq_list_lock);
+
+	unvmed_unquiesce_sq_all(u);
+
+	/*
+	 * Delete I/O queues created with re-enabling the adminq.
+	 */
+	u->asq->enabled = true;
+	u->acq->enabled = true;
+
+	unvmed_delete_iosq_all(u);
+	unvmed_delete_iocq_all(u);
+
+	__unvme_reset_ctrl(u);
+	u->state = UNVME_DISABLED;
+	u->asq->enabled = false;
+	u->acq->enabled = false;
+
+	unvmed_free_ns_all(u);
+
+	__unvmed_delete_sq(u, __to_sq(u->asq));
+	__unvmed_delete_cq(u, __to_cq(u->acq));
+}
+
 static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 					      struct unvme_cq *ucq);
 static void __unvmed_rcq_run(struct unvme_cq *ucq, struct unvme_rcq *rcq)
@@ -1688,6 +1741,38 @@ static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq)
 
 	unvmed_sq_put(u, usq);
 	nvme_discard_sq(&u->ctrl, sq);
+}
+
+static void unvmed_delete_iosq_all(struct unvme *u)
+{
+	int qid;
+
+	for (qid = 1; qid < u->nr_sqs; qid++) {
+		struct unvme_sq *usq = unvmed_sq_find(u, qid);
+
+		if (usq && atomic_load_acquire(&usq->refcnt) > 1) {
+			if (unvmed_delete_sq(u, qid) < 0) {
+				unvmed_log_err("failed to delete I/O SQ (qid=%d)", qid);
+				return;
+			}
+		}
+	}
+}
+
+static void unvmed_delete_iocq_all(struct unvme *u)
+{
+	int qid;
+
+	for (qid = 1; qid < u->nr_cqs; qid++) {
+		struct unvme_cq *ucq = unvmed_cq_find(u, qid);
+
+		if (ucq && atomic_load_acquire(&ucq->refcnt) > 0) {
+			if (unvmed_delete_cq(u, qid) < 0) {
+				unvmed_log_err("failed to delete I/O CQ (qid=%d)", qid);
+				return;
+			}
+		}
+	}
 }
 
 static void __unvmed_delete_sq_all(struct unvme *u)

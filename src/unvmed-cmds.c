@@ -2396,6 +2396,7 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_lit *graceful;
 	struct arg_lit *reinit;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -2407,6 +2408,7 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		graceful = arg_lit0(NULL, "graceful", "[O] Perform a graceful reset, meaning deleting I/O queues before controller reset"),
 		reinit = arg_lit0(NULL, "reinit", "[O] Re-initialize the controller with the current driver context (e.g., I/O queues)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -2432,7 +2434,10 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	unvmed_reset_ctrl(u);
+	if (arg_boolv(graceful))
+		unvmed_reset_ctrl_graceful(u);
+	else
+		unvmed_reset_ctrl(u);
 
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");

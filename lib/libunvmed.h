@@ -680,6 +680,17 @@ void unvmed_cmd_free(struct unvme_cmd *cmd);
 void unvmed_reset_ctrl(struct unvme *u);
 
 /**
+ * unvmed_reset_ctrl_graceful - Reset controller gracefully
+ * @u: &struct unvme
+ *
+ * Reset a given NVMe controller.  First, it deletes all the created I/O queue
+ * pairs quiescing the subsmission queues to prevent upper layer's I/O
+ * requests.  After that, it deasserts CC.EN to 0 and wait for CSTS.RDY to be
+ * 0.
+ */
+void unvmed_reset_ctrl_graceful(struct unvme *u);
+
+/**
  * unvmed_create_adminq - Configure admin SQ and CQ
  * @u: &struct unvme
  *
