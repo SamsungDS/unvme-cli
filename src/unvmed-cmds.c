@@ -17,6 +17,7 @@
 #include <nvme/types.h>
 #include <vfn/pci.h>
 #include <vfn/nvme.h>
+#include <vfn/pci/util.h>
 
 #include "libunvmed.h"
 #include "unvme.h"
@@ -178,6 +179,22 @@ static int unvmed_pci_unbind(const char *bdf)
 	return pci_unbind(bdf);
 }
 
+static bool unvmed_sriov_supported(const char *bdf)
+{
+	char *pf_path = NULL;
+	bool ret;
+
+	assert(asprintf(&pf_path, "/sys/bus/pci/devices/%s/sriov_numvfs", bdf));
+
+	if ((access(pf_path, F_OK) == 0) | pci_is_vf(bdf))
+		ret = true;
+	else
+		ret = false;
+
+	free(pf_path);
+	return ret;
+}
+
 int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct dirent *entry;
@@ -279,7 +296,10 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	/* VFTOKEN is an environmental variable used in libvfn for SR-IOV */
-	setenv("VFTOKEN", arg_strv(vf_token), 1);
+	if (unvmed_sriov_supported(arg_strv(dev)))
+		setenv("VFTOKEN", arg_strv(vf_token), 1);
+	else
+		unsetenv("VFTOKEN");
 
 	if (!unvmed_init_ctrl(arg_strv(dev), arg_intv(nrioqs))) {
 		unvme_pr_err("failed to initialize unvme\n");
