@@ -25,6 +25,9 @@ struct unvme {
 	struct list_head cq_list;
 	pthread_rwlock_t cq_list_lock;
 
+	struct unvme_sq *asq;
+	struct unvme_cq *acq;
+
 	/*
 	 * Number of in-flight commands whose sq entries have already issued
 	 * with the doorbell udpate and cq entries have not been yet fetched.
