@@ -18,6 +18,8 @@ struct unvme {
 
 	enum unvme_state state;
 
+	uint8_t mps;	/* Memory Page Size (2 ^ (12 + @mps)) */
+
 	int nr_sqs;
 	int nr_cqs;
 	struct list_head sq_list;
@@ -51,8 +53,38 @@ struct unvme {
 	 */
 	struct nvme_id_ctrl *id_ctrl;
 
+	struct unvme_hmb {
+		struct {
+			__le64 badd;
+			__le32 bsize;
+			uint32_t rsvd;
+		} *descs;
+		uint64_t *descs_vaddr;
+		uint64_t descs_iova;
+		size_t descs_size;
+		int nr_descs;
+		uint32_t hsize;
+	} hmb;
+
 	struct list_node list;
 };
+
+static inline int unvmed_pow(int base, int exp)
+{
+	int ret = 1;
+
+	while (true) {
+		if (exp & 1)
+			ret = ret * base;
+		exp = exp >> 1;
+		if (!exp)
+			break;
+
+		base = base * base;
+	}
+
+	return ret;
+}
 
 struct __unvme_ns {
 	unvme_declare_ns();

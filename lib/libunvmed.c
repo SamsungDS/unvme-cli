@@ -1531,6 +1531,7 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 			break;
 	}
 
+	u->mps = mps;
 	u->state = UNVME_ENABLED;
 	return 0;
 }

@@ -414,6 +414,163 @@ int unvmed_set_features(struct unvme *u, struct unvme_cmd *cmd,
 	return unvmed_cqe_status(cqe);
 }
 
+static int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
+{
+	const size_t page_size = unvmed_pow(2, u->mps + 12);
+	void *descs = NULL;
+	uint64_t iova;
+	ssize_t ret;
+	size_t hsize = 0;
+	int i;
+
+	if (u->hmb.descs) {
+		unvmed_log_err("failed to initialize HMB (already exists)");
+		errno = EEXIST;
+		return -1;
+	}
+
+	ret = pgmap(&descs, nr_bsize * sizeof(*u->hmb.descs));
+	if (ret < 0) {
+		unvmed_log_err("failed to allocate HMB buffer descriptors");
+		return -1;
+	}
+
+	if (unvmed_map_vaddr(u, descs, ret, &iova, 0x0) < 0) {
+		unvmed_log_err("failed to map HMB buffer descriptors to IOMMU");
+		goto free;
+	}
+
+	u->hmb.descs_vaddr = calloc(nr_bsize, sizeof(uint64_t));
+	if (!u->hmb.descs_vaddr) {
+		unvmed_log_err("failed to allocate HMB buffer descriptors");
+		goto free;
+	}
+
+	u->hmb.descs = descs;
+	u->hmb.descs_iova = iova;
+	u->hmb.descs_size = ret;
+	u->hmb.nr_descs = nr_bsize;
+
+	unvmed_log_info("HMB descriptors (vaddr=%p, iova=%#lx, size=%ldbytes)",
+			descs, iova, ret);
+
+	for (i = 0; i < nr_bsize; i++) {
+		size_t size = bsize[i] * page_size;
+		void *buf = NULL;
+
+		ret = pgmap(&buf, size);
+		if (ret < 0) {
+			unvmed_log_err("failed to allocate HMB buffer");
+			goto free;
+		}
+
+		if (unvmed_map_vaddr(u, buf, ret, &iova, 0x0) < 0) {
+			unvmed_log_err("failed to map HMB buffer to IOMMU");
+			goto free;
+		}
+
+		u->hmb.descs_vaddr[i] = (uint64_t)buf;
+		u->hmb.descs[i].badd = cpu_to_le64(iova);
+		u->hmb.descs[i].bsize = cpu_to_le32(bsize[i]);
+
+		hsize += bsize[i];
+		unvmed_log_info("HMB descriptor #%d (vaddr=%p, iova=%#lx, size=%ldbytes)",
+				i, buf, iova, ret);
+	}
+
+	u->hmb.hsize = hsize;
+	return 0;
+free:
+	for (i = 0; i < nr_bsize; i++) {
+		size_t size = bsize[i] * page_size;
+		if (u->hmb.descs[i].badd) {
+			unvmed_unmap_vaddr(u, (void *)u->hmb.descs_vaddr[i]);
+			pgunmap((void *)u->hmb.descs_vaddr[i], size);
+		}
+	}
+
+	if (u->hmb.descs_vaddr)
+		free(u->hmb.descs_vaddr);
+	unvmed_unmap_vaddr(u, descs);
+	pgunmap(descs, ret);
+
+	memset(&u->hmb, 0, sizeof(u->hmb));
+
+	errno = ENOMEM;
+	return -1;
+}
+
+static int unvmed_hmb_free(struct unvme *u)
+{
+	int i;
+
+	if (!u->hmb.descs) {
+		errno = ENOMEM;
+		return -1;
+	}
+
+	for (i = 0; i < u->hmb.nr_descs; i++) {
+		if (u->hmb.descs[i].badd) {
+			unvmed_unmap_vaddr(u, (void *)u->hmb.descs_vaddr[i]);
+			pgunmap((void *)u->hmb.descs_vaddr[i], u->hmb.descs_size);
+			unvmed_log_info("HMB descriptor #%d freed", i);
+		}
+	}
+
+	if (unvmed_unmap_vaddr(u, u->hmb.descs) < 0)
+		unvmed_log_err("failed to unmap HMB buffer descriptors from IOMMU");
+
+	pgunmap(u->hmb.descs, u->hmb.descs_size);
+
+	memset(&u->hmb, 0, sizeof(u->hmb));
+	return 0;
+}
+
+int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
+			    int nr_bsize, struct nvme_cqe *cqe)
+{
+	struct unvme_cmd *cmd;
+	struct nvme_cmd_features sqe = {0 ,};
+
+	if (!u->asq) {
+		unvmed_log_err("controller is not enabled (no admin sq)");
+		errno = ENODEV;
+		return -1;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
+	if (!cmd) {
+		unvmed_log_err("failed to allocate a command instance");
+		return -1;
+	}
+
+	if (enable && unvmed_hmb_init(u, bsize, nr_bsize) < 0) {
+		unvmed_cmd_free(cmd);
+		return -1;
+	}
+
+	sqe.opcode = nvme_admin_set_features;
+	sqe.fid = NVME_FEAT_FID_HOST_MEM_BUF;
+	sqe.cdw11 = cpu_to_le32(!!enable);
+	sqe.cdw12 = cpu_to_le32(u->hmb.hsize);
+	sqe.cdw13 = cpu_to_le32(u->hmb.descs_iova & 0xffffffff);
+	sqe.cdw14 = cpu_to_le32(u->hmb.descs_iova >> 32);
+	sqe.cdw15 = cpu_to_le32(u->hmb.nr_descs);
+
+	unvmed_sq_enter(u->asq);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
+
+	unvmed_cq_run_n(u, u->acq, cqe, 1, 1);
+	unvmed_sq_exit(u->asq);
+
+	unvmed_cmd_free(cmd);
+
+	if (!enable && nvme_cqe_ok(cqe))
+		unvmed_hmb_free(u);
+
+	return unvmed_cqe_status(cqe);
+}
+
 int unvmed_get_features(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 			uint8_t fid, uint8_t sel, uint32_t cdw11,
 			uint32_t cdw14, struct iovec *iov, int nr_iov,

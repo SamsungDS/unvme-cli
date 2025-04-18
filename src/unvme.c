@@ -63,6 +63,7 @@ static struct command cmds[] = {
 	{"nvm-id-ns",		"Identify Namespace NVM (CNS 5h)",			UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_nvm_id_ns},
 	{"set-features",	"Set Features",						UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_set_features},
 	{"set-features-noq",	"Set Features for Number of Queue (FID 7h)",		UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_set_features_noq},
+	{"set-features-hmb",	"Set Features for Host Memory Buffer (FID Dh)",		UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_set_features_hmb},
 	{"get-features",	"Get Features",						UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_get_features},
 	{"read",		"NVM Read command",					UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_read},
 	{"write",		"NVM Write command",					UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_write},

@@ -1106,6 +1106,24 @@ int unvmed_set_features(struct unvme *u, struct unvme_cmd *cmd,
 			struct nvme_cqe *cqe);
 
 /**
+ * unvmed_set_features_hmb - Set Features for HMB
+ * @u: &struct unvme
+ * @enable: EHM(Enable Host Memory) field in CDW11
+ * @bsize: Buffer Size indicating the number of contiguous memory page size
+ *         (CC.MPS) units for descriptor(s)
+ * @nr_bsize: Number of array entries of @bsize
+ * @cqe: cq entry
+ *
+ * Issue an Set Features to the controller @u.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, -1 on error, otherwise CQE status field.
+ */
+int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
+			    int nr_bsize, struct nvme_cqe *cqe);
+
+/**
  * unvmed_get_features - Get Features
  * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)

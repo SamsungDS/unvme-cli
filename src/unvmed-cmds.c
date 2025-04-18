@@ -1385,6 +1385,61 @@ out:
 	return ret;
 }
 
+int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Submit a Set Features admin command to the given <device> NVMe controller\n"
+		"to enable Host Memory Buffer.";
+
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_lit *enable = arg_lit0(NULL, "enable", "[O] Enable HMB (EHM=1)");
+	struct arg_lit *disable = arg_lit0(NULL, "disable", "[O] Disable HMB (EHM=0)");
+	struct arg_int *size = arg_intn("s", "size", "<n>", 1, 256, "[M] Number of contiguous memory page size(CC.MPS) for a single HMB descriptor.  Multiple sizes can be given.");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = {dev, enable, disable, size, help, end};
+
+	struct unvme_sq *usq;
+	struct unvme *u;
+	struct nvme_cqe cqe = {0, };
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if ((!arg_boolv(enable) && !arg_boolv(disable)) ||
+			(arg_boolv(enable) && arg_boolv(disable))) {
+		unvme_pr_err("either --enable or --disable should be given\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	ret = unvmed_set_features_hmb(u, arg_boolv(enable),
+			(uint32_t *)size->ival, size->count, &cqe);
+	if (!ret) {
+		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cqe.dw0));
+	} else if (ret > 0)
+		unvme_pr_cqe_status(ret);
+	else if (ret < 0)
+		unvme_pr_err("failed to set-features\n");
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 {
 	const char *desc =
