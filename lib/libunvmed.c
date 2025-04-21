@@ -1139,9 +1139,6 @@ static void __unvme_reset_ctrl(struct unvme *u)
 		if (!NVME_CSTS_RDY(csts))
 			break;
 	}
-
-	u->asq = NULL;
-	u->acq = NULL;
 }
 
 static inline void unvmed_disable_sq_all(struct unvme *u)
