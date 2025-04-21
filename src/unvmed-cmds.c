@@ -1429,9 +1429,9 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_set_features_hmb(u, arg_boolv(enable),
 			(uint32_t *)size->ival, size->count, &cqe);
-	if (!ret) {
+	if (!ret)
 		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cqe.dw0));
-	} else if (ret > 0)
+	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
