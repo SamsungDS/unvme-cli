@@ -565,7 +565,7 @@ int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
 
 	unvmed_cmd_free(cmd);
 
-	if (!enable && nvme_cqe_ok(cqe))
+	if ((!enable && nvme_cqe_ok(cqe)) || (enable && !nvme_cqe_ok(cqe)))
 		unvmed_hmb_free(u);
 
 	return unvmed_cqe_status(cqe);
