@@ -1446,8 +1446,15 @@ static int fio_libunvmed_commit(struct thread_data *td)
 		return 0;
 
 	if (!ld->usq->enabled) {
-		unvmed_sq_exit(ld->usq);
-		return 0;
+		/*
+		 * If @usq driver context is still alive for the current fio
+		 * application, we can go update the tail doorbell, otherwise
+		 * we should stop here.
+		 */
+		if (atomic_load_acquire(&ld->usq->refcnt) == 1) {
+			unvmed_sq_exit(ld->usq);
+			return 0;
+		}
 	}
 
 	nr_sqes = unvmed_sq_update_tail(ld->u, ld->usq);
