@@ -1365,6 +1365,27 @@ int unvmed_ctx_restore(struct unvme *u);
  */
 void unvmed_ctx_free(struct unvme *u);
 
+/**
+ * unvmed_hmb_init - Initialize Host Memory Buffer
+ * @u: &struct unvme
+ * @bsize: buffer size array pointer (size is based on CC.MPS unit)
+ * @nr_bsize: number of @bisze array entries
+ *
+ * It won't issue a Set Features admin command, but just initialize the host
+ * memory buffer with IOMMU mapped.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize);
+
+/**
+ * unvmed_hmb_free - Free Host Memory buffer
+ * @u: &struct unvme
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_hmb_free(struct unvme *u);
+
 /*
  * `struct unvme` starts with `struct nvme_ctrl`, so convert easily.
  */
