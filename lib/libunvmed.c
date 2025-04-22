@@ -2117,6 +2117,7 @@ static int unvmed_pci_wait_link_up(struct unvme *u)
 int unvmed_subsystem_reset(struct unvme *u)
 {
 	char config[4096];
+	uint32_t csts;
 
 	if (unvmed_pci_backup_state(u, config) < 0) {
 		unvmed_log_err("failed to read pci config register");
@@ -2133,6 +2134,18 @@ int unvmed_subsystem_reset(struct unvme *u)
 	if (unvmed_pci_restore_state(u, config) < 0) {
 		unvmed_log_err("failed to write pci config register");
 		return -1;
+	}
+
+	/*
+	 * Wait for the NSSRO bitfield and clear it.
+	 */
+	while (true) {
+		csts = unvmed_read32(u, NVME_REG_CSTS);
+		if (NVME_CSTS_NSSRO(csts)) {
+			unvmed_write32(u, NVME_REG_CSTS,
+					1 << NVME_CSTS_NSSRO_SHIFT);
+			break;
+		}
 	}
 
 	unvmed_reset_ctx(u);
