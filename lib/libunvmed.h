@@ -1114,7 +1114,11 @@ int unvmed_set_features(struct unvme *u, struct unvme_cmd *cmd,
  * @nr_bsize: Number of array entries of @bsize
  * @cqe: cq entry
  *
- * Issue an Set Features to the controller @u.
+ * It allocates or de-allocates Host Memory Buffer based on @enable along with
+ * issueing a Set Features admin command to the controller @u.
+ *
+ * If HMB resource has already been allocated previous time, it will set the
+ * Memory Return bit field in Set Features command to 1.
  *
  * This API is thread-safe.
  *

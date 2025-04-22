@@ -419,6 +419,7 @@ int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
 {
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_features sqe = {0 ,};
+	uint8_t mr = 0;
 
 	if (!u->asq) {
 		unvmed_log_err("controller is not enabled (no admin sq)");
@@ -433,13 +434,17 @@ int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
 	}
 
 	if (enable && unvmed_hmb_init(u, bsize, nr_bsize) < 0) {
-		unvmed_cmd_free(cmd);
-		return -1;
+		if (errno == EEXIST)
+			mr = 1;
+		else {
+			unvmed_cmd_free(cmd);
+			return -1;
+		}
 	}
 
 	sqe.opcode = nvme_admin_set_features;
 	sqe.fid = NVME_FEAT_FID_HOST_MEM_BUF;
-	sqe.cdw11 = cpu_to_le32(!!enable);
+	sqe.cdw11 = cpu_to_le32((mr << 1) | !!enable);
 	sqe.cdw12 = cpu_to_le32(u->hmb.hsize);
 	sqe.cdw13 = cpu_to_le32(u->hmb.descs_iova & 0xffffffff);
 	sqe.cdw14 = cpu_to_le32(u->hmb.descs_iova >> 32);
