@@ -1095,6 +1095,7 @@ void unvmed_free_ctrl(struct unvme *u)
 	STORE(u->state, UNVME_TEARDOWN);
 
 	unvmed_free_irqs(u);
+	unvmed_hmb_free(u);
 
 	nvme_close(&u->ctrl);
 
