@@ -1034,7 +1034,6 @@ int unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe);
  * @nsid: namespace identifier to identify
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
- * @flags: control flags (enum unvmed_cmd_flags)
  *
  * Issue an Identify Namespace command to the controller @u.
  *
@@ -1043,7 +1042,7 @@ int unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe);
  * Return: ``0`` on success, otherwise CQE status field.
  */
 int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		 struct iovec *iov, int nr_iov, unsigned long flags);
+		 struct iovec *iov, int nr_iov);
 
 /**
  * unvmed_id_ctrl - Identify Controller (CNS 1h)
@@ -1051,7 +1050,6 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  * @cmd: command instance (&struct unvme_cmd)
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
- * @flags: control flags (enum unvmed_cmd_flags)
  *
  * Issue an Identify Controller command to the controller @u.
  *
@@ -1060,7 +1058,7 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  * Return: ``0`` on success, otherwise CQE status field.
  */
 int unvmed_id_ctrl(struct unvme *u, struct unvme_cmd *cmd, struct iovec *iov,
-		   int nr_iov, unsigned long flags);
+		   int nr_iov);
 
 /**
  * unvmed_id_active_nslist - Identify Active Namespace ID list (CNS 2h)
@@ -1107,7 +1105,6 @@ int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
  * @cdw12: command dword 12
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
- * @cqe: cq entry
  *
  * Issue an Set Features to the controller @u.
  *
@@ -1117,8 +1114,7 @@ int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
  */
 int unvmed_set_features(struct unvme *u, struct unvme_cmd *cmd,
 			uint32_t nsid, uint8_t fid, bool save, uint32_t cdw11,
-			uint32_t cdw12, struct iovec *iov, int nr_iov,
-			struct nvme_cqe *cqe);
+			uint32_t cdw12, struct iovec *iov, int nr_iov);
 
 /**
  * unvmed_set_features_hmb - Set Features for HMB
@@ -1153,7 +1149,6 @@ int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
  * @cdw14: command dword 14
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
- * @cqe: cq entry
  *
  * Issue an Get Features to the controller @u.
  *
@@ -1163,8 +1158,7 @@ int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
  */
 int unvmed_get_features(struct unvme *u, struct unvme_cmd *cmd,
 			uint32_t nsid, uint8_t fid, uint8_t sel, uint32_t cdw11,
-			uint32_t cdw14,	struct iovec *iov, int nr_iov,
-			struct nvme_cqe *cqe);
+			uint32_t cdw14,	struct iovec *iov, int nr_iov);
 
 /**
  * unvmed_read - Read I/O command
@@ -1236,7 +1230,6 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  * @read: true if data transfer is device to host, otherwise false
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
- * @flags: control flags (enum unvmed_cmd_flags)
  *
  * Issue an user-given custom command to the controller @u.  Caller should form
  * @sqe to issue.
@@ -1246,8 +1239,7 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  * Return: ``0`` on success, otherwise CQE status field.
  */
 int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
-		    bool read, struct iovec *iov, int nr_iov,
-		    unsigned long flags);
+		    bool read, struct iovec *iov, int nr_iov);
 
 /**
  * unvmed_format - Format NVM command

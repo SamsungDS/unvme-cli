@@ -192,4 +192,10 @@ static inline int unvmed_futex_wake(void *addr, int n)
 	return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
 }
 
+static inline void unvmed_cmd_wait(struct unvme_cmd *cmd)
+{
+	while (!atomic_load_acquire(&cmd->completed))
+		unvmed_futex_wait(&cmd->completed, 0);
+}
+
 #endif

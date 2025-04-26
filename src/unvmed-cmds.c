@@ -89,14 +89,6 @@ static void unvme_pr_cqe(struct nvme_cqe *cqe)
 			cqe->sqid, cqe->cid, cqe->dw0, cqe->dw1, sct, sc);
 }
 
-static void unvme_pr_cqe_status(int status)
-{
-	uint8_t type = (status >> 8) & 0x7;
-	uint8_t code = status & 0xff;
-
-	unvme_pr_err("CQE status: type=%#x, code=%#x\n", type, code);
-}
-
 static inline void __unvme_cmd_pr(const char *format, void *buf, size_t len,
 			   void (*pr)(void *))
 {
@@ -821,7 +813,6 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme_sq *usq = NULL;
 	ssize_t len;
 	void *buf = NULL;
-	unsigned long flags = 0;
 	struct iovec iov;
 	int ret;
 
@@ -851,9 +842,6 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_boolv(nodb))
-		flags |= UNVMED_CMD_F_NODB;
-
 	/* allocate a buffer with a consieration of --prp1-offset=<n> */
 	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
 	if (len < 0) {
@@ -871,6 +859,10 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+	if (arg_boolv(nodb))
+		cmd->flags |= UNVMED_CMD_F_NODB;
+
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
@@ -878,7 +870,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_ns(u, cmd, arg_dblv(nsid), &iov, 1, flags);
+	ret = unvmed_id_ns(u, cmd, arg_dblv(nsid), &iov, 1);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -894,7 +886,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 			ret = errno;
 		}
 	} else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to identify namespace\n");
 
@@ -926,7 +918,6 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme_sq *usq = NULL;
 	ssize_t len;
 	void *buf = NULL;
-	unsigned long flags = 0;
 	struct iovec iov;
 	int ret;
 
@@ -955,9 +946,6 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_boolv(nodb))
-		flags |= UNVMED_CMD_F_NODB;
-
 	/* allocate a buffer with a consieration of --prp1-offset=<n> */
 	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
 	if (len < 0) {
@@ -975,6 +963,10 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+	if (arg_boolv(nodb))
+		cmd->flags |= UNVMED_CMD_F_NODB;
+
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
@@ -982,7 +974,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_ctrl(u, cmd, &iov, 1, flags);
+	ret = unvmed_id_ctrl(u, cmd, &iov, 1);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -994,7 +986,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		unvmed_init_id_ctrl(u, buf);
 		__unvme_cmd_pr(arg_boolv(binary) ? "binary" : "normal", buf, size, unvme_pr_id_ctrl);
 	} else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to identify namespace\n");
 
@@ -1079,6 +1071,8 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
@@ -1090,7 +1084,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_active_nslist);
 	else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to identify active namespace list\n");
 
@@ -1180,6 +1174,8 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
@@ -1200,7 +1196,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_nvm_id_ns);
 	}
 	else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to NVM identify namespace\n");
 
@@ -1232,7 +1228,6 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 	const uint32_t sqid = 0;
 	struct unvme_cmd *cmd;
 	struct unvme_sq *usq = NULL;
-	struct nvme_cqe cqe;
 	struct iovec iov;
 	struct unvme *u;
 	void *buf = NULL;
@@ -1305,14 +1300,16 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+
 	ret = unvmed_set_features(u, cmd, arg_dblv(nsid), arg_intv(fid),
 			arg_boolv(save), arg_dblv(cdw11), arg_dblv(cdw12),
-			&iov, arg_intv(data_size) > 0 ? 1 : 0, &cqe);
+			&iov, arg_intv(data_size) > 0 ? 1 : 0);
 	if (!ret) {
-		unvme_pr("dw0: %#x\n", le32_to_cpu(cqe.dw0));
-		unvme_pr("dw1: %#x\n", le32_to_cpu(cqe.dw1));
+		unvme_pr("dw0: %#x\n", le32_to_cpu(cmd->cqe.dw0));
+		unvme_pr("dw1: %#x\n", le32_to_cpu(cmd->cqe.dw1));
 	} else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 
@@ -1339,7 +1336,6 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	const uint32_t sqid = 0;
 	struct unvme_cmd *cmd;
 	struct unvme_sq *usq = NULL;
-	struct nvme_cqe cqe;
 	struct unvme *u;
 	uint32_t cdw11;
 	int ret;
@@ -1367,15 +1363,17 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+
 	cdw11 = arg_intv(ncqr) << 16 | arg_intv(nsqr);
 
 	ret = unvmed_set_features(u, cmd, 0 /* nsid */, NVME_FEAT_FID_NUM_QUEUES,
 			0 /* save */, cdw11, 0 /* cdw12 */, NULL /* iov */,
-			0 /* nr_iov */, &cqe);
+			0 /* nr_iov */);
 	if (!ret)
-		unvme_pr_get_features_noq(le32_to_cpu(cqe.dw0));
+		unvme_pr_get_features_noq(le32_to_cpu(cmd->cqe.dw0));
 	else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features-noq\n");
 
@@ -1444,7 +1442,7 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 	if (!ret)
 		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cqe.dw0));
 	else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cqe);
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 out:
@@ -1473,7 +1471,6 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 	const uint32_t sqid = 0;
 	struct unvme_cmd *cmd;
 	struct unvme_sq *usq = NULL;
-	struct nvme_cqe cqe;
 	struct iovec iov;
 	struct unvme *u;
 	void *buf = NULL;
@@ -1536,11 +1533,11 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_get_features(u, cmd, arg_dblv(nsid), arg_intv(fid),
 			arg_boolv(sel), arg_dblv(cdw11), arg_dblv(cdw14), &iov,
-			arg_intv(data_size) > 0 ? 1 : 0, &cqe);
+			arg_intv(data_size) > 0 ? 1 : 0);
 
 	if (!ret) {
-		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cqe.dw0));
-		unvme_pr_err("dw1: %#x\n", le32_to_cpu(cqe.dw1));
+		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cmd->cqe.dw0));
+		unvme_pr_err("dw1: %#x\n", le32_to_cpu(cmd->cqe.dw1));
 
 		if (arg_boolv(data_size)) {
 			if (arg_boolv(data)) {
@@ -1550,7 +1547,7 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 				unvme_cmd_pr_raw(buf, arg_intv(data_size));
 		}
 	} else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else if (ret < 0)
 		unvme_pr_err("failed to get-features\n");
 
@@ -2112,7 +2109,6 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	struct iovec iov;
 	void *buf = NULL;
 	ssize_t len = 0;
-	unsigned long cmd_flags = 0;
 	bool _write = false;
 	bool _read = false;
 	union nvme_cmd sqe = {0, };
@@ -2253,11 +2249,12 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
 	if (arg_boolv(nodb))
-		cmd_flags |= UNVMED_CMD_F_NODB;
+		cmd->flags |= UNVMED_CMD_F_NODB;
 
 	ret = unvmed_passthru(u, cmd, &sqe, _read, &iov,
-			      arg_intv(data_len) > 0 ? 1 : 0, cmd_flags);
+			      arg_intv(data_len) > 0 ? 1 : 0);
 
 	if (arg_boolv(nodb)) {
 		if (buf) {
@@ -2271,7 +2268,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		if (arg_boolv(data_len) && _read)
 			unvme_cmd_pr_raw(buf, arg_intv(data_len));
 	} else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to passthru\n");
 
@@ -2419,6 +2416,8 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+
 	if (!arg_boolv(lbaf)) {
 		struct unvme_ns *ns = unvmed_ns_get(u, arg_dblv(nsid));
 		if (ns) {
@@ -2449,7 +2448,7 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 		if (ret)
 			unvme_pr_err("failed to identify formatted namespace\n");
 	} else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to format NVM\n");
 
@@ -2840,11 +2839,13 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+
 	ret = unvmed_virt_mgmt(u, cmd, arg_intv(cntlid), arg_intv(rt),
 			arg_intv(act), arg_intv(nr));
 
 	if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else if (ret < 0)
 		unvme_pr_err("failed to submit virt-mgmt command\n");
 
@@ -2911,6 +2912,8 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+
 	iov = (struct iovec) {
 		.iov_base = buf,
 		.iov_len = size,
@@ -2921,7 +2924,7 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_primary_ctrl_caps);
 	else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to identify primary controller capabilities\n");
 
@@ -2989,6 +2992,8 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+
 	iov = (struct iovec) {
 		.iov_base = buf,
 		.iov_len = size,
@@ -2999,7 +3004,7 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_secondary_ctrl_list);
 	else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to identify secondary controller list\n");
 
