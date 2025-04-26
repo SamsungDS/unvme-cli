@@ -95,6 +95,7 @@ static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u, struct unvme_sq *us
 	atomic_inc(&usq->nr_cmds);
 
 	cmd = &usq->cmds[rq->cid];
+	memset(cmd, 0, sizeof(*cmd));
 	cmd->u = u;
 	cmd->usq = usq;
 	cmd->rq = rq;
