@@ -1506,6 +1506,9 @@ int unvmed_create_adminq(struct unvme *u)
 		goto out;
 	}
 
+	if (unvmed_init_irq(u, 0))
+		return -1;
+
 	/*
 	 * XXX: unvme uses a few libvfn functions which are very helpful for
 	 * setting environments.  However, some of them calls `nvme_sync()`

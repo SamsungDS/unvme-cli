@@ -282,14 +282,11 @@ static inline bool unvmed_cq_enabled(struct unvme *u, uint32_t qid)
  * vector value is written to any other value in the controller register or
  * Create I/O CQ command.
  *
- * This helper always returns ``false`` if given @ucq is admin completion
- * queue which does not support interrupt yet.
- *
  * Return: ``true`` if given @ucq support interrupt, otherwise ``false``.
  */
 static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 {
-	return unvmed_cq_id(ucq) && ucq->q->vector >= 0;
+	return ucq->q->vector >= 0;
 }
 
 /**
