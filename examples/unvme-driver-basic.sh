@@ -14,6 +14,15 @@ fi
 bdf="$1"
 nr_ioqs="$2"
 
+function create_ioq() {
+	bdf="$1"
+	qid="$2"
+
+	set -x
+	unvme create-iocq $bdf -q $qid -z 256 -v $qid
+	unvme create-iosq $bdf -q $qid -z 256 -c $qid
+}
+
 if pgrep -x "unvmed" > /dev/null; then (
 	set -x
 	unvme stop
@@ -25,18 +34,20 @@ unvme start
 unvme add $bdf --nr-ioqs=$nr_ioqs
 
 unvme enable $bdf
-unvme id-ns $bdf -n 1 > /dev/null
-unvme set-features-noq $bdf -s 0xfffe -c 0xfffe > /dev/null
+unvme id-ns $bdf -n 1 > /dev/null &
+unvme set-features-noq $bdf -s 0xfffe -c 0xfffe > /dev/null &
 )
 
+wait
+
 for ((qid=1; qid <= $nr_ioqs; qid++));
-do (
-	set -x
-	unvme create-iocq $bdf -q $qid -z 256 -v $qid
-	unvme create-iosq $bdf -q $qid -z 256 -c $qid
-) done
+do
+	create_ioq $bdf $qid &
+done
+
+wait
 
 (
-	set -x
-	unvme status $bdf
+set -x
+unvme status $bdf
 )
