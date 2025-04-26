@@ -27,8 +27,8 @@ static inline bool unvme_is_enabled(struct unvme *u)
 
 static void *unvmed_rcq_run(void *opaque);
 static void __unvmed_free_ns(struct __unvme_ns *ns);
-static void __unvmed_free_usq(struct __unvme_sq *usq);
-static void __unvmed_free_ucq(struct __unvme_cq *ucq);
+static void __unvmed_free_usq(struct unvme *u, struct __unvme_sq *usq);
+static void __unvmed_free_ucq(struct unvme *u, struct __unvme_cq *ucq);
 static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq);
 static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq);
 static void __unvmed_delete_sq_all(struct unvme *u);
@@ -390,7 +390,7 @@ int __unvmed_sq_put(struct unvme *u, struct unvme_sq *usq)
 	 */
 	refcnt = atomic_dec_fetch(&usq->refcnt);
 	if (!refcnt)
-		__unvmed_free_usq((struct __unvme_sq *)usq);
+		__unvmed_free_usq(u, (struct __unvme_sq *)usq);
 
 	return refcnt;
 }
@@ -405,7 +405,7 @@ int __unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
 	 */
 	refcnt = atomic_dec_fetch(&ucq->refcnt);
 	if (!refcnt)
-		__unvmed_free_ucq((struct __unvme_cq *)ucq);
+		__unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
 
 	return refcnt;
 }
@@ -696,8 +696,12 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 
 	list_head_init(&u->sq_list);
 	pthread_rwlock_init(&u->sq_list_lock, NULL);
+	u->sqs = calloc(max_nr_ioqs + 1, sizeof(struct unvme_sq *));
+
 	list_head_init(&u->cq_list);
 	pthread_rwlock_init(&u->cq_list_lock, NULL);
+	u->cqs = calloc(max_nr_ioqs + 1, sizeof(struct unvme_cq *));
+
 	list_head_init(&u->ns_list);
 	pthread_rwlock_init(&u->ns_list_lock, NULL);
 	list_add(&unvme_list, &u->list);
@@ -1007,6 +1011,9 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 
 		pthread_rwlock_wrlock(&u->sq_list_lock);
 		list_add_tail(&u->sq_list, &usq->list);
+		u->sqs[qid] = __to_sq(usq);
+		if (!qid)
+			u->asq = __to_sq(usq);
 		pthread_rwlock_unlock(&u->sq_list_lock);
 
 		unvmed_sq_get(u, qid);
@@ -1016,8 +1023,11 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	return __to_sq(usq);
 }
 
-static void __unvmed_free_usq(struct __unvme_sq *usq)
+static void __unvmed_free_usq(struct unvme *u, struct __unvme_sq *usq)
 {
+	u->sqs[unvmed_sq_id(usq)] = NULL;
+	if (!unvmed_sq_id(usq))
+		u->asq = NULL;
 	list_del(&usq->list);
 
 	free(usq->cmds);
@@ -1049,6 +1059,9 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 	if (alloc) {
 		pthread_rwlock_wrlock(&u->cq_list_lock);
 		list_add_tail(&u->cq_list, &ucq->list);
+		u->cqs[qid] = __to_cq(ucq);
+		if (!qid)
+			u->acq = __to_cq(ucq);
 		pthread_rwlock_unlock(&u->cq_list_lock);
 
 		unvmed_cq_get(u, qid);
@@ -1058,8 +1071,11 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 	return __to_cq(ucq);
 }
 
-static void __unvmed_free_ucq(struct __unvme_cq *ucq)
+static void __unvmed_free_ucq(struct unvme *u, struct __unvme_cq *ucq)
 {
+	u->cqs[unvmed_cq_id(ucq)] = NULL;
+	if (!unvmed_cq_id(ucq))
+		u->acq = NULL;
 	list_del(&ucq->list);
 	free(ucq);
 }
@@ -1067,7 +1083,7 @@ static void __unvmed_free_ucq(struct __unvme_cq *ucq)
 static void unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
 {
 	pthread_rwlock_wrlock(&u->cq_list_lock);
-	__unvmed_free_ucq((struct __unvme_cq *)ucq);
+	__unvmed_free_ucq(u, (struct __unvme_cq *)ucq);
 	pthread_rwlock_unlock(&u->cq_list_lock);
 }
 
@@ -1101,13 +1117,16 @@ void unvmed_free_ctrl(struct unvme *u)
 
 	pthread_rwlock_wrlock(&u->sq_list_lock);
 	list_for_each_safe(&u->sq_list, usq, next_usq, list)
-		__unvmed_free_usq(usq);
+		__unvmed_free_usq(u, usq);
 	pthread_rwlock_unlock(&u->sq_list_lock);
 
 	pthread_rwlock_wrlock(&u->cq_list_lock);
 	list_for_each_safe(&u->cq_list, ucq, next_ucq, list)
-		__unvmed_free_ucq(ucq);
+		__unvmed_free_ucq(u, ucq);
 	pthread_rwlock_unlock(&u->cq_list_lock);
+
+	free(u->sqs);
+	free(u->cqs);
 
 	unvmed_free_ns_all(u);
 
@@ -1489,9 +1508,6 @@ int unvmed_create_adminq(struct unvme *u)
 	usq = unvmed_init_usq(u, 0, NVME_AQ_QSIZE, ucq);
 	if (!usq)
 		goto free_ucq;
-
-	u->asq = usq;
-	u->acq = ucq;
 
 	return 0;
 
@@ -1882,7 +1898,7 @@ struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe)
 	 * might want to seek the command instance for the corresponding
 	 * completion queue entry.
 	 */
-	usq = unvmed_sq_find(u, cqe->sqid);
+	usq = u->sqs[cqe->sqid];
 	if (!usq)
 		return NULL;
 

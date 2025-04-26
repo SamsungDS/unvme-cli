@@ -30,6 +30,9 @@ struct unvme {
 	struct unvme_sq *asq;
 	struct unvme_cq *acq;
 
+	struct unvme_sq **sqs;
+	struct unvme_cq **cqs;
+
 	/*
 	 * Number of in-flight commands whose sq entries have already issued
 	 * with the doorbell udpate and cq entries have not been yet fetched.
