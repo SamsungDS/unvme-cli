@@ -1627,7 +1627,6 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	void *mbuf = NULL;
 	void *rdata;
 	void *rmdata;
-	unsigned long flags = 0;
 	ssize_t size;
 	ssize_t len;
 	ssize_t mlen = 0;
@@ -1710,11 +1709,6 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	if (arg_boolv(sgl))
-		flags |= UNVMED_CMD_F_SGL;
-	if (arg_boolv(nodb))
-		flags |= UNVMED_CMD_F_NODB;
-
 	if (arg_boolv(data))
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 	if (arg_boolv(metadata))
@@ -1726,6 +1720,12 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		ret = errno;
 		goto unmap;
 	}
+
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+	if (arg_boolv(sgl))
+		cmd->flags |= UNVMED_CMD_F_SGL;
+	if (arg_boolv(nodb))
+		cmd->flags |= UNVMED_CMD_F_NODB;
 
 	buf += arg_intv(prp1_offset);
 
@@ -1740,7 +1740,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	ret = unvmed_read(u, cmd, arg_dblv(nsid), arg_dblv(slba), arg_intv(nlb),
 			arg_intv(prinfo), arg_intv(atag), arg_intv(atag_mask),
 			arg_intv(rtag), arg_intv(stag), arg_boolv(stag_check),
-			&iov, 1, mbuf, flags, NULL);
+			&iov, 1, mbuf, NULL);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -1786,7 +1786,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 
 		free(rdata);
 	} else if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else
 		unvme_pr_err("failed to read\n");
 
@@ -1867,7 +1867,6 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	void *__mbuf = NULL;
 	void *wdata;
 	void *wmdata = NULL;
-	unsigned long flags = 0;
 	ssize_t size;
 	ssize_t len;
 	ssize_t mlen = 0;
@@ -1923,11 +1922,6 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		ret = EINVAL;
 		goto out;
 	}
-
-	if (arg_boolv(sgl))
-		flags |= UNVMED_CMD_F_SGL;
-	if (arg_boolv(nodb))
-		flags |= UNVMED_CMD_F_NODB;
 
 	if (arg_boolv(data))
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
@@ -1998,6 +1992,12 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto unmap;
 	}
 
+	cmd->flags = UNVMED_CMD_F_REQ_CQE;
+	if (arg_boolv(sgl))
+		cmd->flags |= UNVMED_CMD_F_SGL;
+	if (arg_boolv(nodb))
+		cmd->flags |= UNVMED_CMD_F_NODB;
+
 	iov = (struct iovec) {
 		.iov_base = __buf,
 		.iov_len = size,
@@ -2006,7 +2006,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	ret = unvmed_write(u, cmd, arg_dblv(nsid), arg_dblv(slba), arg_intv(nlb),
 			arg_intv(prinfo), arg_intv(atag), arg_intv(atag_mask),
 			arg_intv(rtag), arg_intv(stag), arg_boolv(stag_check),
-			&iov, 1, __mbuf, flags, NULL);
+			&iov, 1, __mbuf, NULL);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -2019,7 +2019,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (ret > 0)
-		unvme_pr_cqe_status(ret);
+		unvme_pr_cqe(&cmd->cqe);
 	else if (ret < 0)
 		unvme_pr_err("failed to write\n");
 

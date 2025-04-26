@@ -8,6 +8,12 @@
 #include "libunvmed.h"
 #include "libunvmed-private.h"
 
+static inline void unvmed_cmd_wait(struct unvme_cmd *cmd)
+{
+	while (!atomic_load_acquire(&cmd->completed))
+		unvmed_futex_wait(&cmd->completed, 0);
+}
+
 /*
  * This function is from `libnvme` with few modifications.  It updates the
  * given @sqe with cdw2, cdw3, cdw14 and cdw15, remaining fields should be
@@ -499,11 +505,9 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		uint64_t slba, uint16_t nlb, uint8_t prinfo,
 		uint16_t atag, uint16_t atag_mask, uint64_t rtag,
 		uint64_t stag, bool stag_check,
-		struct iovec *iov, int nr_iov, void *mbuf,
-		unsigned long flags, void *opaque)
+		struct iovec *iov, int nr_iov, void *mbuf, void *opaque)
 {
 	struct nvme_cmd_rw sqe = {0, };
-	struct nvme_cqe cqe;
 	int ret;
 
 	sqe.opcode = nvme_cmd_read;
@@ -511,7 +515,7 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 	sqe.slba = cpu_to_le64(slba);
 	sqe.nlb = cpu_to_le16(nlb);
 
-	if (flags & UNVMED_CMD_F_SGL)
+	if (cmd->flags & UNVMED_CMD_F_SGL)
 		ret = __unvmed_mapv_sgl(cmd, (union nvme_cmd *)&sqe, iov, nr_iov);
 	else
 		ret = __unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov);
@@ -520,7 +524,7 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		return -1;
 	}
 
-	if (flags & UNVMED_CMD_F_SGL)
+	if (cmd->flags & UNVMED_CMD_F_SGL)
 		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
 			NVME_CMD_FLAGS_PSDT_SHIFT;
 
@@ -553,18 +557,16 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		sqe.control |= NVME_IO_STC;
 
 	unvmed_sq_enter(cmd->usq);
-	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, cmd->flags);
+	unvmed_sq_exit(cmd->usq);
 
-	if (flags & UNVMED_CMD_F_NODB) {
-		unvmed_sq_exit(cmd->usq);
+	if (cmd->flags & UNVMED_CMD_F_NODB) {
 		cmd->opaque = opaque;
 		return 0;
 	}
 
-	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
-	unvmed_sq_exit(cmd->usq);
-
-	return unvmed_cqe_status(&cqe);
+	unvmed_cmd_wait(cmd);
+	return unvmed_cqe_status(&cmd->cqe);
 }
 
 int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
@@ -572,10 +574,9 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		 uint16_t atag, uint16_t atag_mask, uint64_t rtag,
 		 uint64_t stag, bool stag_check,
 		 struct iovec *iov, int nr_iov, void *mbuf,
-		 unsigned long flags, void *opaque)
+		 void *opaque)
 {
 	struct nvme_cmd_rw sqe = {0, };
-	struct nvme_cqe cqe;
 	int ret;
 
 	sqe.opcode = nvme_cmd_write;
@@ -583,7 +584,7 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 	sqe.slba = cpu_to_le64(slba);
 	sqe.nlb = cpu_to_le16(nlb);
 
-	if (flags & UNVMED_CMD_F_SGL)
+	if (cmd->flags & UNVMED_CMD_F_SGL)
 		ret = __unvmed_mapv_sgl(cmd, (union nvme_cmd *)&sqe, iov, nr_iov);
 	else
 		ret = __unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, iov, nr_iov);
@@ -592,7 +593,7 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		return -1;
 	}
 
-	if (flags & UNVMED_CMD_F_SGL)
+	if (cmd->flags & UNVMED_CMD_F_SGL)
 		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
 			NVME_CMD_FLAGS_PSDT_SHIFT;
 
@@ -625,18 +626,16 @@ int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
 		sqe.control |= NVME_IO_STC;
 
 	unvmed_sq_enter(cmd->usq);
-	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, flags);
+	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, cmd->flags);
+	unvmed_sq_exit(cmd->usq);
 
-	if (flags & UNVMED_CMD_F_NODB) {
-		unvmed_sq_exit(cmd->usq);
+	if (cmd->flags & UNVMED_CMD_F_NODB) {
 		cmd->opaque = opaque;
 		return 0;
 	}
 
-	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
-	unvmed_sq_exit(cmd->usq);
-
-	return unvmed_cqe_status(&cqe);
+	unvmed_cmd_wait(cmd);
+	return unvmed_cqe_status(&cmd->cqe);
 }
 
 int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,

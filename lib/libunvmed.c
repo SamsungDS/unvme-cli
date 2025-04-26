@@ -53,12 +53,27 @@ static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
 	return &u->reapers[unvmed_cq_iv(ucq)].rcq;
 }
 
-static int unvmed_rcq_push(struct unvme_rcq *q, struct nvme_cqe *cqe)
+static int unvmed_rcq_push(struct unvme *u, struct unvme_rcq *q, struct nvme_cqe *cqe)
 {
 	uint16_t tail = atomic_load_acquire(&q->tail);
+	struct unvme_cmd *cmd;
 
 	if ((tail + 1) % q->qsize == atomic_load_acquire(&q->head))
 		return -EAGAIN;
+
+	cmd = unvmed_get_cmd_from_cqe(u, cqe);
+	/*
+	 * If user requested @cmd->flags with UNVMED_CMD_F_REQ_CQE, libunvmed
+	 * does not expect user to reap the CQ entry, but provides @cmd->cqe
+	 * for user to read corresponding CQE.
+	 */
+	if (cmd && cmd->flags & UNVMED_CMD_F_REQ_CQE) {
+		cmd->cqe = *cqe;
+		atomic_store_release(&cmd->completed, 1);
+
+		unvmed_futex_wake(&cmd->completed, 1);
+		return 0;
+	}
 
 	q->cqe[tail] = *cqe;
 	atomic_store_release(&q->tail, (tail + 1) % q->qsize);
@@ -1436,7 +1451,7 @@ static void __unvmed_rcq_run(struct unvme_cq *ucq, struct unvme_rcq *rcq)
 			break;
 
 		do {
-			ret = unvmed_rcq_push(rcq, cqe);
+			ret = unvmed_rcq_push(u, rcq, cqe);
 		} while (ret == -EAGAIN);
 
 		nvme_cq_update_head(ucq->q);
