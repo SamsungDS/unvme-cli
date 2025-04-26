@@ -53,7 +53,7 @@ static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
 	return &u->reapers[unvmed_cq_iv(ucq)].rcq;
 }
 
-static int unvmed_rcq_push(struct unvme_rcq *q, struct nvme_cqe *cqe)
+static int unvmed_rcq_push(struct unvme *u, struct unvme_rcq *q, struct nvme_cqe *cqe)
 {
 	uint16_t tail = atomic_load_acquire(&q->tail);
 
@@ -530,6 +530,11 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 	return 0;
 }
 
+static inline int unvmed_pci_nr_irqs(struct unvme *u)
+{
+	return u->ctrl.pci.dev.device_info.num_irqs;
+}
+
 static int unvmed_init_irq(struct unvme *u, int vector)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
@@ -726,7 +731,6 @@ static void __unvmed_free_ns(struct __unvme_ns *ns)
 static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 			  struct nvme_id_ns *id_ns)
 {
-	unsigned long flags = 0;
 	struct unvme_cmd *cmd;
 	struct iovec iov;
 	int ret;
@@ -749,10 +753,12 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 		return -1;
 	}
 
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
 	iov.iov_base = id_ns;
 	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
 
-	ret = unvmed_id_ns(u, cmd, nsid, &iov, 1, flags);
+	ret = unvmed_id_ns(u, cmd, nsid, &iov, 1);
 	if (ret) {
 		unvmed_log_err("failed to identify namespace");
 
@@ -856,6 +862,8 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 		return -1;
 	}
 
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
 	iov.iov_base = nvm_id_ns;
 	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
 
@@ -899,10 +907,12 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 		return -1;
 	}
 
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
 	iov.iov_base = id_ctrl;
 	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
 
-	ret = unvmed_id_ctrl(u, cmd, &iov, 1, 0);
+	ret = unvmed_id_ctrl(u, cmd, &iov, 1);
 	if (ret) {
 		unvmed_log_err("failed to identify controller\n");
 		unvmed_cmd_free(cmd);
@@ -1427,6 +1437,7 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 static void __unvmed_rcq_run(struct unvme_cq *ucq, struct unvme_rcq *rcq)
 {
 	struct unvme *u = ucq->u;
+	struct unvme_cmd *cmd;
 	struct nvme_cqe *cqe;
 	int ret;
 
@@ -1435,10 +1446,15 @@ static void __unvmed_rcq_run(struct unvme_cq *ucq, struct unvme_rcq *rcq)
 		if (!cqe)
 			break;
 
+		cmd = unvmed_get_cmd_from_cqe(u, cqe);
+		if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE)
+			goto next;
+
 		do {
-			ret = unvmed_rcq_push(rcq, cqe);
+			ret = unvmed_rcq_push(u, rcq, cqe);
 		} while (ret == -EAGAIN);
 
+next:
 		nvme_cq_update_head(ucq->q);
 	}
 }
@@ -1491,6 +1507,9 @@ int unvmed_create_adminq(struct unvme *u)
 		goto out;
 	}
 
+	if (unvmed_pci_nr_irqs(u) > 0 && unvmed_init_irq(u, 0))
+		return -1;
+
 	/*
 	 * XXX: unvme uses a few libvfn functions which are very helpful for
 	 * setting environments.  However, some of them calls `nvme_sync()`
@@ -1505,6 +1524,12 @@ int unvmed_create_adminq(struct unvme *u)
 	ucq = unvmed_init_ucq(u, qid);
 	if (!ucq)
 		goto free_sqcq;
+
+	/*
+	 * Override @q->vector of libvfn in case device has no irq to -1.
+	 */
+	if (unvmed_pci_nr_irqs(u) == 0)
+		unvmed_cq_iv(ucq) = -1;
 
 	/*
 	 * XXX: libvfn has fixed size of admin queue and it's not exported to
@@ -1562,7 +1587,6 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	struct unvme_cq *ucq;
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_create_cq sqe = {0, };
-	struct nvme_cqe cqe;
 	uint16_t qflags = NVME_Q_PC;
 	uint16_t iv = 0;
 
@@ -1585,6 +1609,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		return -1;
 	}
 
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
 	if (vector >= 0) {
 		qflags |= NVME_CQ_IEN;
 		iv = (uint16_t)vector;
@@ -1599,10 +1625,11 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
-	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
 	unvmed_sq_exit(cmd->usq);
 
-	if (!nvme_cqe_ok(&cqe)) {
+	unvmed_cmd_wait(cmd);
+
+	if (!nvme_cqe_ok(&cmd->cqe)) {
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		unvmed_cmd_free(cmd);
 		return -1;
@@ -1617,6 +1644,9 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		unvmed_cmd_free(cmd);
 		return -1;
 	}
+
+	if (vector < 0)
+		unvmed_cq_iv(ucq) = -1;
 
 	unvmed_cmd_free(cmd);
 	return 0;
@@ -1658,7 +1688,7 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	struct unvme_cmd *cmd;
 	struct unvme_cq *ucq;
 	struct nvme_cmd_delete_q sqe = {0, };
-	struct nvme_cqe cqe;
+	int ret;
 
 	ucq = unvmed_cq_find(u, qid);
 	if (!ucq) {
@@ -1674,19 +1704,24 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 		return -1;
 	}
 
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
 	sqe.opcode = nvme_admin_delete_cq;
 	sqe.qid = cpu_to_le16(qid);
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
-	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
 	unvmed_sq_exit(cmd->usq);
 
-	if (nvme_cqe_ok(&cqe))
+	unvmed_cmd_wait(cmd);
+
+	if (nvme_cqe_ok(&cmd->cqe))
 		__unvmed_delete_cq(u, ucq);
 
+	ret = unvmed_cqe_status(&cmd->cqe);
+
 	unvmed_cmd_free(cmd);
-	return unvmed_cqe_status(&cqe);
+	return ret;
 }
 
 int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
@@ -1696,7 +1731,6 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	struct unvme_cq *ucq;
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_create_sq sqe = {0, };
-	struct nvme_cqe cqe;
 
 	if (!unvme_is_enabled(u)) {
 		errno = EPERM;
@@ -1725,6 +1759,8 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
 	sqe.opcode = nvme_admin_create_sq;
 	sqe.qid = cpu_to_le16(qid);
 	sqe.prp1 = cpu_to_le64(u->ctrl.sq[qid].mem.iova);
@@ -1734,10 +1770,11 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
-	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
 	unvmed_sq_exit(cmd->usq);
 
-	if (!nvme_cqe_ok(&cqe)) {
+	unvmed_cmd_wait(cmd);
+
+	if (!nvme_cqe_ok(&cmd->cqe)) {
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		unvmed_cmd_free(cmd);
 		return -1;
@@ -1817,8 +1854,8 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_delete_q sqe = {0, };
-	struct nvme_cqe cqe;
 	struct unvme_sq *usq;
+	int ret;
 
 	usq = unvmed_sq_find(u, qid);
 	if (!usq) {
@@ -1834,19 +1871,24 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 		return -1;
 	}
 
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
 	sqe.opcode = nvme_admin_delete_sq;
 	sqe.qid = cpu_to_le16(qid);
 
 	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, 0);
-	unvmed_cq_run_n(u, cmd->usq->ucq, &cqe, 1, 1);
 	unvmed_sq_exit(cmd->usq);
 
-	if (nvme_cqe_ok(&cqe))
+	unvmed_cmd_wait(cmd);
+
+	if (nvme_cqe_ok(&cmd->cqe))
 		__unvmed_delete_sq(u, usq);
 
+	ret = unvmed_cqe_status(&cmd->cqe);
+
 	unvmed_cmd_free(cmd);
-	return unvmed_cqe_status(&cqe);
+	return ret;
 }
 
 int unvmed_to_iova(struct unvme *u, void *buf, uint64_t *iova)
@@ -1929,10 +1971,16 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 		 */
 		assert(le16_to_cpu(cqe->sqid) == unvmed_sq_id(ucq->usq));
 
-		cmd = &ucq->usq->cmds[cqe->cid];
+		cmd = unvmed_get_cmd_from_cqe(u, cqe);
 		assert(cmd != NULL);
 
+		cmd->cqe = *cqe;
 		cmd->state = UNVME_CMD_S_COMPLETED;
+
+		if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE) {
+			atomic_store_release(&cmd->completed, 1);
+			unvmed_futex_wake(&cmd->completed, 1);
+		}
 	}
 	unvmed_cq_exit(ucq);
 
@@ -1966,7 +2014,9 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 			}
 		}
 
-		memcpy(&cqes[nr++], cqe, sizeof(*cqe));
+		if (cqes)
+			memcpy(&cqes[nr], cqe, sizeof(*cqe));
+		nr++;
 #ifdef UNVME_DEBUG
 		unvmed_log_cmd_cmpl(unvmed_bdf(u), cqe);
 #endif
