@@ -2416,6 +2416,7 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 			arg_intv(lbaf) = ns->format_idx;
 			unvmed_ns_put(u, ns);
 		} else {
+			unvmed_cmd_free(cmd);
 			unvme_pr_err("failed to get a namespace instance\n");
 			ret = -EINVAL;
 			goto out;
