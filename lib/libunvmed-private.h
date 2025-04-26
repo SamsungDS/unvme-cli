@@ -179,4 +179,32 @@ struct unvme_cq_reaper {
 void unvmed_log_cmd_post(const char *bdf, uint32_t sqid, union nvme_cmd *sqe);
 void unvmed_log_cmd_cmpl(const char *bdf, struct nvme_cqe *cqe);
 
+#include <sys/syscall.h>
+#include <linux/futex.h>
+
+static inline int unvmed_futex_wait(void *addr, int expected)
+{
+	return syscall(SYS_futex, addr, FUTEX_WAIT, expected, NULL, NULL, 0);
+}
+
+static inline int unvmed_futex_wake(void *addr, int n)
+{
+	return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
+}
+
+static inline int unvmed_cmd_wait(struct unvme_cmd *cmd)
+{
+	if (!(cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE))
+		return -EINVAL;
+
+	while (!atomic_load_acquire(&cmd->completed)) {
+		if (!unvmed_cq_irq_enabled(cmd->usq->ucq))
+			unvmed_cq_run(cmd->u, cmd->usq->ucq, NULL);
+		else
+			unvmed_futex_wait(&cmd->completed, 0);
+	}
+
+	return 0;
+}
+
 #endif
