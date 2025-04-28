@@ -85,8 +85,8 @@ static void unvme_pr_cqe(struct nvme_cqe *cqe)
 	sct = (cqe->sfp >> 9) & 0x7;
 	sc = (cqe->sfp >> 1) & 0xff;
 
-	unvme_pr_err("CQ entry: sqid=%#x, cid=%#x, dw0=%#x, dw1=%#x, sct=%#x, sc=%#x\n",
-			cqe->sqid, cqe->cid, cqe->dw0, cqe->dw1, sct, sc);
+	unvme_pr_err("CQ entry: sqid=%#x, sqhd=%#x, cid=%#x, dw0=%#x, dw1=%#x, sct=%#x, sc=%#x\n",
+			cqe->sqid, cqe->sqhd, cqe->cid, cqe->dw0, cqe->dw1, sct, sc);
 }
 
 static void unvme_pr_cqe_status(int status)
