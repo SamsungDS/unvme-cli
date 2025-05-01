@@ -182,11 +182,12 @@ static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, struct unvme_sq *usq
 void __unvmed_cmd_free(struct unvme_cmd *cmd)
 {
 	struct unvme_sq *usq = cmd->usq;
+	struct nvme_rq *rq = cmd->rq;
 
-	nvme_rq_release_atomic(cmd->rq);
 	memset(cmd, 0, sizeof(*cmd));
-
 	atomic_dec(&usq->nr_cmds);
+
+	nvme_rq_release_atomic(rq);
 }
 
 void unvmed_cmd_free(struct unvme_cmd *cmd)
