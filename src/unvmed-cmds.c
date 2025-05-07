@@ -98,19 +98,14 @@ static void unvme_pr_cqe_status(int status)
 }
 
 static inline void __unvme_cmd_pr(const char *format, void *buf, size_t len,
-			   void (*pr)(void *))
+			   void (*pr)(const char *format, void *vaddr))
 {
 	if (streq(format, "binary"))
 		unvme_pr_raw(buf, len);
-	else if (streq(format, "normal"))
-		pr(buf);
+	else if (streq(format, "normal") || streq(format, "json"))
+		pr(format, buf);
 	else
 		assert(false);
-}
-
-static void unvme_cmd_pr_raw(void *buf, size_t len)
-{
-	__unvme_cmd_pr("binary", buf, len, NULL);
 }
 
 static bool __is_nvme_device(const char *bdf)
@@ -362,6 +357,7 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_str *format;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -370,10 +366,13 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	int ret = 0;
+
+	arg_strv(format) = "normal";
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -384,7 +383,7 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	unvme_pr_show_regs(u);
+	unvme_pr_show_regs(arg_strv(format), u);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -394,6 +393,7 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_str *format;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -403,10 +403,13 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		format = arg_str0("o", "output-format", "[normal|json]", "[O] Output format: [normal|json] (defaults: normal)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	int ret = 0;
+
+	arg_strv(format) = "normal";
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -417,7 +420,7 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	unvme_pr_status(u);
+	unvme_pr_status(arg_strv(format), u);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -809,7 +812,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
-		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
+		format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -914,11 +917,11 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)");
 	struct arg_lit *vendor_specific = arg_lit0("V", "vendor-specific", "[O] Dump binary vendor field");
-	struct arg_lit *binary = arg_lit0("b", "raw-binary", "[O] Show identify in binary format");
+	struct arg_str *format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)");
 	struct arg_lit *nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, prp1_offset, vendor_specific, binary, nodb, help, end};
+	void *argtable[] = {dev, prp1_offset, vendor_specific, format, nodb, help, end};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	const uint16_t sqid = 0;
@@ -931,6 +934,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	int ret;
 
 	/* Set default argument values prior to parsing */
+	arg_strv(format) = "normal";
 	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -992,7 +996,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (!ret) {
 		unvmed_init_id_ctrl(u, buf);
-		__unvme_cmd_pr(arg_boolv(binary) ? "binary" : "normal", buf, size, unvme_pr_id_ctrl);
+		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ctrl);
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 	else
@@ -1022,7 +1026,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		nsid = arg_dbl0("n", "nsid", "<n>", "[O] Starting NSID for retrieving active NS with NSID greater than this (default: 0)"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
-		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
+		format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -1118,7 +1122,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
-		format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)"),
+		format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -1332,9 +1336,10 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *nsqr = arg_int1("s", "nsqr", "<n>", "[M] Number of I/O Submission Queue Requested");
 	struct arg_int *ncqr = arg_int1("c", "ncqr", "<n>", "[M] Number of I/O Completion Queue Requested");
+	struct arg_str *format = arg_str0("o", "output-format", "[normal|json]", "[O] Output format: [normal|json] (defaults: normal)");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, nsqr, ncqr, help, end};
+	void *argtable[] = {dev, nsqr, ncqr, format, help, end};
 
 	const uint32_t sqid = 0;
 	struct unvme_cmd *cmd;
@@ -1343,6 +1348,8 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	uint32_t cdw11;
 	int ret;
+
+	arg_strv(format) = "normal";
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -1373,7 +1380,7 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 			0 /* save */, cdw11, 0 /* cdw12 */, NULL /* iov */,
 			0 /* nr_iov */, &cqe);
 	if (!ret)
-		unvme_pr_get_features_noq(le32_to_cpu(cqe.dw0));
+		unvme_pr_get_features_noq(arg_strv(format), le32_to_cpu(cqe.dw0));
 	else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 	else if (ret < 0)
@@ -1547,7 +1554,7 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 				filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
 				unvme_write_file(filepath, buf, arg_intv(data_size));
 			} else
-				unvme_cmd_pr_raw(buf, arg_intv(data_size));
+				unvme_pr_raw(buf, arg_intv(data_size));
 		}
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
@@ -1780,7 +1787,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		}
 
 		if (!filepath)
-			unvme_cmd_pr_raw(rdata, arg_intv(data_size));
+			unvme_pr_raw(rdata, arg_intv(data_size));
 		else
 			unvme_write_file(filepath, rdata, arg_intv(data_size));
 
@@ -2269,7 +2276,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (!ret) {
 		if (arg_boolv(data_len) && _read)
-			unvme_cmd_pr_raw(buf, arg_intv(data_len));
+			unvme_pr_raw(buf, arg_intv(data_len));
 	} else if (ret > 0)
 		unvme_pr_cqe_status(ret);
 	else
@@ -2862,7 +2869,7 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *cntlid = arg_int1("c", "cntlid", "<n>", "[M] Controller Identifier");
-	struct arg_str *format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)");
+	struct arg_str *format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
 	void *argtable[] = {dev, cntlid, format, help, end};
@@ -2940,7 +2947,7 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *cntlid = arg_int1("c", "cntlid", "<n>", "[M] Lowest Controller Identifier");
-	struct arg_str *format = arg_str0("o", "output-format", "[normal|binary]", "[O] Output format: [normal|binary] (defaults: normal)");
+	struct arg_str *format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
 	void *argtable[] = {dev, cntlid, format, help, end};
