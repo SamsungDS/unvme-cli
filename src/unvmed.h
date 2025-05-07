@@ -24,15 +24,15 @@ struct nvme_cqe;
  * unvmed-print.c
  */
 void unvme_pr_raw(void *vaddr, size_t len);
-void unvme_pr_id_ns(void *vaddr);
-void unvme_pr_id_ctrl(void *vaddr);
-void unvme_pr_id_active_nslist(void *vaddr);
-void unvme_pr_id_primary_ctrl_caps(void *vaddr);
-void unvme_pr_id_secondary_ctrl_list(void *vaddr);
-void unvme_pr_get_features_noq(uint32_t cdw0);
-void unvme_pr_nvm_id_ns(void *vaddr);
-void unvme_pr_show_regs(struct unvme *u);
-void unvme_pr_status(struct unvme *u);
+void unvme_pr_id_ns(const char *format, void *vaddr);
+void unvme_pr_id_ctrl(const char *format, void *vaddr);
+void unvme_pr_id_active_nslist(const char *format, void *vaddr);
+void unvme_pr_id_primary_ctrl_caps(const char *format, void *vaddr);
+void unvme_pr_id_secondary_ctrl_list(const char *format, void *vaddr);
+void unvme_pr_get_features_noq(const char *format, uint32_t cdw0);
+void unvme_pr_nvm_id_ns(const char *format, void *vaddr);
+void unvme_pr_show_regs(const char *format, struct unvme *u);
+void unvme_pr_status(const char *format, struct unvme *u);
 
 /*
  * unvmed-file.c
