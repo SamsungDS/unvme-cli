@@ -17,7 +17,7 @@ configure_file(
 executable(
   'unvme',
   unvme_sources,
-  dependencies: [vfn_lib, nvme_lib, unvmed_dep],
+  dependencies: [vfn_lib, nvme_lib, jsonc_lib, unvmed_dep],
   link_with: [ccan_lib, argtable3_lib],
   link_whole: [fio_lib, perf_lib],
   include_directories: [inc, ccan_inc, argtable3_inc, libunvmed_inc],

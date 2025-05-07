@@ -55,6 +55,7 @@ else
 endif
 
 nvme_lib = dependency('libnvme', version: '>=1.8.0', static: static)
+jsonc_lib = dependency('json-c', version: '>=0.15', static: static)
 
 subdir('ccan')
 subdir('argtable3')
