@@ -78,17 +78,6 @@ void exit(int status)
 	pthread_exit(NULL);
 }
 
-static void unvme_pr_cqe(struct nvme_cqe *cqe)
-{
-	uint32_t sct, sc;
-
-	sct = (cqe->sfp >> 9) & 0x7;
-	sc = (cqe->sfp >> 1) & 0xff;
-
-	unvme_pr_err("CQ entry: sqid=%#x, sqhd=%#x, cid=%#x, dw0=%#x, dw1=%#x, sct=%#x, sc=%#x\n",
-			cqe->sqid, cqe->sqhd, cqe->cid, cqe->dw0, cqe->dw1, sct, sc);
-}
-
 static inline void __unvme_cmd_pr(const char *format, void *buf, size_t len,
 			   void (*pr)(const char *format, void *vaddr))
 {
@@ -794,6 +783,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
 	struct arg_str *format;
+	struct arg_lit *verbose;
 	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -805,6 +795,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -880,6 +871,9 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret) {
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ns);
 
@@ -887,9 +881,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_pr_err("failed to initialize ns instance\n");
 			ret = errno;
 		}
-	} else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	} else if (ret < 0)
 		unvme_pr_err("failed to identify namespace\n");
 
 	unvmed_cmd_free(cmd);
@@ -909,10 +901,11 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)");
 	struct arg_lit *vendor_specific = arg_lit0("V", "vendor-specific", "[O] Dump binary vendor field");
 	struct arg_str *format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)");
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, prp1_offset, vendor_specific, format, nodb, help, end};
+	void *argtable[] = {dev, prp1_offset, vendor_specific, format, verbose, nodb, help, end};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	const uint16_t sqid = 0;
@@ -984,12 +977,13 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret) {
 		unvmed_init_id_ctrl(u, buf);
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_ctrl);
-	} else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	} else if (ret < 0)
 		unvme_pr_err("failed to identify namespace\n");
 
 	unvmed_cmd_free(cmd);
@@ -1006,6 +1000,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
 	struct arg_str *format;
+	struct arg_lit *verbose;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -1017,6 +1012,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		nsid = arg_dbl0("n", "nsid", "<n>", "[O] Starting NSID for retrieving active NS with NSID greater than this (default: 0)"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -1081,11 +1077,13 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	ret = unvmed_id_active_nslist(u, cmd, arg_dblv(nsid), &iov, 1);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_active_nslist);
-	else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	else if (ret < 0)
 		unvme_pr_err("failed to identify active namespace list\n");
 
 	unvmed_cmd_free(cmd);
@@ -1102,6 +1100,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
 	struct arg_str *format;
+	struct arg_lit *verbose;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -1113,6 +1112,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -1182,6 +1182,10 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	};
 
 	ret = unvmed_nvm_id_ns(u, cmd, arg_dblv(nsid), &iov, 1);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret) {
 		if (unvmed_init_meta_ns(u, arg_dblv(nsid), buf)) {
 			unvme_pr_err("failed to initialize meta info");
@@ -1192,10 +1196,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 			goto out;
 		}
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_nvm_id_ns);
-	}
-	else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	} else if (ret < 0)
 		unvme_pr_err("failed to NVM identify namespace\n");
 
 	unvmed_cmd_free(cmd);
@@ -1218,9 +1219,10 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_dbl *cdw12 = arg_dbl0(NULL, "cdw12", "<n>",		"[O] CDW12 value");
 	struct arg_file *data = arg_file0("d", "data", "<file>",	"[O] Write data");
 	struct arg_int *data_size = arg_int0("z", "data-size", "<n>",	"[O] Write data size in bytes");
+	struct arg_lit *verbose = arg_lit0("v", "verbose",		"[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help",			"Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, nsid, fid, save, cdw11, cdw12, data, data_size, help, end};
+	void *argtable[] = {dev, nsid, fid, save, cdw11, cdw12, data, data_size, verbose, help, end};
 
 	__unvme_free char *filepath = NULL;
 	const uint32_t sqid = 0;
@@ -1301,12 +1303,14 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 	ret = unvmed_set_features(u, cmd, arg_dblv(nsid), arg_intv(fid),
 			arg_boolv(save), arg_dblv(cdw11), arg_dblv(cdw12),
 			&iov, arg_intv(data_size) > 0 ? 1 : 0);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret) {
 		unvme_pr("dw0: %#x\n", le32_to_cpu(cmd->cqe.dw0));
 		unvme_pr("dw1: %#x\n", le32_to_cpu(cmd->cqe.dw1));
-	} else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else if (ret < 0)
+	} else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 
 	unvmed_cmd_free(cmd);
@@ -1326,9 +1330,10 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *nsqr = arg_int1("s", "nsqr", "<n>", "[M] Number of I/O Submission Queue Requested");
 	struct arg_int *ncqr = arg_int1("c", "ncqr", "<n>", "[M] Number of I/O Completion Queue Requested");
 	struct arg_str *format = arg_str0("o", "output-format", "[normal|json]", "[O] Output format: [normal|json] (defaults: normal)");
+	struct arg_lit *verbose = arg_lit0("v", "verbose",		"[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, nsqr, ncqr, format, help, end};
+	void *argtable[] = {dev, nsqr, ncqr, format, verbose, help, end};
 
 	const uint32_t sqid = 0;
 	struct unvme_cmd *cmd;
@@ -1367,10 +1372,12 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	ret = unvmed_set_features(u, cmd, 0 /* nsid */, NVME_FEAT_FID_NUM_QUEUES,
 			0 /* save */, cdw11, 0 /* cdw12 */, NULL /* iov */,
 			0 /* nr_iov */);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret)
 		unvme_pr_get_features_noq(arg_strv(format), le32_to_cpu(cmd->cqe.dw0));
-	else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features-noq\n");
 
@@ -1392,9 +1399,10 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_lit *enable = arg_lit0(NULL, "enable", "[O] Enable HMB (EHM=1)");
 	struct arg_lit *disable = arg_lit0(NULL, "disable", "[O] Disable HMB (EHM=0)");
 	struct arg_int *size = arg_intn("s", "size", "<n>", 0, 256, "[M] Number of contiguous memory page size(CC.MPS) for a single HMB descriptor.  Multiple sizes can be given.");
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, enable, disable, size, help, end};
+	void *argtable[] = {dev, enable, disable, size, verbose, help, end};
 
 	struct unvme_sq *usq;
 	struct unvme *u;
@@ -1436,10 +1444,11 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 	} else
 		ret = unvmed_set_features_hmb(u, false, NULL, 0, &cqe);
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cqe);
+
 	if (!ret)
 		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cqe.dw0));
-	else if (ret > 0)
-		unvme_pr_cqe(&cqe);
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 out:
@@ -1460,9 +1469,10 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *data_size = arg_int0("z", "data-size", "<n>",	"[O] Data size in bytes");
 	struct arg_dbl *cdw11 = arg_dbl0(NULL, "cdw11", "<n>",		"[O] CDW11 value");
 	struct arg_dbl *cdw14 = arg_dbl0(NULL, "cdw14", "<n>",		"[O] CDW14 value");
+	struct arg_lit *verbose = arg_lit0("v", "verbose",		"[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help",			"Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, nsid, fid, sel, data, data_size, cdw11, cdw14, help, end};
+	void *argtable[] = {dev, nsid, fid, sel, data, data_size, cdw11, cdw14, verbose, help, end};
 
 	__unvme_free char *filepath = NULL;
 	const uint32_t sqid = 0;
@@ -1532,6 +1542,9 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 			arg_boolv(sel), arg_dblv(cdw11), arg_dblv(cdw14), &iov,
 			arg_intv(data_size) > 0 ? 1 : 0);
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret) {
 		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cmd->cqe.dw0));
 		unvme_pr_err("dw1: %#x\n", le32_to_cpu(cmd->cqe.dw1));
@@ -1543,9 +1556,7 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 			} else
 				unvme_pr_raw(buf, arg_intv(data_size));
 		}
-	} else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else if (ret < 0)
+	} else if (ret < 0)
 		unvme_pr_err("failed to get-features\n");
 
 	unvmed_cmd_free(cmd);
@@ -1578,6 +1589,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_lit *stag_check;
 	struct arg_int *prp1_offset;
 	struct arg_lit *sgl;
+	struct arg_lit *verbose;
 	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -1606,6 +1618,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		stag_check = arg_lit0("C", "storage-tag-check", "[O] Enable to check storage tag"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		sgl = arg_lit0("S", "sgl", "[O] Map data buffer with SGL (default: PRP)"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -1745,6 +1758,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
 
 	if (!ret) {
 		rdata = malloc(arg_intv(data_size));
@@ -1778,9 +1793,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_write_file(filepath, rdata, arg_intv(data_size));
 
 		free(rdata);
-	} else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	} else if (ret < 0)
 		unvme_pr_err("failed to read\n");
 
 	unvmed_cmd_free(cmd);
@@ -1816,6 +1829,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_lit *stag_check;
 	struct arg_int *prp1_offset;
 	struct arg_lit *sgl;
+	struct arg_lit *verbose;
 	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -1843,6 +1857,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		stag_check = arg_lit0("C", "storage-tag-check", "[O] Enable to check storage tag"),
 		prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)"),
 		sgl = arg_lit0("S", "sgl", "[O] Map data buffer with SGL (default: PRP)"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -2010,9 +2025,10 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (ret > 0)
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
-	else if (ret < 0)
+
+	if (ret < 0)
 		unvme_pr_err("failed to write\n");
 
 	unvmed_cmd_free(cmd);
@@ -2058,6 +2074,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_lit *dry_run;
 	struct arg_lit *read;
 	struct arg_lit *write;
+	struct arg_lit *verbose;
 	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -2093,6 +2110,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		dry_run = arg_lit0("d", "dry-run", "[O] Show command instead of sending"),
 		read = arg_lit0("r", "read", "[O] Set read data direction"),
 		write = arg_lit0("w", "write", "[O] Set write data direction"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -2258,12 +2276,13 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret) {
 		if (arg_boolv(data_len) && _read)
 			unvme_pr_raw(buf, arg_intv(data_len));
-	} else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	} else if (ret < 0)
 		unvme_pr_err("failed to passthru\n");
 
 	unvmed_cmd_free(cmd);
@@ -2370,9 +2389,10 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *pil = arg_int0("p", "pil", "<n>", "[O] Protection Info Location (*0: First bytes of metadata, 1: Last bytes of metadata)");
 	struct arg_int *pi = arg_int0("i", "pi", "<n>", "[O] Protection Info (*0: PI disabled, 1: Type 1, 2: Type 2, 3: Type 3)");
 	struct arg_int *mset = arg_int0("m", "mset", "<n>", "[O] Metadata Settings (*0: Metadata as separate buffer, 1: Metadata as extended buffer)");
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, nsid, lbaf, ses, pil, pi, mset, help, end};
+	void *argtable[] = {dev, nsid, lbaf, ses, pil, pi, mset, verbose, help, end};
 
 	struct unvme *u;
 	const int sqid = 0;
@@ -2427,6 +2447,9 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 			arg_intv(ses), arg_intv(pil), arg_intv(pi),
 			arg_intv(mset));
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret) {
 		/*
 		 * Re-enumerate &struct unvme_ns instance by issuing an
@@ -2440,9 +2463,7 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 		ret = unvmed_init_meta_ns(u, arg_dblv(nsid), NULL);
 		if (ret)
 			unvme_pr_err("failed to identify formatted namespace\n");
-	} else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	} else if (ret < 0)
 		unvme_pr_err("failed to format NVM\n");
 
 	unvmed_cmd_free(cmd);
@@ -2795,10 +2816,11 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *rt = arg_int0("r", "rt", "<n>", "[O] Resource Type (*0: VQ Resource, 1: VI Resource)");
 	struct arg_int *act = arg_int1("a", "act", "<n>", "[M] Action (*1: Primary Flexible, 7: Secondary Offline, 8:Secondary Assign, 9:Secondary Online)");
 	struct arg_int *nr = arg_int0("n", "nr", "<n>", "[O] Number of Controller Resources");
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
 
-	void *argtable[] = {dev, cntlid, rt, act, nr, help, end};
+	void *argtable[] = {dev, cntlid, rt, act, nr, verbose, help, end};
 
 	struct unvme_sq *usq = NULL;
 	struct unvme_cmd *cmd;
@@ -2835,9 +2857,10 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 	ret = unvmed_virt_mgmt(u, cmd, arg_intv(cntlid), arg_intv(rt),
 			arg_intv(act), arg_intv(nr));
 
-	if (ret > 0)
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
-	else if (ret < 0)
+
+	if (ret < 0)
 		unvme_pr_err("failed to submit virt-mgmt command\n");
 
 	unvmed_cmd_free(cmd);
@@ -2855,9 +2878,10 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *cntlid = arg_int1("c", "cntlid", "<n>", "[M] Controller Identifier");
 	struct arg_str *format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)");
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, cntlid, format, help, end};
+	void *argtable[] = {dev, cntlid, format, verbose, help, end};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	const uint16_t sqid = 0;
@@ -2910,11 +2934,12 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_id_primary_ctrl_caps(u, cmd, &iov, 1, arg_intv(cntlid));
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_primary_ctrl_caps);
-	else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	else if (ret < 0)
 		unvme_pr_err("failed to identify primary controller capabilities\n");
 
 	unvmed_cmd_free(cmd);
@@ -2933,9 +2958,10 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *cntlid = arg_int1("c", "cntlid", "<n>", "[M] Lowest Controller Identifier");
 	struct arg_str *format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)");
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, cntlid, format, help, end};
+	void *argtable[] = {dev, cntlid, format, verbose, help, end};
 
 	const size_t size = NVME_IDENTIFY_DATA_SIZE;
 	const uint16_t sqid = 0;
@@ -2988,11 +3014,12 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_id_secondary_ctrl_list(u, cmd, &iov, 1, arg_intv(cntlid));
 
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
 	if (!ret)
 		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_id_secondary_ctrl_list);
-	else if (ret > 0)
-		unvme_pr_cqe(&cmd->cqe);
-	else
+	else if (ret < 0)
 		unvme_pr_err("failed to identify secondary controller list\n");
 
 	unvmed_cmd_free(cmd);
