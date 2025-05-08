@@ -14,6 +14,30 @@
 #include "unvme.h"
 #include "unvmed.h"
 
+void unvme_pr_cqe(struct nvme_cqe *cqe)
+{
+	uint32_t sct, sc;
+
+	sct = (le16_to_cpu(cqe->sfp) >> 9) & 0x7;
+	sc = (le16_to_cpu(cqe->sfp) >> 1) & 0xff;
+
+	struct json_object *root = json_object_new_object();
+	struct json_object *cqe_obj = json_object_new_object();
+
+	json_object_object_add(cqe_obj, "sqid", json_object_new_int(le16_to_cpu(cqe->sqid)));
+	json_object_object_add(cqe_obj, "sqhd", json_object_new_int(le16_to_cpu(cqe->sqhd)));
+	json_object_object_add(cqe_obj, "cid", json_object_new_int(cqe->cid));
+	json_object_object_add(cqe_obj, "dw0", json_object_new_int(le32_to_cpu(cqe->dw0)));
+	json_object_object_add(cqe_obj, "dw1", json_object_new_int(le32_to_cpu(cqe->dw1)));
+	json_object_object_add(cqe_obj, "sct", json_object_new_int(sct));
+	json_object_object_add(cqe_obj, "sc", json_object_new_int(sc));
+
+	json_object_object_add(root, "cqe", cqe_obj);
+	unvme_pr_err("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_SPACED));
+	
+	json_object_put(root);
+}
+
 void unvme_pr_raw(void *vaddr, size_t len)
 {
 	for (int i = 0; i < len; i++)

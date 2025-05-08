@@ -23,6 +23,7 @@ struct nvme_cqe;
 /*
  * unvmed-print.c
  */
+void unvme_pr_cqe(struct nvme_cqe *cqe);
 void unvme_pr_raw(void *vaddr, size_t len);
 void unvme_pr_id_ns(const char *format, void *vaddr);
 void unvme_pr_id_ctrl(const char *format, void *vaddr);
