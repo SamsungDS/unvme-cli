@@ -2546,6 +2546,7 @@ int unvme_subsystem_reset(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {dev, reinit, help, end};
 
 	struct unvme *u;
+	uint64_t cap;
 	int ret;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -2554,6 +2555,14 @@ int unvme_subsystem_reset(int argc, char *argv[], struct unvme_msg *msg)
 	if (!u) {
 		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
 		ret = ENODEV;
+		goto out;
+	}
+
+	/* Check if subsystem reset is supported in CAP.NSSRS */
+	cap = unvmed_read64(u, NVME_REG_CAP);
+	if (!(NVME_CAP_NSSRC(cap))) {
+		unvme_pr_err("NVM subsystem reset is not supported\n");
+		ret = EINVAL;
 		goto out;
 	}
 
