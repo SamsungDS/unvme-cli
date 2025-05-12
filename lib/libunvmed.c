@@ -2553,6 +2553,7 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 	void *descs = NULL;
 	uint64_t iova;
 	ssize_t ret;
+	size_t memsize;
 	size_t hsize = 0;
 	int i;
 
@@ -2567,6 +2568,7 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 		unvmed_log_err("failed to allocate HMB buffer descriptors");
 		return -1;
 	}
+	memsize = ret;
 
 	if (unvmed_map_vaddr(u, descs, ret, &iova, 0x0) < 0) {
 		unvmed_log_err("failed to map HMB buffer descriptors to IOMMU");
@@ -2625,7 +2627,7 @@ free:
 	if (u->hmb.descs_vaddr)
 		free(u->hmb.descs_vaddr);
 	unvmed_unmap_vaddr(u, descs);
-	pgunmap(descs, ret);
+	pgunmap(descs, memsize);
 
 	memset(&u->hmb, 0, sizeof(u->hmb));
 
