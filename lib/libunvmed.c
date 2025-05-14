@@ -2095,7 +2095,7 @@ static int unvmed_pci_restore_state(struct unvme *u, void *config)
 
 static int unvmed_pci_wait_link_up(struct unvme *u)
 {
-	char config[4096];
+	unsigned char config[4096];
 
 	while (true) {
 		if (vfio_pci_read_config(&u->ctrl.pci, config, 4096, 0x0) < 0) {
