@@ -2135,6 +2135,11 @@ static int unvmed_pci_wait_link_up(struct unvme *u)
 			continue;
 		}
 
+		if (config[4094] == 0xff && config[4095] == 0xff) {
+			usleep(1000);
+			continue;
+		}
+
 		break;
 	}
 	return 0;
