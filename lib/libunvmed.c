@@ -2021,9 +2021,38 @@ int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
 	return nr_sqes;
 }
 
+static inline int unvmed_pci_get_config(struct unvme *u, void *buf,
+					off_t offset, size_t size) {
+	char *path = NULL;
+	int ret;
+	int fd;
+
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/config", unvmed_bdf(u));
+	if (ret < 0)
+		return -1;
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		free(path);
+		return -1;
+	}
+
+	ret = pread(fd, buf, size, offset);
+	if (ret < size) {
+		unvmed_log_err("failed to read config register");
+		close(fd);
+		free(path);
+		return -1;
+	}
+
+	close(fd);
+	free(path);
+	return 0;
+}
+
 static inline int unvmed_pci_backup_config(struct unvme *u, void *config)
 {
-	return vfio_pci_read_config(&u->ctrl.pci, config, 0x1000, 0x0);
+	return unvmed_pci_get_config(u, config, 0, 0x1000);
 }
 
 static inline int unvmed_pci_restore_config(struct unvme *u, void *config)
@@ -2098,10 +2127,8 @@ static int unvmed_pci_wait_link_up(struct unvme *u)
 	unsigned char config[4096];
 
 	while (true) {
-		if (vfio_pci_read_config(&u->ctrl.pci, config, 4096, 0x0) < 0) {
-			unvmed_log_err("failed to read config register");
+		if (unvmed_pci_get_config(u, config, 0, 0x1000))
 			return -1;
-		}
 
 		if (config[0] == 0xff && config[1] == 0xff) {
 			usleep(1000);
@@ -2110,7 +2137,6 @@ static int unvmed_pci_wait_link_up(struct unvme *u)
 
 		break;
 	}
-
 	return 0;
 }
 
