@@ -2096,28 +2096,17 @@ static int unvmed_pci_backup_state(struct unvme *u, void *config)
 static int unvmed_pci_restore_state(struct unvme *u, void *config)
 {
 	uint32_t csts;
-	int ret;
+
+	if (unvmed_pci_restore_config(u, config))
+		return -1;
 
 	while (true) {
-		/*
-		 * Restore the first common configuration space header first to
-		 * access MMIO area.
-		 */
-		vfio_pci_write_config(&u->ctrl.pci, config, 0x40, 0x0);
-
-		/*
-		 * Check whether NVMe is properly reset due to PCIe reset.
-		 */
 		csts = unvmed_read32(u, NVME_REG_CSTS);
 		if (!NVME_CSTS_RDY(csts))
 			break;
 
 		usleep(1000);
 	}
-
-	ret = unvmed_pci_restore_config(u, config);
-	if (ret < 0)
-		return -1;
 
 	return 0;
 }
