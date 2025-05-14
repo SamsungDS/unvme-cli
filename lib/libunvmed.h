@@ -262,6 +262,35 @@ static inline bool unvmed_sq_enabled(struct unvme_sq *usq)
 }
 
 /**
+ * unvmed_sq_entry - Return a SQ entry pointer located at @db
+ * @usq: submission queue instance
+ * @db: doorbell value inside of queue
+ *
+ * Return: SQ entry pointer
+ */
+static inline union nvme_cmd *unvmed_sq_entry(struct unvme_sq *usq, uint16_t db)
+{
+	return usq->q->mem.vaddr + db * sizeof(union nvme_cmd);
+}
+
+/**
+ * unvmed_sq_for_each_entry - Macro to iterate on pending entries of @usq
+ * @usq: submission queue instance
+ * @id: index from 0
+ * @entry: submission queue entry to be assigned
+ *
+ * This API is not thread-safe.  @usq should be locked with
+ * `unvmed_sq_enter()`.
+ */
+#define unvmed_sq_for_each_entry(usq, id, entry) \
+	uint32_t _i; \
+	for ((id) = 0, _i = ((usq)->q)->ptail, \
+		(entry) = unvmed_sq_entry(usq, _i); \
+		_i != ((usq)->q)->tail; \
+		_i = (_i + 1) % ((usq)->q)->qsize, \
+		(entry) = unvmed_sq_entry(usq, _i), (id)++)
+
+/**
  * unvmed_cq_enabled - Check whether the completion queue is enabled (live)
  * @u: &struct unvme
  * @qid: completion queue identifier
