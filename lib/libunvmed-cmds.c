@@ -753,3 +753,8 @@ int unvmed_id_secondary_ctrl_list(struct unvme *u, struct unvme_cmd *cmd,
 	unvmed_cmd_wait(cmd);
 	return unvmed_cqe_status(&cmd->cqe);
 }
+
+int unvmed_cmd_wait(struct unvme_cmd *cmd)
+{
+	return __unvmed_cmd_wait(cmd);
+}

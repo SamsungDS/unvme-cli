@@ -36,13 +36,6 @@ static void __unvmed_delete_cq_all(struct unvme *u);
 static void unvmed_delete_iosq_all(struct unvme *u);
 static void unvmed_delete_iocq_all(struct unvme *u);
 
-static inline struct unvme_cmd *__unvmed_get_cmd(struct unvme *u,
-						 struct unvme_sq *usq,
-						 uint16_t cid)
-{
-	return &usq->cmds[cid];
-}
-
 static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
 {
 	struct unvme *u = ucq->u;
@@ -1951,7 +1944,7 @@ struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe)
 	if (!usq)
 		return NULL;
 
-	return __unvmed_get_cmd(u, usq, cqe->cid);
+	return unvmed_get_cmd(usq, cqe->cid);
 }
 
 static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
@@ -2063,7 +2056,7 @@ int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 	return ret + n;
 }
 
-static int unvmed_nr_pending_sqes(struct unvme_sq *usq)
+int unvmed_sq_nr_pending_sqes(struct unvme_sq *usq)
 {
 	struct nvme_sq *sq = usq->q;
 	int nr_sqes;
@@ -2081,7 +2074,7 @@ int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
 	int nr_sqes;
 	int nr_cmds;
 
-	nr_sqes = unvmed_nr_pending_sqes(usq);
+	nr_sqes = unvmed_sq_nr_pending_sqes(usq);
 	if (!nr_sqes)
 		return 0;
 

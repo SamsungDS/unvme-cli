@@ -192,10 +192,12 @@ static inline int unvmed_futex_wake(void *addr, int n)
 	return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
 }
 
-static inline int unvmed_cmd_wait(struct unvme_cmd *cmd)
+static inline int __unvmed_cmd_wait(struct unvme_cmd *cmd)
 {
-	if (!(cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE))
-		return -EINVAL;
+	if (!(cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE)) {
+		errno = EINVAL;
+		return -1;
+	}
 
 	while (!atomic_load_acquire(&cmd->completed)) {
 		if (!unvmed_cq_irq_enabled(cmd->usq->ucq))

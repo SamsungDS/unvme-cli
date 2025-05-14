@@ -858,6 +858,19 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags);
 
 /**
+ * unvmed_get_cmd - Get &struct unvme_cmd instance
+ * @usq: submission queue (&struct unvme_sq)
+ * @cid: command identifier
+ *
+ * Return: &struct unvme_cmd pointer
+ */
+static inline struct unvme_cmd *unvmed_get_cmd(struct unvme_sq *usq,
+					       uint16_t cid)
+{
+	return &usq->cmds[cid];
+}
+
+/**
  * unvmed_get_cmd_from_cqe - Convert &struct nvme_cqe to &struct unvme_cmd
  * @u: &struct unvme
  * @cqe: completion queue entry (&struct nvme_cqe)
@@ -913,6 +926,18 @@ int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
  */
 int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 		    struct nvme_cqe *cqes, int min, int max);
+
+/**
+ * unvmed_sq_nr_pending_sqes - Get the number of pending SQ entries
+ * @usq: submission queue (&struct unvme_sq)
+ *
+ * This API is not thread-safe for the given @usq.  Caller should acquire lock
+ * for the corresponding @usq.
+ *
+ * Return: The number of pending SQ entries which have been pushed without tail
+ * doorbell updated.
+ */
+int unvmed_sq_nr_pending_sqes(struct unvme_sq *usq);
 
 /**
  * unvmed_sq_update_tail - Update tail pointer of the given submission queue.
@@ -1317,6 +1342,14 @@ int unvmed_id_primary_ctrl_caps(struct unvme *u, struct unvme_cmd *cmd,
 **/
 int unvmed_id_secondary_ctrl_list(struct unvme *u, struct unvme_cmd *cmd,
 				  struct iovec *iov, int nr_iov, uint32_t cntlid);
+
+/**
+ * unvmed_cmd_wait - Wait until @cmd completes with @cmd->cqe
+ * @cmd: command instance (&struct unvme_cmd)
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_wait(struct unvme_cmd *cmd);
 
 /**
  * unvmed_subsystem_reset - NVM Subsystem Reset
