@@ -2380,10 +2380,12 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 
-	__unvme_free struct nvme_cqe *cqes = NULL;
+	__unvme_free struct unvme_cmd **cmds = NULL;
 	struct unvme_sq *usq;
+	union nvme_cmd *sqe;
 	int nr_sqes;
 	int ret = 0;
+	int id;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -2402,39 +2404,36 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	nr_sqes = unvmed_sq_update_tail(u, usq);
+
+	nr_sqes = unvmed_sq_nr_pending_sqes(usq);
 	if (!nr_sqes) {
 		unvmed_sq_exit(usq);
+
+		unvme_pr_err("SQ #%d: No pending entries\n", unvmed_sq_id(usq));
 		goto out;
 	}
 
-	unvme_pr("Updated SQ%d doorbell for %d entries\n", arg_intv(sqid), nr_sqes);
-
-	cqes = malloc(sizeof(struct nvme_cqe) * nr_sqes);
-	if (!cqes) {
+	cmds = (struct unvme_cmd **)malloc(sizeof(*cmds) * nr_sqes);
+	if (!cmds) {
 		unvmed_sq_exit(usq);
-		unvme_pr_err("failed to allocate memory for cq entreis\n");
+
+		unvme_pr_err("failed to allocate @cmd array\n");
+		ret = ENOMEM;
 		goto out;
 	}
 
-	unvme_pr("Reaping for %d CQ entries..\n", nr_sqes);
-	if (unvmed_cq_run_n(u, usq->ucq, cqes, nr_sqes, nr_sqes) < 0) {
-		unvmed_sq_exit(usq);
-		unvme_pr_err("failed to fetch CQ entries\n");
-		goto out;
+	unvmed_sq_for_each_entry(usq, id, sqe)
+		cmds[id] = unvmed_get_cmd(usq, sqe->cid);
+
+	unvmed_sq_update_tail(u, usq);
+
+	for (int i = 0; i < nr_sqes; i++) {
+		unvmed_cmd_wait(cmds[i]);
+		unvme_pr_cqe(&cmds[i]->cqe);
+		unvmed_cmd_free(cmds[i]);
 	}
+
 	unvmed_sq_exit(usq);
-
-	for (int i = 0; i < nr_sqes; i++) {
-		struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, &cqes[i]);
-
-		unvmed_cmd_free(cmd);
-	}
-
-	for (int i = 0; i < nr_sqes; i++) {
-		unvme_pr_cqe(&cqes[i]);
-	}
-
 out:
 	unvme_free_args(argtable);
 	return ret;
