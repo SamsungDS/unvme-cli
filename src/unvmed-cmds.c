@@ -78,6 +78,28 @@ void exit(int status)
 	pthread_exit(NULL);
 }
 
+static inline int arg_validate_format(const char *format, int nr_formats, ...)
+{
+	va_list args;
+
+	if (!format)
+		return -1;
+
+	va_start(args, nr_formats);
+
+	for (int i = 0; i < nr_formats; i++) {
+		const char *valid = va_arg(args, const char *);
+
+		if (valid && streq(format, valid)) {
+			va_end(args);
+			return 0;
+		}
+	}
+
+	va_end(args);
+	return -1;
+}
+
 static inline void __unvme_cmd_pr(const char *format, void *buf, size_t len,
 			   void (*pr)(const char *format, void *vaddr))
 {
@@ -357,6 +379,12 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
+	if (arg_validate_format(arg_strv(format), 3, "normal", "json", "binary")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
+
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
 		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
@@ -393,6 +421,12 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 	arg_strv(format) = "normal";
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if (arg_validate_format(arg_strv(format), 2, "normal", "json")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -816,6 +850,12 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
+	if (arg_validate_format(arg_strv(format), 3, "normal", "json", "binary")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
+
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
 		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
@@ -921,6 +961,12 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if (arg_validate_format(arg_strv(format), 3, "normal", "json", "binary")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -1033,6 +1079,12 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
+	if (arg_validate_format(arg_strv(format), 3, "normal", "json", "binary")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
+
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
 		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
@@ -1131,6 +1183,12 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	arg_intv(prp1_offset) = 0x0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if (arg_validate_format(arg_strv(format), 3, "normal", "json", "binary")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -1345,6 +1403,12 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	arg_strv(format) = "normal";
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if (arg_validate_format(arg_strv(format), 2, "normal", "json")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
@@ -2906,6 +2970,12 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
+	if (arg_validate_format(arg_strv(format), 3, "normal", "json", "binary")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
+
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
 		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
@@ -2985,6 +3055,12 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	arg_strv(format) = "normal";
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if (arg_validate_format(arg_strv(format), 3, "normal", "json", "binary")) {
+		unvme_pr_err("invalid -o|--output-format=%s\n", arg_strv(format));
+		ret = EINVAL;
+		goto out;
+	}
 
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
