@@ -6,6 +6,7 @@
 #include <ccan/list/list.h>
 
 #include "libunvmed.h"
+#include "libunvmed-logs.h"
 #include "libunvmed-private.h"
 
 __thread char __buf[256];

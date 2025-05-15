@@ -173,12 +173,6 @@ struct unvme_cq_reaper {
 	struct unvme_rcq rcq;
 };
 
-/*
- * libunvmed-logs.c
- */
-void unvmed_log_cmd_post(const char *bdf, uint32_t sqid, union nvme_cmd *sqe);
-void unvmed_log_cmd_cmpl(const char *bdf, struct nvme_cqe *cqe);
-
 #include <sys/syscall.h>
 #include <linux/futex.h>
 
