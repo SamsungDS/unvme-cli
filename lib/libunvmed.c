@@ -2111,25 +2111,22 @@ static int unvmed_pci_restore_state(struct unvme *u, void *config)
 	return 0;
 }
 
-static int unvmed_pci_wait_link_up(struct unvme *u)
+static int unvmed_pci_wait_reset(struct unvme *u)
 {
-	unsigned char config[4096];
+	uint64_t bar0;
 
 	while (true) {
-		if (unvmed_pci_get_config(u, config, 0, 0x1000))
+		if (unvmed_pci_get_config(u, &bar0, 0x10, 8))
 			return -1;
 
-		if (config[0] == 0xff && config[1] == 0xff) {
-			usleep(1000);
+		/*
+		 * Continue on link-down state.
+		 */
+		if (bar0 == 0xffffffff)
 			continue;
-		}
 
-		if (config[4094] == 0xff && config[4095] == 0xff) {
-			usleep(1000);
-			continue;
-		}
-
-		break;
+		if ((bar0 & ~0xfULL) == 0x0)
+			break;
 	}
 	return 0;
 }
@@ -2146,8 +2143,13 @@ int unvmed_subsystem_reset(struct unvme *u)
 
 	unvmed_write32(u, NVME_REG_NSSR, 0x4E564D65);
 
-	if (unvmed_pci_wait_link_up(u) < 0) {
-		unvmed_log_err("failed to wait for PCI to be link up");
+	/*
+	 * NSSR will be handled from device side, not the host side, which
+	 * means we should make sure that the PCI config register is reset by
+	 * device before preceeding.
+	 */
+	if (unvmed_pci_wait_reset(u) < 0) {
+		unvmed_log_err("failed to wait for PCI to be reset");
 		return -1;
 	}
 
@@ -2354,9 +2356,8 @@ int unvmed_hot_reset(struct unvme *u)
 
 	unvmed_reset_ctx(u);
 
-	ret = unvmed_pci_wait_link_up(u);
-	if (ret < 0) {
-		unvmed_log_err("failed to wait for PCI to be link up");
+	if (unvmed_pci_wait_reset(u) < 0) {
+		unvmed_log_err("failed to wait for PCI to be reset");
 		goto close;
 	}
 
@@ -2424,9 +2425,8 @@ int unvmed_link_disable(struct unvme *u)
 
 	unvmed_reset_ctx(u);
 
-	ret = unvmed_pci_wait_link_up(u);
-	if (ret < 0) {
-		unvmed_log_err("failed to wait for PCI to be link up");
+	if (unvmed_pci_wait_reset(u) < 0) {
+		unvmed_log_err("failed to wait for PCI to be reset");
 		goto close;
 	}
 
