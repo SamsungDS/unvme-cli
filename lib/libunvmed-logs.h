@@ -4,6 +4,7 @@
 #define LIBUNVMED_LOG_H
 
 extern int __unvmed_logfd;
+extern int __log_level;
 
 enum {
 	UNVME_LOG_ERR,
@@ -47,6 +48,9 @@ ____unvmed_log(const int lv, const char *fmt, ...)
 
 #define __unvmed_log(lv, fmt, ...)						\
 	do {									\
+		if (lv > atomic_load_acquire(&__log_level))			\
+			break;							\
+										\
 		char datetime[32];						\
 										\
 		unvme_datetime(datetime);					\

@@ -193,6 +193,38 @@ static bool unvmed_sriov_supported(const char *bdf)
 	return ret;
 }
 
+int unvme_log_level(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Get or set log level of unvmed process. If `level` is given,\n"
+		"the log level will be set by the given value. If not, print\n"
+		"the current log level.  It defaults to INFO in release build\n"
+		"and to DEBUG in debug build.";
+
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_int *level = arg_int0(NULL, NULL, "<n>", "level (0:ERROR,1:INFO,2:DEBUG)");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+
+
+	void *argtable[] = { help, level, end };
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if (arg_boolv(level)) {
+		int prev = atomic_load_acquire(&__log_level);
+		atomic_store_release(&__log_level, arg_intv(level));
+		unvme_pr("Log level changed to %s (prev: %s)\n",
+			 loglv_to_str(atomic_load_acquire(&__log_level)),
+			 loglv_to_str(prev));
+	} else {
+		unvme_pr("Current log level: %s\n",
+			 loglv_to_str(atomic_load_acquire(&__log_level)));
+	}
+
+	unvme_free_args(argtable);
+	return 0;
+}
+
 int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct dirent *entry;

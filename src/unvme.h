@@ -204,6 +204,7 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_start(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_stop(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_log(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_log_level(int argc, char *argv[], struct unvme_msg *msg);
 
 int unvme_add(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_del(int argc, char *argv[], struct unvme_msg *msg);

@@ -483,6 +483,12 @@ int unvmed(char *argv[], const char *fio)
 {
 	struct unvme_msg *msg;
 
+#ifdef UNVME_DEBUG
+	int log_level = UNVME_LOG_DEBUG;
+#else
+	int log_level = UNVME_LOG_INFO;
+#endif
+
 	/*
 	 * Convert the current process to a daemon process
 	 */
@@ -499,7 +505,7 @@ int unvmed(char *argv[], const char *fio)
 	if (chdir("/"))
 		unvme_pr_return(-1, "ERROR: failed to change directory\n");
 
-	unvmed_init(UNVME_DAEMON_LOG);
+	unvmed_init(UNVME_DAEMON_LOG, log_level);
 
 	close(STDIN_FILENO);
 	if (!freopen(UNVME_DAEMON_STDOUT, "w", stdout))

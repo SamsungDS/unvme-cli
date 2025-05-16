@@ -19,6 +19,7 @@
 #include "libunvmed-private.h"
 
 int __unvmed_logfd = 0;
+int __log_level = 0;
 
 static inline bool unvme_is_enabled(struct unvme *u)
 {
@@ -86,10 +87,12 @@ static int unvmed_create_logfile(const char *logfile)
 	return fd;
 }
 
-void unvmed_init(const char *logfile)
+void unvmed_init(const char *logfile, int log_level)
 {
 	if (logfile)
 		__unvmed_logfd = unvmed_create_logfile(logfile);
+
+	atomic_store_release(&__log_level, log_level);
 }
 
 int unvmed_parse_bdf(const char *input, char *bdf)
@@ -1915,9 +1918,7 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	nvme_rq_post(cmd->rq, (union nvme_cmd *)sqe);
 
 	STORE(cmd->state, UNVME_CMD_S_SUBMITTED);
-#ifdef UNVME_DEBUG
 	unvmed_log_cmd_post(unvmed_bdf(cmd->u), cmd->rq->sq->id, sqe);
-#endif
 
 	if (!(flags & UNVMED_CMD_F_NODB)) {
 		int nr_cmds;
@@ -2010,9 +2011,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 		if (cqes)
 			memcpy(&cqes[nr], cqe, sizeof(*cqe));
 		nr++;
-#ifdef UNVME_DEBUG
 		unvmed_log_cmd_cmpl(unvmed_bdf(u), cqe);
-#endif
 	}
 
 	do {

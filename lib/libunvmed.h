@@ -329,7 +329,7 @@ static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
  *
  * Initialize libunvmed library in the current process context.
  */
-void unvmed_init(const char *logfile);
+void unvmed_init(const char *logfile, int log_level);
 
 /**
  * unvmed_parse_bdf - Parse a given input string to fully formed bdf
