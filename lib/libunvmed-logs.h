@@ -5,6 +5,13 @@
 
 extern int __unvmed_logfd;
 
+enum {
+	UNVME_LOG_ERR,
+	UNVME_LOG_INFO,
+	UNVME_LOG_DEBUG,
+	UNVME_LOG_LAST = UNVME_LOG_DEBUG,
+};
+
 static inline void unvme_datetime(char *datetime)
 {
 	struct timeval tv;
@@ -23,7 +30,7 @@ static inline void unvme_datetime(char *datetime)
 }
 
 static inline void __attribute__((format(printf, 2, 3)))
-____unvmed_log(const char *type, const char *fmt, ...)
+____unvmed_log(const int lv, const char *fmt, ...)
 {
 	va_list va;
 
@@ -35,18 +42,22 @@ ____unvmed_log(const char *type, const char *fmt, ...)
 	va_end(va);
 }
 
-#define __unvmed_log(type, fmt, ...)						\
+#define loglv_to_str(lv) (lv == UNVME_LOG_ERR ? "ERROR" : \
+		    lv == UNVME_LOG_INFO ? "INFO" : "DEBUG")
+
+#define __unvmed_log(lv, fmt, ...)						\
 	do {									\
 		char datetime[32];						\
 										\
 		unvme_datetime(datetime);					\
-		____unvmed_log(type, "%-8s| %s | %s: %d: " fmt "\n",		\
-			type, datetime, __func__, __LINE__, ##__VA_ARGS__);	\
+		____unvmed_log(lv, "%-8s| %s | %s: %d: " fmt "\n",		\
+			loglv_to_str(lv), datetime,				\
+			__func__, __LINE__, ##__VA_ARGS__);			\
 	} while(0)
 
-#define unvmed_log_info(fmt, ...)	__unvmed_log("INFO", fmt, ##__VA_ARGS__)
-#define unvmed_log_err(fmt, ...)	__unvmed_log("ERROR", fmt, ##__VA_ARGS__)
-#define unvmed_log_nvme(fmt, ...)	__unvmed_log("NVME", fmt, ##__VA_ARGS__)
+#define unvmed_log_err(fmt, ...)	__unvmed_log(UNVME_LOG_ERR, fmt, ##__VA_ARGS__)
+#define unvmed_log_info(fmt, ...)	__unvmed_log(UNVME_LOG_INFO, fmt, ##__VA_ARGS__)
+#define unvmed_log_debug(fmt, ...)	__unvmed_log(UNVME_LOG_DEBUG, fmt, ##__VA_ARGS__)
 
 /*
  * libunvmed-logs.c
