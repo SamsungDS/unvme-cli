@@ -1680,7 +1680,7 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_cqe(&cqe);
 
 	if (!ret)
-		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cqe.dw0));
+		unvme_pr("dw0: %#x\n", le32_to_cpu(cqe.dw0));
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 
@@ -1791,8 +1791,8 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_cqe(&cmd->cqe);
 
 	if (!ret) {
-		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cmd->cqe.dw0));
-		unvme_pr_err("dw1: %#x\n", le32_to_cpu(cmd->cqe.dw1));
+		unvme_pr("dw0: %#x\n", le32_to_cpu(cmd->cqe.dw0));
+		unvme_pr("dw1: %#x\n", le32_to_cpu(cmd->cqe.dw1));
 
 		if (arg_boolv(data_size)) {
 			if (arg_boolv(data)) {
