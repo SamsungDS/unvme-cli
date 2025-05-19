@@ -754,7 +754,7 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 	iov.iov_base = id_ns;
 	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
 
-	ret = unvmed_id_ns(u, cmd, nsid, &iov, 1);
+	ret = unvmed_id_ns(cmd, nsid, &iov, 1);
 	if (ret) {
 		unvmed_log_err("failed to identify namespace");
 
@@ -863,7 +863,7 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 	iov.iov_base = nvm_id_ns;
 	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
 
-	ret = unvmed_nvm_id_ns(u, cmd, nsid, &iov, 1);
+	ret = unvmed_nvm_id_ns(cmd, nsid, &iov, 1);
 	if (ret) {
 		unvmed_log_err("failed to identify namespace");
 
@@ -908,7 +908,7 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 	iov.iov_base = id_ctrl;
 	iov.iov_len = NVME_IDENTIFY_DATA_SIZE;
 
-	ret = unvmed_id_ctrl(u, cmd, &iov, 1);
+	ret = unvmed_id_ctrl(cmd, &iov, 1);
 	if (ret) {
 		unvmed_log_err("failed to identify controller\n");
 		unvmed_cmd_free(cmd);
@@ -2630,6 +2630,16 @@ int unvmed_ctx_restore(struct unvme *u)
 
 	unvmed_ctx_free(u);
 	return 0;
+}
+
+bool unvmed_hmb_allocated(struct unvme *u)
+{
+	return !!u->hmb.descs;
+}
+
+struct unvme_hmb *unvmed_hmb(struct unvme *u)
+{
+	return &u->hmb;
 }
 
 int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)

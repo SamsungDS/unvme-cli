@@ -191,11 +191,29 @@ struct unvme_cmd {
 	bool completed;
 
 	/*
+	 * Submission Queue Entry pushed for this command.
+	 */
+	union nvme_cmd sqe;
+
+	/*
 	 * If @flags is set with UNVMED_CMD_F_REQ_CQE, @cqe will be updated by
 	 * libunvmed when cqe is reaped from CQ (only in RCQ mode w/ interrupt
 	 * enabled).
 	 */
 	struct nvme_cqe cqe;
+};
+
+struct unvme_hmb {
+	struct {
+		__le64 badd;
+		__le32 bsize;
+		uint32_t rsvd;
+	} *descs;
+	uint64_t *descs_vaddr;
+	uint64_t descs_iova;
+	size_t descs_size;
+	int nr_descs;
+	uint32_t hsize;
 };
 
 struct unvme_sq *unvmed_sq_find(struct unvme *u, uint32_t qid);
@@ -1087,8 +1105,86 @@ int __unvmed_mapv_sgl_seg(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 int unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe);
 
 /**
+ * unvmed_cmd_prep - Prepare unvme command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Prepare a unvme command instance with the given @sqe by putting it to
+ * @cmd->sqe by value.  This API also maps the given @iov as PRP to
+ * &cmd->sqe.dptr.
+ *
+ * After calling this, `unvmed_cmd_issue(@cmd)` will issue the command.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		    struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_cmd_issue - Issue a given @cmd command
+ * @cmd: command instance (&struct unvme_cmd)
+ *
+ * Issue a given @cmd to a specific submission queue.  @cmd->sqe should be
+ * filled up before calling this API by `unvmed_cmd_prep(@cmd, &sqe, ...)`.
+ *
+ * This API is thread-safe.
+ */
+void unvmed_cmd_issue(struct unvme_cmd *cmd);
+
+/**
+ * unvmed_cmd_issue_and_wait - Issue a given @cmd command and wait to complete
+ * @cmd: command instance (&struct unvme_cmd)
+ *
+ * Issue a given @cmd to a specific submission queue.  @cmd->sqe should be
+ * filled up before calling this API by `unvmed_cmd_prep(@cmd, &sqe, ...)`.
+ *
+ * This API waits for the @cmd to complete after submitting it.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, -1 on error, otherwise CQE status field.
+ */
+int unvmed_cmd_issue_and_wait(struct unvme_cmd *cmd);
+
+/**
+ * unvmed_passthru - Passthru command
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Issue an user-given custom command to the controller @u.  Caller should form
+ * @sqe to issue.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise CQE status field.
+ */
+int unvmed_passthru(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+		    struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_cmd_prep_id_ns - Prepare Identify Namespace (CNS 0h) command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Prepare an Identify Namespace command instance with the given values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_id_ns(struct unvme_cmd *cmd, uint32_t nsid,
+			  struct iovec *iov, int nr_iov);
+
+/**
  * unvmed_id_ns - Identify Namespace (CNS 0h)
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @nsid: namespace identifier to identify
  * @iov: user data buffer I/O vector (&struct iovec)
@@ -1100,12 +1196,26 @@ int unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe);
  *
  * Return: ``0`` on success, otherwise CQE status field.
  */
-int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
+int unvmed_id_ns(struct unvme_cmd *cmd, uint32_t nsid,
 		 struct iovec *iov, int nr_iov);
 
 /**
+ * unvmed_cmd_prep_id_ctrl - Prepare Identify Controller (CNS 1h) command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Prepare an Identify Controller command instance with the given values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_id_ctrl(struct unvme_cmd *cmd, struct iovec *iov,
+			    int nr_iov);
+
+/**
  * unvmed_id_ctrl - Identify Controller (CNS 1h)
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
@@ -1116,12 +1226,27 @@ int unvmed_id_ns(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  *
  * Return: ``0`` on success, otherwise CQE status field.
  */
-int unvmed_id_ctrl(struct unvme *u, struct unvme_cmd *cmd, struct iovec *iov,
-		   int nr_iov);
+int unvmed_id_ctrl(struct unvme_cmd *cmd, struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_cmd_prep_id_active_nslist - Prepare Identify Active NS List (CNS 2h)
+ *				      command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Prepare an Identify Active NS List command instance with the given values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_id_active_nslist(struct unvme_cmd *cmd, uint32_t nsid,
+				     struct iovec *iov, int nr_iov);
 
 /**
  * unvmed_id_active_nslist - Identify Active Namespace ID list (CNS 2h)
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @nsid: namespace identifier to identify
  * @iov: user data buffer I/O vector (&struct iovec)
@@ -1133,12 +1258,29 @@ int unvmed_id_ctrl(struct unvme *u, struct unvme_cmd *cmd, struct iovec *iov,
  *
  * Return: ``0`` on success, otherwise CQE status field.
  */
-int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
-			    uint32_t nsid, struct iovec *iov, int nr_iov);
+int unvmed_id_active_nslist(struct unvme_cmd *cmd, uint32_t nsid,
+			    struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_cmd_prep_nvm_id_ns - Prepare Identify NVM Identify Namesapce (CNS 5h)
+ *				      command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Prepare an Identify NVM Identify Namespace command instance with the given
+ * values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_nvm_id_ns(struct unvme_cmd *cmd, uint32_t nsid,
+			      struct iovec *iov, int nr_iov);
 
 /**
  * unvmed_nvm_id_ns - Identify NVM Identify Namespace (CNS 5h)
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @nsid: namespace identifier to identify
  * @iov: user data buffer I/O vector (&struct iovec)
@@ -1150,12 +1292,33 @@ int unvmed_id_active_nslist(struct unvme *u, struct unvme_cmd *cmd,
  *
  * Return: ``0`` on success, otherwise CQE status field.
  */
-int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
-		     uint32_t nsid, struct iovec *iov, int nr_iov);
+int unvmed_nvm_id_ns(struct unvme_cmd *cmd, uint32_t nsid, struct iovec *iov,
+		     int nr_iov);
+
+
+/**
+ * unvmed_cmd_prep_set_features - Prepare Set Features command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @fid: feature identifier
+ * @save: to make attribute persistent
+ * @cdw11: command dword 11
+ * @cdw12: command dword 12
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Prepare an Set Features command instance with the given values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_set_features(struct unvme_cmd *cmd, uint32_t nsid,
+				 uint8_t fid, bool save, uint32_t cdw11,
+				 uint32_t cdw12, struct iovec *iov, int nr_iov);
 
 /**
  * unvmed_set_features - Set Features
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @nsid: namespace identifier to identify
  * @fid: feature identifier
@@ -1171,35 +1334,77 @@ int unvmed_nvm_id_ns(struct unvme *u, struct unvme_cmd *cmd,
  *
  * Return: ``0`` on success, -1 on error, otherwise CQE status field.
  */
-int unvmed_set_features(struct unvme *u, struct unvme_cmd *cmd,
-			uint32_t nsid, uint8_t fid, bool save, uint32_t cdw11,
-			uint32_t cdw12, struct iovec *iov, int nr_iov);
+int unvmed_set_features(struct unvme_cmd *cmd, uint32_t nsid, uint8_t fid,
+			bool save, uint32_t cdw11, uint32_t cdw12,
+			struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_cmd_prep_set_features_hmb - Prepare Set Features HMB command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @hsize: host memory buffer size in memory page size (CC.MPS) units
+ * @descs_addr: host memory descriptor list address
+ * @nr_descs: host memory descriptor list entry count
+ * @mr: memory return
+ * @enable: EHM(Enable Host Memory) field in CDW11
+ *
+ * Prepare an Set Features HMB command instance with the given values.
+ *
+ * This API should be called after calling `unvmed_hmb_init()` to initialize
+ * HMB area and retrieve the result value from the driver command.  With those
+ * values, Set Features command should be composed.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_set_features_hmb(struct unvme_cmd *cmd, uint32_t hsize,
+				     uint64_t descs_addr, uint32_t nr_descs,
+				     bool mr, bool enable);
 
 /**
  * unvmed_set_features_hmb - Set Features for HMB
- * @u: &struct unvme
+ * @cmd: command instance (&struct unvme_cmd)
+ * @hsize: host memory buffer size in memory page size (CC.MPS) units
+ * @descs_addr: host memory descriptor list address
+ * @nr_descs: host memory descriptor list entry count
+ * @mr: memory return
  * @enable: EHM(Enable Host Memory) field in CDW11
- * @bsize: Buffer Size indicating the number of contiguous memory page size
- *         (CC.MPS) units for descriptor(s)
- * @nr_bsize: Number of array entries of @bsize
- * @cqe: cq entry
  *
- * It allocates or de-allocates Host Memory Buffer based on @enable along with
- * issueing a Set Features admin command to the controller @u.
- *
- * If HMB resource has already been allocated previous time, it will set the
- * Memory Return bit field in Set Features command to 1.
+ * This API should be called after calling `unvmed_hmb_init()` to initialize
+ * HMB area and retrieve the result value from the driver command.  With those
+ * values, Set Features command should be composed.
  *
  * This API is thread-safe.
  *
  * Return: ``0`` on success, -1 on error, otherwise CQE status field.
  */
-int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
-			    int nr_bsize, struct nvme_cqe *cqe);
+int unvmed_set_features_hmb(struct unvme_cmd *cmd, uint32_t hsize,
+			    uint64_t descs_addr, uint32_t nr_descs,
+			    bool mr, bool enable);
+
+/**
+ * unvmed_cmd_prep_get_features - Prepare Get Features command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @fid: feature identifier
+ * @sel: request attribute of the value in th returned data
+ * @cdw11: command dword 11
+ * @cdw14: command dword 14
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ *
+ * Prepare an Get Features command instance with the given values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_get_features(struct unvme_cmd *cmd, uint32_t nsid,
+				 uint8_t fid, uint8_t sel, uint32_t cdw11,
+				 uint32_t cdw14, struct iovec *iov, int nr_iov);
 
 /**
  * unvmed_get_features - Get Features
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @nsid: namespace identifier to identify
  * @fid: feature identifier
@@ -1215,13 +1420,41 @@ int unvmed_set_features_hmb(struct unvme *u, bool enable, uint32_t *bsize,
  *
  * Return: ``0`` on success, -1 on error, otherwise CQE status field.
  */
-int unvmed_get_features(struct unvme *u, struct unvme_cmd *cmd,
-			uint32_t nsid, uint8_t fid, uint8_t sel, uint32_t cdw11,
-			uint32_t cdw14,	struct iovec *iov, int nr_iov);
+int unvmed_get_features(struct unvme_cmd *cmd, uint32_t nsid, uint8_t fid,
+			uint8_t sel, uint32_t cdw11, uint32_t cdw14,
+			struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_cmd_prep_read - Prepare Read command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @slba: start logical block address
+ * @nlb: number of logical blocks (0-based)
+ * @prinfo: prinfo for end-to-end pi
+ * @atag: app tag for end-to-end pi
+ * @atag_mask: app tag mask for end-to-end pi
+ * @rtag: reference tag for end-to-end pi
+ * @stag: storage tag for end-to-end pi
+ * @stag_check: check storage tag for end-to-end pi
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ * @mbuf: metadata buffer I/O vector
+ * @opaque: opaque private data for asynchronous completion
+ *
+ * Prepare a Read command instance with the given values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_read(struct unvme_cmd *cmd, uint32_t nsid, uint64_t slba,
+			 uint16_t nlb, uint8_t prinfo, uint16_t atag,
+			 uint16_t atag_mask, uint64_t rtag, uint64_t stag,
+			 bool stag_check, struct iovec *iov, int nr_iov,
+			 void *mbuf, void *opaque);
 
 /**
  * unvmed_read - Read I/O command
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @nsid: namespace identifier to identify
  * @slba: start logical block address
@@ -1243,16 +1476,41 @@ int unvmed_get_features(struct unvme *u, struct unvme_cmd *cmd,
  *
  * Return: ``0`` on success, otherwise CQE status field.
  */
-int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		uint64_t slba, uint16_t nlb, uint8_t prinfo,
-		uint16_t atag, uint16_t atag_mask, uint64_t rtag,
-		uint64_t stag, bool stag_check,
-		struct iovec *iov, int nr_iov, void *mbuf,
-		void *opaque);
+int unvmed_read(struct unvme_cmd *cmd, uint32_t nsid, uint64_t slba,
+		uint16_t nlb, uint8_t prinfo, uint16_t atag, uint16_t atag_mask,
+		uint64_t rtag, uint64_t stag, bool stag_check,
+		struct iovec *iov, int nr_iov, void *mbuf, void *opaque);
+
+/**
+ * unvmed_cmd_prep_write - Prepare Write command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @nsid: namespace identifier to identify
+ * @slba: start logical block address
+ * @nlb: number of logical blocks (0-based)
+ * @prinfo: prinfo for end-to-end pi
+ * @atag: app tag for end-to-end pi
+ * @atag_mask: app tag mask for end-to-end pi
+ * @rtag: reference tag for end-to-end pi
+ * @stag: storage tag for end-to-end pi
+ * @stag_check: check storage tag for end-to-end pi
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs dangled to @iov
+ * @mbuf: metadata buffer I/O vector
+ * @opaque: opaque private data for asynchronous completion
+ *
+ * Prepare a Read command instance with the given values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_write(struct unvme_cmd *cmd, uint32_t nsid, uint64_t slba,
+		uint16_t nlb, uint8_t prinfo, uint16_t atag, uint16_t atag_mask,
+		uint64_t rtag, uint64_t stag, bool stag_check,
+		struct iovec *iov, int nr_iov, void *mbuf, void *opaque);
 
 /**
  * unvmed_write - Write I/O command
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @nsid: namespace identifier to identify
  * @slba: start logical block address
@@ -1274,35 +1532,34 @@ int unvmed_read(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  *
  * Return: ``0`` on success, otherwise CQE status field.
  */
-int unvmed_write(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		 uint64_t slba, uint16_t nlb, uint8_t prinfo,
-		 uint16_t atag, uint16_t atag_mask, uint64_t rtag,
-		 uint64_t stag, bool stag_check,
-		 struct iovec *iov, int nr_iov, void *mbuf,
+int unvmed_write(struct unvme_cmd *cmd, uint32_t nsid, uint64_t slba,
+		 uint16_t nlb, uint8_t prinfo, uint16_t atag,
+		 uint16_t atag_mask, uint64_t rtag, uint64_t stag,
+		 bool stag_check, struct iovec *iov, int nr_iov, void *mbuf,
 		 void *opaque);
 
+
 /**
- * unvmed_passthru - Passthru command
- * @u: &struct unvme
+ * unvmed_cmd_prep_format - Prepare Format command instance
  * @cmd: command instance (&struct unvme_cmd)
- * @sqe: submission queue entry (&union nvme_cmd)
- * @read: true if data transfer is device to host, otherwise false
- * @iov: user data buffer I/O vector (&struct iovec)
- * @nr_iov: number of iovecs dangled to @iov
+ * @nsid: namespace identifier to format
+ * @lbaf: LBA format index
+ * @ses: secure erase settings
+ * @pil: protection information location
+ * @pi: protection information
+ * @mset: metadata settings
  *
- * Issue an user-given custom command to the controller @u.  Caller should form
- * @sqe to issue.
+ * Prepare a Format command instance with the given values.
  *
  * This API is thread-safe.
  *
- * Return: ``0`` on success, otherwise CQE status field.
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
-		    bool read, struct iovec *iov, int nr_iov);
+int unvmed_cmd_prep_format(struct unvme_cmd *cmd, uint32_t nsid, uint8_t lbaf,
+			   uint8_t ses, uint8_t pil, uint8_t pi, uint8_t mset);
 
 /**
  * unvmed_format - Format NVM command
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @nsid: namespace identifier to format
  * @lbaf: LBA format index
@@ -1311,13 +1568,28 @@ int unvmed_passthru(struct unvme *u, struct unvme_cmd *cmd, union nvme_cmd *sqe,
  * @pi: protection information
  * @mset: metadata settings
  */
-int unvmed_format(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
-		  uint8_t lbaf, uint8_t ses, uint8_t pil, uint8_t pi,
-		  uint8_t mset);
+int unvmed_format(struct unvme_cmd *cmd, uint32_t nsid, uint8_t lbaf,
+		  uint8_t ses, uint8_t pil, uint8_t pi, uint8_t mset);
+
+/**
+ * unvmed_cmd_prep_virt_mgmt - Prepare Virtualization Mgmt. command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @cntlid: controller identifier
+ * @rt: resource type (e.g., VI Resource, VQ Resource)
+ * @act: action (e.g., manage primary or secondary controller)
+ * @nr: number of resources to manage
+ *
+ * Prepare a Virtualization Mgmt. command instance with the given values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_virt_mgmt(struct unvme_cmd *cmd, uint32_t cntlid,
+			      uint32_t rt, uint32_t act, uint32_t nr);
 
 /**
  * unvmed_virt_mgmt - Manage NVMe virtualization
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @cntlid: controller identifier
  * @rt: resource type (e.g., VI Resource, VQ Resource)
@@ -1332,12 +1604,30 @@ int unvmed_format(struct unvme *u, struct unvme_cmd *cmd, uint32_t nsid,
  *
  * Return: ``0`` on success, otherwise CQE status field.
  */
-int unvmed_virt_mgmt(struct unvme *u, struct unvme_cmd *cmd, uint32_t cntlid,
-                     uint32_t rt, uint32_t act, uint32_t nr);
+int unvmed_virt_mgmt(struct unvme_cmd *cmd, uint32_t cntlid, uint32_t rt,
+		     uint32_t act, uint32_t nr);
+
+/**
+ * unvmed_cmd_prep_id_primary_ctrl_caps - Prepare Identify Primary Controller
+ *					  command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs attached to @iov
+ * @cntlid: controller identifier
+ *
+ * Prepare an Identify Primary Controller command instance with the given
+ * values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_id_primary_ctrl_caps(struct unvme_cmd *cmd,
+					 struct iovec *iov, int nr_iov,
+					 uint32_t cntlid);
 
 /**
  * unvmed_id_primary_ctrl_caps - Identify Primary Controller Capabilities (CNS 14h)
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs attached to @iov
@@ -1351,13 +1641,30 @@ int unvmed_virt_mgmt(struct unvme *u, struct unvme_cmd *cmd, uint32_t cntlid,
  * Return: ``0`` on success, otherwise CQE status field.
 **/
 
-int unvmed_id_primary_ctrl_caps(struct unvme *u, struct unvme_cmd *cmd,
-                                struct iovec *iov, int nr_iov, uint32_t cntlid);
+int unvmed_id_primary_ctrl_caps(struct unvme_cmd *cmd, struct iovec *iov,
+				int nr_iov, uint32_t cntlid);
 
+/**
+ * unvmed_cmd_prep_id_secondary_ctrl_list - Prepare Identify Secondary Controller
+ *					    List command instance
+ * @cmd: command instance (&struct unvme_cmd)
+ * @iov: user data buffer I/O vector (&struct iovec)
+ * @nr_iov: number of iovecs attached to @iov
+ * @cntlid: lowest controller identifier to display
+ *
+ * Prepare an Identify Secondary Controller List command instance with the given
+ * values.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_id_secondary_ctrl_list(struct unvme_cmd *cmd,
+					   struct iovec *iov, int nr_iov,
+					   uint32_t cntlid);
 
 /**
  * unvmed_id_secondary_ctrl_list - Identify Secondary Controller List (CNS 15h)
- * @u: &struct unvme
  * @cmd: command instance (&struct unvme_cmd)
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs attached to @iov
@@ -1371,8 +1678,8 @@ int unvmed_id_primary_ctrl_caps(struct unvme *u, struct unvme_cmd *cmd,
  *
  * Return: ``0`` on success, otherwise CQE status field.
 **/
-int unvmed_id_secondary_ctrl_list(struct unvme *u, struct unvme_cmd *cmd,
-				  struct iovec *iov, int nr_iov, uint32_t cntlid);
+int unvmed_id_secondary_ctrl_list(struct unvme_cmd *cmd, struct iovec *iov,
+				  int nr_iov, uint32_t cntlid);
 
 /**
  * unvmed_cmd_wait - Wait until @cmd completes with @cmd->cqe
@@ -1440,6 +1747,23 @@ int unvmed_ctx_restore(struct unvme *u);
  * status at all.
  */
 void unvmed_ctx_free(struct unvme *u);
+
+/**
+ * unvmed_hmb_allocated - Check whether Host Memory Buffer has already been
+ *			  allocated.
+ * @u: &struct unvme
+ *
+ * Return: ``true`` on success, otherwise ``false``
+ */
+bool unvmed_hmb_allocated(struct unvme *u);
+
+/**
+ * unvmed_hmb - Get &struct unvme_hmb instance for the given controller.
+ * @u: &struct unvme
+ *
+ * Return: &struct unvme_hmb pointer
+ */
+struct unvme_hmb *unvmed_hmb(struct unvme *u);
 
 /**
  * unvmed_hmb_init - Initialize Host Memory Buffer

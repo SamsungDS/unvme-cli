@@ -14,6 +14,33 @@
 #include "unvme.h"
 #include "unvmed.h"
 
+void unvme_pr_sqe(union nvme_cmd *sqe)
+{
+	struct json_object *root = json_object_new_object();
+	struct json_object *sqe_obj = json_object_new_object();
+
+	json_object_object_add(sqe_obj, "opcode", json_object_new_int(sqe->opcode));
+	json_object_object_add(sqe_obj, "flags", json_object_new_int(sqe->flags));
+	json_object_object_add(sqe_obj, "cid", json_object_new_int(sqe->cid));
+	json_object_object_add(sqe_obj, "nsid", json_object_new_int64(le32_to_cpu(sqe->nsid)));
+	json_object_object_add(sqe_obj, "cdw2", json_object_new_int64(le32_to_cpu(sqe->cdw2)));
+	json_object_object_add(sqe_obj, "cdw3", json_object_new_int64(le32_to_cpu(sqe->cdw3)));
+	json_object_object_add(sqe_obj, "mptr", json_object_new_int64(le64_to_cpu(sqe->mptr)));
+	json_object_object_add(sqe_obj, "prp1", json_object_new_int64(le64_to_cpu(sqe->dptr.prp1)));
+	json_object_object_add(sqe_obj, "prp2", json_object_new_int64(le64_to_cpu(sqe->dptr.prp2)));
+	json_object_object_add(sqe_obj, "cdw10", json_object_new_int64(le32_to_cpu(sqe->cdw10)));
+	json_object_object_add(sqe_obj, "cdw11", json_object_new_int64(le32_to_cpu(sqe->cdw11)));
+	json_object_object_add(sqe_obj, "cdw12", json_object_new_int64(le32_to_cpu(sqe->cdw12)));
+	json_object_object_add(sqe_obj, "cdw13", json_object_new_int64(le32_to_cpu(sqe->cdw13)));
+	json_object_object_add(sqe_obj, "cdw14", json_object_new_int64(le32_to_cpu(sqe->cdw14)));
+	json_object_object_add(sqe_obj, "cdw15", json_object_new_int64(le32_to_cpu(sqe->cdw15)));
+
+	json_object_object_add(root, "sqe", sqe_obj);
+	unvme_pr_err("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_SPACED));
+
+	json_object_put(root);
+}
+
 void unvme_pr_cqe(struct nvme_cqe *cqe)
 {
 	uint32_t sct, sc;
@@ -620,6 +647,7 @@ void unvme_pr_status(const char *format, struct unvme *u)
 	struct unvme_ns *ns;
 	struct nvme_sq *sq;
 	struct nvme_cq *cq;
+	struct unvme_hmb *hmb;
 
 	nr_ns = unvmed_get_nslist(u, &nslist);
 	if (nr_ns < 0) {
@@ -641,6 +669,8 @@ void unvme_pr_status(const char *format, struct unvme *u)
 		unvme_pr_err("failed to get completion queues\n");
 		return;
 	}
+
+	hmb = unvmed_hmb(u);
 
 	if (streq(format, "normal")) {
 		unvme_pr("Controller				: %s\n", unvmed_bdf(u));
@@ -690,6 +720,17 @@ void unvme_pr_status(const char *format, struct unvme *u)
 				 cq->head, cq->qsize, cq->phase, cq->vector);
 		}
 		unvme_pr("\n");
+
+		unvme_pr("Host Memory Buffer\n");
+		unvme_pr("Size (CC.MPS unit):    %d\n", hmb->hsize);
+		unvme_pr("Descriptor Address:    %#lx\n", hmb->descs_iova);
+		unvme_pr("Number of descriptors: %d\n", hmb->nr_descs);
+		unvme_pr("\n");
+		unvme_pr("index baddr              bsize\n");
+		unvme_pr("----- ------------------ ------\n");
+		for (int i = 0; i < hmb->nr_descs; i++)
+			unvme_pr("%5d %#18llx %6d\n", i, hmb->descs[i].badd, hmb->descs[i].bsize);
+
 	} else if (streq(format, "json")) {
 		struct json_object *root = json_object_new_object();
 		json_object_object_add(root, "controller", json_object_new_string(unvmed_bdf(u)));
@@ -745,6 +786,21 @@ void unvme_pr_status(const char *format, struct unvme *u)
 			json_object_array_add(cq_array, cq_obj);
 		}
 		json_object_object_add(root, "cq", cq_array);
+
+		struct json_object *hmb_obj = json_object_new_object();
+		json_object_object_add(hmb_obj, "hsize", json_object_new_int((uint32_t)hmb->hsize));
+		json_object_object_add(hmb_obj, "descs_addr", json_object_new_int64((uint64_t)hmb->descs_iova));
+		json_object_object_add(hmb_obj, "nr_descs", json_object_new_int((uint32_t)hmb->nr_descs));
+		json_object_object_add(root, "hmb", hmb_obj);
+
+		struct json_object *hmb_array = json_object_new_array();
+		for (int i = 0; i < hmb->nr_descs; i++) {
+			struct json_object *block_obj = json_object_new_object();
+			json_object_object_add(block_obj, "badd", json_object_new_int64((uint64_t)le64_to_cpu(hmb->descs[i].badd)));
+			json_object_object_add(block_obj, "bsize", json_object_new_int((uint32_t)le32_to_cpu(hmb->descs[i].bsize)));
+			json_object_array_add(hmb_array, block_obj);
+		}
+		json_object_object_add(hmb_obj, "descs", hmb_array);
 
 		unvme_pr("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY));
 		json_object_put(root);

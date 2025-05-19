@@ -50,6 +50,7 @@ static struct command cmds[] = {
 	{"add",			"Add NVMe PCI device to unvmed",			UNVME_GENERIC_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_add},
 	{"del",			"Delete NVMe PCI device from unvmed",			UNVME_GENERIC_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_del},
 	{"status",		"Show device resource status",				UNVME_DRIVER_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_status},
+	{"hmb",			"Allocate/Deallocate Host Memory Buffer",		UNVME_DRIVER_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_hmb},
 	{"show-regs",		"Show NVMe controller properties",			UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_show_regs},
 	{"enable",		"Enable controller with adminq",			UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_enable},
 	{"disable",		"Disable controller",					UNVME_NVME_CMD | UNVME_DAEMON_CMD | UNVME_DEV_CMD,	unvme_reset},
@@ -97,6 +98,11 @@ static int unvme_help(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_pr("\nGeneric Commands:\n");
 	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
 		if (cmds[i].ctype & UNVME_GENERIC_CMD)
+			unvme_pr("\t%-16s\t%s\n", cmds[i].name, cmds[i].summary);
+	}
+	unvme_pr("\nDriver Commands:\n");
+	for (int i = 0; i < ARRAY_SIZE(cmds) && cmds[i].name; i++) {
+		if (cmds[i].ctype & UNVME_DRIVER_CMD)
 			unvme_pr("\t%-16s\t%s\n", cmds[i].name, cmds[i].summary);
 	}
 	unvme_pr("\nNVMe Commands:\n");

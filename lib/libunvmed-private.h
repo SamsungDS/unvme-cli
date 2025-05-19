@@ -56,18 +56,7 @@ struct unvme {
 	 */
 	struct nvme_id_ctrl *id_ctrl;
 
-	struct unvme_hmb {
-		struct {
-			__le64 badd;
-			__le32 bsize;
-			uint32_t rsvd;
-		} *descs;
-		uint64_t *descs_vaddr;
-		uint64_t descs_iova;
-		size_t descs_size;
-		int nr_descs;
-		uint32_t hsize;
-	} hmb;
+	struct unvme_hmb hmb;
 
 	struct list_node list;
 };

@@ -473,6 +473,71 @@ out:
 	return ret;
 }
 
+int unvme_hmb(int argc, char *argv[], struct unvme_msg *msg)
+{
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_lit *allocate;
+	struct arg_lit *deallocate;
+	struct arg_int *size;
+	struct arg_lit *help;
+	struct arg_end *end;
+
+	const char *desc =
+		"Allocate or de-allocate Host Memory Buffer in the unvmed context.\n"
+		"Once the HMB is allocated, `set-features-hmb` command should proceed.";
+
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		allocate = arg_lit0("a", "allocate", "Allocate HMB"),
+		deallocate = arg_lit0("d", "deallocate", "Deallocate HMB"),
+		size = arg_intn("s", "size", "<n>", 0, 256, "[M] Number of contiguous memory page size(CC.MPS) for a single HMB descriptor.  Multiple sizes can be given."),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
+	};
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	if ((arg_boolv(allocate) && arg_boolv(deallocate)) ||
+			(!arg_boolv(allocate) && !arg_boolv(deallocate))) {
+		unvme_pr_err("either --allocate or --deallocate should be given\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	if (arg_boolv(allocate) && !arg_boolv(size)) {
+		unvme_pr_err("-s|--size should be given\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (arg_boolv(allocate)) {
+		ret = unvmed_hmb_init(u, (uint32_t *)size->ival, size->count);
+		if (ret < 0) {
+			if (errno == EEXIST) {
+				unvme_pr_err("HMB has already been allocated\n");
+				errno = 0;
+			} else
+				unvme_pr_err("failed to initialize Host Memory Buffer\n");
+		}
+	} else if (arg_boolv(deallocate)) {
+		ret = unvmed_hmb_free(u);
+		if (ret < 0)
+			unvme_pr_err("failed to uninitialize Host Memory Buffer\n");
+	}
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
@@ -935,7 +1000,17 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_ns(u, cmd, arg_dblv(nsid), &iov, 1);
+	if (unvmed_cmd_prep_id_ns(cmd, arg_dblv(nsid), &iov, 1) < 0) {
+		unvme_pr_err("failed to prepare Identify Namespace command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -956,6 +1031,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to identify namespace\n");
 
+free:
 	unvmed_cmd_free(cmd);
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
@@ -1047,7 +1123,17 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_ctrl(u, cmd, &iov, 1);
+	if (unvmed_cmd_prep_id_ctrl(cmd, &iov, 1) < 0) {
+		unvme_pr_err("failed to prepare Identify Controller command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -1064,6 +1150,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to identify namespace\n");
 
+free:
 	unvmed_cmd_free(cmd);
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
@@ -1160,7 +1247,17 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_active_nslist(u, cmd, arg_dblv(nsid), &iov, 1);
+	if (unvmed_cmd_prep_id_active_nslist(cmd, arg_dblv(nsid), &iov, 1) < 0) {
+		unvme_pr_err("failed to prepare Identify Active NS List command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1170,6 +1267,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to identify active namespace list\n");
 
+free:
 	unvmed_cmd_free(cmd);
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
@@ -1271,7 +1369,17 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_nvm_id_ns(u, cmd, arg_dblv(nsid), &iov, 1);
+	if (unvmed_cmd_prep_nvm_id_ns(cmd, arg_dblv(nsid), &iov, 1) < 0) {
+		unvme_pr_err("failed to prepare NVM Identify Namespace command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1289,6 +1397,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to NVM identify namespace\n");
 
+free:
 	unvmed_cmd_free(cmd);
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
@@ -1390,9 +1499,19 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	ret = unvmed_set_features(u, cmd, arg_dblv(nsid), arg_intv(fid),
+	if (unvmed_cmd_prep_set_features(cmd, arg_dblv(nsid), arg_intv(fid),
 			arg_boolv(save), arg_dblv(cdw11), arg_dblv(cdw12),
-			&iov, arg_intv(data_size) > 0 ? 1 : 0);
+			&iov, arg_intv(data_size) > 0 ? 1 : 0) < 0) {
+		unvme_pr_err("failed to prepare Set Features command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1403,6 +1522,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 
+free:
 	unvmed_cmd_free(cmd);
 	if (buf && len)
 		pgunmap(buf, len);
@@ -1465,9 +1585,19 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 
 	cdw11 = arg_intv(ncqr) << 16 | arg_intv(nsqr);
 
-	ret = unvmed_set_features(u, cmd, 0 /* nsid */, NVME_FEAT_FID_NUM_QUEUES,
+	if (unvmed_cmd_prep_set_features(cmd, 0 /* nsid */, NVME_FEAT_FID_NUM_QUEUES,
 			0 /* save */, cdw11, 0 /* cdw12 */, NULL /* iov */,
-			0 /* nr_iov */);
+			0 /* nr_iov */) < 0) {
+		unvme_pr_err("failed to prepare Set Features command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1477,6 +1607,7 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features-noq\n");
 
+free:
 	unvmed_cmd_free(cmd);
 out:
 	unvme_free_args(argtable);
@@ -1487,19 +1618,21 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 {
 	const char *desc =
 		"Submit a Set Features admin command to the given <device> NVMe controller\n"
-		"to enable Host Memory Buffer.\n"
-		"\n"
-		"-s|--size argument will be ignored in case --disable is given.";
+		"to enable Host Memory Buffer.";
 
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_lit *enable = arg_lit0(NULL, "enable", "[O] Enable HMB (EHM=1)");
 	struct arg_lit *disable = arg_lit0(NULL, "disable", "[O] Disable HMB (EHM=0)");
-	struct arg_int *size = arg_intn("s", "size", "<n>", 0, 256, "[M] Number of contiguous memory page size(CC.MPS) for a single HMB descriptor.  Multiple sizes can be given.");
+	struct arg_int *hsize = arg_int1("h", "hsize", "<n>", "[M] Host Memory Buffer size in MPS unit");
+	struct arg_dbl *descs = arg_dbl1("d", "desc", "<n>", "[M] Host Memory Buffer descriptor list address");
+	struct arg_int *nr_descs = arg_int1("n", "nr-descs", "<n>", "[M] Number of HMB descriptor list entries");
+	struct arg_lit *mr = arg_lit0("m", "mr", "[O] MR(Memory Return)");
 	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion");
 	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
-	void *argtable[] = {dev, enable, disable, size, verbose, help, end};
+	void *argtable[] = {dev, enable, disable, hsize, descs, nr_descs, mr, verbose, help, end};
 
+	struct unvme_cmd *cmd;
 	struct unvme_sq *usq;
 	struct unvme *u;
 	struct nvme_cqe cqe = {0, };
@@ -1514,16 +1647,16 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_boolv(enable) && !arg_boolv(size)) {
-		unvme_pr_err("-s|--size should be given\n");
-		ret = EINVAL;
-		goto out;
-	}
-
 	u = unvmed_get(arg_strv(dev));
 	if (!u) {
 		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
 		ret = ENODEV;
+		goto out;
+	}
+
+	if (arg_boolv(enable) && !unvmed_hmb_allocated(u)) {
+		unvme_pr_err("Host Memory Buffer has not been allocated yet\n");
+		ret = EINVAL;
 		goto out;
 	}
 
@@ -1534,11 +1667,26 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_boolv(enable)) {
-		ret = unvmed_set_features_hmb(u, true, (uint32_t *)size->ival,
-				size->count, &cqe);
-	} else
-		ret = unvmed_set_features_hmb(u, false, NULL, 0, &cqe);
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		ret = errno;
+		goto out;
+	}
+
+	if (unvmed_cmd_prep_set_features_hmb(cmd, arg_intv(hsize),
+				arg_dblv(descs), arg_intv(nr_descs),
+				arg_boolv(mr), arg_boolv(enable)) < 0) {
+		unvme_pr_err("failed to prepare Set Features HMB command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cqe);
@@ -1547,6 +1695,9 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("dw0: %#x\n", le32_to_cpu(cqe.dw0));
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
+
+free:
+	unvmed_cmd_free(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1634,9 +1785,19 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	ret = unvmed_get_features(u, cmd, arg_dblv(nsid), arg_intv(fid),
+	if (unvmed_cmd_prep_get_features(cmd, arg_dblv(nsid), arg_intv(fid),
 			arg_boolv(sel), arg_dblv(cdw11), arg_dblv(cdw14), &iov,
-			arg_intv(data_size) > 0 ? 1 : 0);
+			arg_intv(data_size) > 0 ? 1 : 0) < 0) {
+		unvme_pr_err("failed to prepare Get Features command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1655,8 +1816,8 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to get-features\n");
 
+free:
 	unvmed_cmd_free(cmd);
-
 	if (buf && len)
 		pgunmap(buf, len);
 out:
@@ -1839,10 +2000,20 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE)
 		mbuf += arg_intv(prp1_offset);
 
-	ret = unvmed_read(u, cmd, arg_dblv(nsid), arg_dblv(slba), arg_intv(nlb),
+	if (unvmed_cmd_prep_read(cmd, arg_dblv(nsid), arg_dblv(slba), arg_intv(nlb),
 			arg_intv(prinfo), arg_intv(atag), arg_intv(atag_mask),
 			arg_intv(rtag), arg_intv(stag), arg_boolv(stag_check),
-			&iov, 1, mbuf, NULL);
+			&iov, 1, mbuf, NULL) < 0) {
+		unvme_pr_err("failed to prepare Read Namespace command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -1892,6 +2063,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to read\n");
 
+free:
 	unvmed_cmd_free(cmd);
 unmap:
 	pgunmap(buf - arg_intv(prp1_offset), len);
@@ -2106,10 +2278,20 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_write(u, cmd, arg_dblv(nsid), arg_dblv(slba), arg_intv(nlb),
+	if (unvmed_cmd_prep_write(cmd, arg_dblv(nsid), arg_dblv(slba), arg_intv(nlb),
 			arg_intv(prinfo), arg_intv(atag), arg_intv(atag_mask),
 			arg_intv(rtag), arg_intv(stag), arg_boolv(stag_check),
-			&iov, 1, __mbuf, NULL);
+			&iov, 1, __mbuf, NULL) < 0) {
+		unvme_pr_err("failed to prepare Identify Namespace command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if (arg_boolv(nodb)) {
 		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
@@ -2127,6 +2309,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (ret < 0)
 		unvme_pr_err("failed to write\n");
 
+free:
 	unvmed_cmd_free(cmd);
 unmap:
 	pgunmap(buf - arg_intv(prp1_offset), len);
@@ -2361,8 +2544,20 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(nodb))
 		cmd->flags |= UNVMED_CMD_F_NODB;
 
-	ret = unvmed_passthru(u, cmd, &sqe, _read, &iov,
-			      arg_intv(data_len) > 0 ? 1 : 0);
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&sqe);
+
+	if (unvmed_cmd_prep(cmd, &sqe, &iov, arg_intv(data_len) > 0 ? 1 : 0) < 0) {
+		unvme_pr_err("failed to prepare a command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if (arg_boolv(nodb)) {
 		if (buf) {
@@ -2381,8 +2576,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to passthru\n");
 
+free:
 	unvmed_cmd_free(cmd);
-
 	if (buf && len)
 		pgunmap(buf, len);
 out:
@@ -2538,9 +2733,19 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	ret = unvmed_format(u, cmd, arg_dblv(nsid), arg_intv(lbaf),
+	if (unvmed_cmd_prep_format(cmd, arg_dblv(nsid), arg_intv(lbaf),
 			arg_intv(ses), arg_intv(pil), arg_intv(pi),
-			arg_intv(mset));
+			arg_intv(mset)) < 0) {
+		unvme_pr_err("failed to prepare Format command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -2561,6 +2766,7 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to format NVM\n");
 
+free:
 	unvmed_cmd_free(cmd);
 out:
 	unvme_free_args(argtable);
@@ -2958,8 +3164,19 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	ret = unvmed_virt_mgmt(u, cmd, arg_intv(cntlid), arg_intv(rt),
-			arg_intv(act), arg_intv(nr));
+	if (unvmed_cmd_prep_virt_mgmt(cmd, arg_intv(cntlid), arg_intv(rt),
+			arg_intv(act), arg_intv(nr)) < 0 ) {
+		unvme_pr_err("failed to prepare Virtualization Mgmt. command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -2967,6 +3184,7 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 	if (ret < 0)
 		unvme_pr_err("failed to submit virt-mgmt command\n");
 
+free:
 	unvmed_cmd_free(cmd);
 out:
 	unvme_free_args(argtable);
@@ -3042,7 +3260,17 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_primary_ctrl_caps(u, cmd, &iov, 1, arg_intv(cntlid));
+	if (unvmed_cmd_prep_id_primary_ctrl_caps(cmd, &iov, 1, arg_intv(cntlid)) < 0) {
+		unvme_pr_err("failed to prepare Identify Primary Controller command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -3052,6 +3280,7 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to identify primary controller capabilities\n");
 
+free:
 	unvmed_cmd_free(cmd);
 	pgunmap(buf, len);
 out:
@@ -3128,7 +3357,17 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
-	ret = unvmed_id_secondary_ctrl_list(u, cmd, &iov, 1, arg_intv(cntlid));
+	if (unvmed_cmd_prep_id_secondary_ctrl_list(cmd, &iov, 1, arg_intv(cntlid)) < 0) {
+		unvme_pr_err("failed to prepare Identify Secondary Controller command\n");
+
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -3138,6 +3377,7 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to identify secondary controller list\n");
 
+free:
 	unvmed_cmd_free(cmd);
 	pgunmap(buf, len);
 out:
