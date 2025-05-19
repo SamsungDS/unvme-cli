@@ -304,9 +304,6 @@ int unvmed_cmd_issue_and_wait(struct unvme_cmd *cmd)
 {
 	unvmed_cmd_issue(cmd);
 
-	if (cmd->flags & UNVMED_CMD_F_NODB)
-		return 0;
-
 	unvmed_cmd_wait(cmd);
 	return unvmed_cqe_status(&cmd->cqe);
 }

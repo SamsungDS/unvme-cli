@@ -1012,12 +1012,6 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_cmd_issue_and_wait(cmd);
 
-	if (arg_boolv(nodb)) {
-		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
-			UNVME_CMD_BUF_F_IOVA_UNMAP;
-		goto out;
-	}
-
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
 
@@ -1134,12 +1128,6 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_sqe(&cmd->sqe);
 
 	ret = unvmed_cmd_issue_and_wait(cmd);
-
-	if (arg_boolv(nodb)) {
-		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
-			UNVME_CMD_BUF_F_IOVA_UNMAP;
-		goto out;
-	}
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -2015,16 +2003,6 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_cmd_issue_and_wait(cmd);
 
-	if (arg_boolv(nodb)) {
-		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
-			UNVME_CMD_BUF_F_IOVA_UNMAP;
-		if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE) {
-			cmd->mbuf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
-				UNVME_CMD_BUF_F_IOVA_UNMAP;
-		}
-		goto out;
-	}
-
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
 
@@ -2293,16 +2271,6 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_cmd_issue_and_wait(cmd);
 
-	if (arg_boolv(nodb)) {
-		cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
-			UNVME_CMD_BUF_F_IOVA_UNMAP;
-		if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE) {
-			cmd->mbuf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
-				UNVME_CMD_BUF_F_IOVA_UNMAP;
-		}
-		goto out;
-	}
-
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
 
@@ -2559,14 +2527,6 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	ret = unvmed_cmd_issue_and_wait(cmd);
 
-	if (arg_boolv(nodb)) {
-		if (buf) {
-			cmd->buf.flags = UNVME_CMD_BUF_F_VA_UNMAP |
-				UNVME_CMD_BUF_F_IOVA_UNMAP;
-		}
-		goto out;
-	}
-
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
 
@@ -2609,10 +2569,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 
 	__unvme_free struct unvme_cmd **cmds = NULL;
 	struct unvme_sq *usq;
-	union nvme_cmd *sqe;
-	int nr_sqes;
 	int ret = 0;
-	int id;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -2631,35 +2588,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-
-	nr_sqes = unvmed_sq_nr_pending_sqes(usq);
-	if (!nr_sqes) {
-		unvmed_sq_exit(usq);
-
-		unvme_pr_err("SQ #%d: No pending entries\n", unvmed_sq_id(usq));
-		goto out;
-	}
-
-	cmds = (struct unvme_cmd **)malloc(sizeof(*cmds) * nr_sqes);
-	if (!cmds) {
-		unvmed_sq_exit(usq);
-
-		unvme_pr_err("failed to allocate @cmd array\n");
-		ret = ENOMEM;
-		goto out;
-	}
-
-	unvmed_sq_for_each_entry(usq, id, sqe)
-		cmds[id] = unvmed_get_cmd(usq, sqe->cid);
-
 	unvmed_sq_update_tail(u, usq);
-
-	for (int i = 0; i < nr_sqes; i++) {
-		unvmed_cmd_wait(cmds[i]);
-		unvme_pr_cqe(&cmds[i]->cqe);
-		unvmed_cmd_free(cmds[i]);
-	}
-
 	unvmed_sq_exit(usq);
 out:
 	unvme_free_args(argtable);
