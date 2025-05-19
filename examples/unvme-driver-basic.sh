@@ -23,6 +23,26 @@ function create_ioq() {
 	unvme create-iosq $bdf -q $qid -z 256 -c $qid
 }
 
+function init_hmb() {
+	hmpre=$(unvme id-ctrl $bdf --output-format=json | jq -r '.hmpre')
+
+	if (( $hmpre > 0 )); then
+		(
+		set -x
+		unvme hmb $bdf --allocate --size=$hmpre
+		)
+
+		status=$(unvme status $bdf --output-format=json)
+		desc=$(echo $status | jq -r '.hmb.descs_addr')
+		nr_descs=$(echo $status | jq -r '.hmb.nr_descs')
+
+		(
+		set -x
+		unvme set-features-hmb $bdf --enable --hsize=$hmpre --desc=$desc --nr-descs=$nr_descs 2> /dev/null
+		)
+	fi
+}
+
 if pgrep -x "unvmed" > /dev/null; then (
 	set -x
 	unvme stop
@@ -39,6 +59,8 @@ unvme set-features-noq $bdf -s 0xfffe -c 0xfffe > /dev/null &
 )
 
 wait
+
+init_hmb &
 
 for ((qid=1; qid <= $nr_ioqs; qid++));
 do
