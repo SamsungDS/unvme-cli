@@ -5,6 +5,7 @@
 
 struct unvme_ctx;
 struct unvme_cq_reaper;
+struct iommu_dmabuf;
 
 enum unvme_state {
 	UNVME_DISABLED	= 0,
@@ -58,6 +59,14 @@ struct unvme {
 
 	struct unvme_hmb hmb;
 
+	struct list_head mem_list;
+	pthread_rwlock_t mem_list_lock;
+
+	struct list_node list;
+};
+
+struct unvme_dmabuf {
+	struct iommu_dmabuf buf;
 	struct list_node list;
 };
 

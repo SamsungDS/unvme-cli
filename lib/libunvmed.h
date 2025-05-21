@@ -1800,6 +1800,40 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize);
  */
 int unvmed_hmb_free(struct unvme *u);
 
+/**
+ * unvmed_mem_alloc - Allocate and map a DMA buffer for NVMe controller
+ * @u: pointer to struct unvme controller
+ * @size: size of the buffer to allocate
+ *
+ * Allocates a physically contiguous DMA buffer of the given size, maps it to
+ * the IOMMU, and returns a pointer to the associated struct iommu_dmabuf.
+ *
+ * Return: &struct iommu_dmabuf, otherwise ``NULL`` with ``errno`` set.
+ */
+struct iommu_dmabuf *unvmed_mem_alloc(struct unvme *u, size_t size);
+
+/**
+ * unvmed_mem_get - Find a mapped DMA buffer by IOVA
+ * @u: pointer to struct unvme controller
+ * @iova: I/O virtual address to get
+ *
+ * Searches the controller's memory list for a DMA buffer containing the given
+ * IOVA.  Returns a pointer to the struct iommu_dmabuf if found, or NULL if not
+ * found.
+ *
+ * Return: &struct iommu_dmabuf, otherwise ``NULL`` with ``errno`` set.
+ */
+struct iommu_dmabuf *unvmed_mem_get(struct unvme *u, uint64_t iova);
+
+/**
+ * unvmed_mem_free - Unmap and free a DMA buffer by a given @iova
+ * @u: pointer to struct unvme controller
+ * @iova: I/O virtual address
+ *
+ * See `unvmed_mem_free()`.
+ */
+int unvmed_mem_free(struct unvme *u, uint64_t iova);
+
 /*
  * `struct unvme` starts with `struct nvme_ctrl`, so convert easily.
  */

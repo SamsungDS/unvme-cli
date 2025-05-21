@@ -717,6 +717,9 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	list_add(&unvme_list, &u->list);
 	list_head_init(&u->ctx_list);
 
+	list_head_init(&u->mem_list);
+	pthread_rwlock_init(&u->mem_list_lock, NULL);
+
 	return u;
 }
 
@@ -2798,4 +2801,98 @@ int unvmed_hmb_free(struct unvme *u)
 
 	memset(&u->hmb, 0, sizeof(u->hmb));
 	return 0;
+}
+
+static struct iommu_dmabuf *unvmed_mem_add(struct unvme *u, void *vaddr,
+					   uint64_t iova, size_t size)
+{
+	struct unvme_dmabuf *buf;
+
+	buf = calloc(1, sizeof(*buf));
+	if (!buf)
+		return NULL;
+
+	buf->buf.ctx = __iommu_ctx(&u->ctrl);
+	buf->buf.vaddr = vaddr;
+	buf->buf.iova = iova;
+	buf->buf.len = size;
+
+	list_add_tail(&u->mem_list, &buf->list);
+	return &buf->buf;
+}
+
+struct iommu_dmabuf *unvmed_mem_alloc(struct unvme *u, size_t size)
+{
+	struct iommu_dmabuf *buf;
+	uint64_t iova;
+	ssize_t len;
+	void *mem;
+
+	len = pgmap(&mem, size);
+	if (len < 0)
+		return NULL;
+
+	if (unvmed_map_vaddr(u, mem, len, &iova, 0)) {
+		pgunmap(mem, len);
+		return NULL;
+	}
+
+	buf = unvmed_mem_add(u, mem, iova, len);
+	if (!buf) {
+		unvmed_unmap_vaddr(u, mem);
+		pgunmap(mem, len);
+		return NULL;
+	}
+
+	return buf;
+}
+
+struct iommu_dmabuf *unvmed_mem_get(struct unvme *u, uint64_t iova)
+{
+	__autordlock(&u->mem_list_lock);
+
+	struct unvme_dmabuf *buf;
+
+	list_for_each(&u->mem_list, buf, list) {
+		if (iova >= buf->buf.iova && iova < buf->buf.iova + buf->buf.len)
+			return &buf->buf;
+	}
+
+	errno = EINVAL;
+	return NULL;
+}
+
+static int __unvmed_mem_free(struct unvme *u, struct iommu_dmabuf *buf)
+{
+	struct unvme_dmabuf *dbuf;
+	struct iommu_dmabuf *found;
+
+	found = unvmed_mem_get(u, buf->iova);
+	if (!found) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	dbuf = container_of(found, struct unvme_dmabuf, buf);
+
+	unvmed_unmap_vaddr(u, buf->vaddr);
+	pgunmap(buf->vaddr, buf->len);
+
+	pthread_rwlock_wrlock(&u->mem_list_lock);
+	list_del(&dbuf->list);
+	pthread_rwlock_unlock(&u->mem_list_lock);
+
+	free(dbuf);
+	return 0;
+}
+
+int unvmed_mem_free(struct unvme *u, uint64_t iova)
+{
+	struct iommu_dmabuf *buf;
+
+	buf = unvmed_mem_get(u, iova);
+	if (!buf)
+		return -1;
+
+	return __unvmed_mem_free(u, buf);
 }
