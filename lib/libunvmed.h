@@ -857,6 +857,20 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid);
 int unvmed_to_iova(struct unvme *u, void *buf, uint64_t *iova);
 
 /**
+ * unvmed_to_vaddr - Translate given I/O virtual address (IOVA) to virtual
+ * @u: &struct unvme
+ * @iova: output I/O virtual address
+ * @vaddr: virtual address
+ *
+ * Translate the given @iova to @vaddr based on IOMMU translation table.
+ *
+ * This API is thread-safe.
+ *
+ * Return: accessible size on success, otherwise ``-1`` with ``errno`` set.
+ */
+ssize_t unvmed_to_vaddr(struct unvme *u, uint64_t iova, void **vaddr);
+
+/**
  * unvmed_map_vaddr - Map given virtual address to IOMMU table
  * @u: &struct unvme
  * @buf: virtual address to translate

@@ -1896,6 +1896,18 @@ int unvmed_to_iova(struct unvme *u, void *buf, uint64_t *iova)
 	return !iommu_translate_vaddr(ctx, buf, iova);
 }
 
+ssize_t unvmed_to_vaddr(struct unvme *u, uint64_t iova, void **vaddr)
+{
+	struct iommu_ctx *ctx = __iommu_ctx(&u->ctrl);
+	ssize_t ret;
+
+	ret = iommu_translate_iova(ctx, iova, vaddr);
+	if (ret < 0)
+		return -1;
+
+	return ret;
+}
+
 int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len,
 		    uint64_t *iova, unsigned long flags)
 {
