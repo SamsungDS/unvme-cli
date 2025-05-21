@@ -810,3 +810,14 @@ void unvme_pr_status(const char *format, struct unvme *u)
 	free(cqs);
 	free(sqs);
 }
+
+void unvme_pr_buf(struct iommu_dmabuf *buf)
+{
+	struct json_object *root = json_object_new_object();
+	json_object_object_add(root, "vaddr", json_object_new_int64((uint64_t)buf->vaddr));
+	json_object_object_add(root, "iova", json_object_new_int64((uint64_t)buf->iova));
+	json_object_object_add(root, "len", json_object_new_int64((uint64_t)buf->len));
+
+	unvme_pr("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_SPACED));
+	json_object_put(root);
+}

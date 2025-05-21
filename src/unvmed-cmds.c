@@ -3333,3 +3333,175 @@ int unvme_fio(int argc, char *argv[], struct unvme_msg *msg)
 	return unvmed_run_fio(argc - 1, &argv[1], libfio, unvme_msg_pwd(msg));
 }
 #endif
+
+int unvme_malloc(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc = "Allocate a I/O buffer for the given size";
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_int *size = arg_int1("s", "size", "<n>", "[M] Size in bytes to allocate");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = { dev, size, help, end };
+
+	struct iommu_dmabuf *buf;
+	struct unvme *u;
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	buf = unvmed_mem_alloc(u, arg_intv(size));
+	if (!buf) {
+		unvme_pr_err("failed to allocate an I/O memory buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	unvme_pr_buf(buf);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
+int unvme_mfree(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc = "Free a I/O buffer for the given address";
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_dbl *iova = arg_dbl1("i", "iova", "<n>", "[M] I/O virtual address");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = { dev, iova, help, end };
+
+	struct unvme *u;
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (unvmed_mem_free(u, arg_dblv(iova)) < 0) {
+		unvme_pr_err("failed to free an I/O memory buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
+int unvme_mread(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc = "Read I/O buffer of the given address";
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_dbl *iova = arg_dbl1("i", "iova", "<n>", "[M] I/O virtual address");
+	struct arg_int *size = arg_int1("s", "size", "<n>", "[M] Size to read in bytes");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = { dev, iova, size, help, end };
+
+	struct unvme *u;
+	ssize_t len;
+	void *buf;
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	len = unvmed_to_vaddr(u, arg_dblv(iova), &buf);
+	if (len < 0) {
+		unvme_pr_err("failed to get I/O buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	if (arg_intv(size) > len) {
+		unvme_pr_err("adjust --size=%d to %ld\n", arg_intv(size), len);
+		arg_intv(size) = len;
+	}
+
+	unvme_pr_raw(buf, arg_intv(size));
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
+int unvme_mwrite(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc = "Write data to I/O buffer";
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+	struct arg_dbl *iova = arg_dbl1("i", "iova", "<n>", "[M] I/O virtual address");
+	struct arg_int *size = arg_int1("s", "size", "<n>", "[M] Size to read in bytes");
+	struct arg_file *data = arg_file1("d", "data", "<file>", "[M] Write data file");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+	void *argtable[] = { dev, iova, size, data, help, end };
+
+	__unvme_free char *filepath = NULL;
+	struct unvme *u;
+	ssize_t len;
+	void *fbuf;
+	void *buf;
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	len = unvmed_to_vaddr(u, arg_dblv(iova), &buf);
+	if (len < 0) {
+		unvme_pr_err("failed to get I/O buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
+
+	if (arg_intv(size) > len) {
+		unvme_pr_err("adjust --size=%d to %ld\n",
+				arg_intv(size), len);
+		arg_intv(size) = len;
+	}
+
+	fbuf = malloc(arg_intv(size));
+	if (!fbuf) {
+		unvme_pr_err("failed to allocate memory buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	if (unvme_read_file(filepath, fbuf, arg_intv(size))) {
+		unvme_pr_err("failed to read data from %s\n", filepath);
+		ret = errno;
+		goto free;
+	}
+
+	memcpy(buf, fbuf, arg_intv(size));
+free:
+	free(fbuf);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}

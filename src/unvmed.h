@@ -35,6 +35,7 @@ void unvme_pr_get_features_noq(const char *format, uint32_t cdw0);
 void unvme_pr_nvm_id_ns(const char *format, void *vaddr);
 void unvme_pr_show_regs(const char *format, struct unvme *u);
 void unvme_pr_status(const char *format, struct unvme *u);
+void unvme_pr_buf(struct iommu_dmabuf *buf);
 
 /*
  * unvmed-file.c

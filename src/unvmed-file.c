@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <vfn/nvme.h>
 #include <nvme/types.h>
 
 #include "unvmed.h"
