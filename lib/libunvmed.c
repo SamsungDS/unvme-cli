@@ -1959,6 +1959,8 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 	cqe = nvme_cq_get_cqe(cq);
 
 	if (cqe) {
+		int nr_cmds;
+
 		/*
 		 * XXX: currently SQ:CQ 1:1 mapping is only supported by having
 		 * @usq in @ucq->usq to represent the relationship.
@@ -1974,6 +1976,10 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 		if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE) {
 			atomic_store_release(&cmd->completed, 1);
 			unvmed_futex_wake(&cmd->completed, 1);
+
+			do {
+				nr_cmds = u->nr_cmds;
+			} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - 1));
 		}
 	}
 	unvmed_cq_exit(ucq);
