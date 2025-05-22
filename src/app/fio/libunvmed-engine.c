@@ -35,6 +35,7 @@ struct libunvmed_options {
 	unsigned int enable_sgl;
 	unsigned int dtype;
 	unsigned int dspec;
+	unsigned int dsm;
 	unsigned int cmb_data;
 	unsigned int cmb_list;
 	unsigned char meta_err_injection;
@@ -152,6 +153,16 @@ static struct fio_option options[] = {
 		.type = FIO_OPT_INT,
 		.off1 = offsetof(struct libunvmed_options, dspec),
 		.help = "Directive Specific",
+		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "dsm",
+		.lname = "Dataset Management in CDW13",
+		.type = FIO_OPT_INT,
+		.off1 = offsetof(struct libunvmed_options, dsm),
+		.help = "Dataset Management",
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
@@ -715,6 +726,10 @@ static int fio_libunvmed_init(struct thread_data *td)
 			}
 			if (o->dspec)
 				ld->cdw13_flags[DDIR_WRITE] |= o->dspec << 16;
+
+			if (o->dsm)
+				ld->cdw13_flags[DDIR_WRITE] |= o->dsm & 0xff;
+
 			break;
 		}
 	}
