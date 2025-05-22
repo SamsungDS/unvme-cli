@@ -2512,9 +2512,6 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(nodb))
 		cmd->flags |= UNVMED_CMD_F_NODB;
 
-	if (arg_boolv(verbose))
-		unvme_pr_sqe(&sqe);
-
 	if (unvmed_cmd_prep(cmd, &sqe, &iov, arg_intv(data_len) > 0 ? 1 : 0) < 0) {
 		unvme_pr_err("failed to prepare a command\n");
 
