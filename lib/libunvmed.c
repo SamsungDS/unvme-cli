@@ -9,6 +9,7 @@
 #include <vfn/nvme.h>
 #include <vfn/support/atomic.h>
 #include <vfn/vfio/pci.h>
+#include <vfn/pci/util.h>
 
 #include <nvme/types.h>
 #include <nvme/util.h>
@@ -36,6 +37,7 @@ static void __unvmed_delete_sq_all(struct unvme *u);
 static void __unvmed_delete_cq_all(struct unvme *u);
 static void unvmed_delete_iosq_all(struct unvme *u);
 static void unvmed_delete_iocq_all(struct unvme *u);
+static int unvmed_get_downstream_port(struct unvme *u, char *bdf);
 
 static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
 {
@@ -2182,6 +2184,28 @@ static int unvmed_pci_restore_state(struct unvme *u, void *config)
 	return 0;
 }
 
+static void unvmed_quirk_dsp_sleep_after_reset(struct unvme *u)
+{
+	unsigned long long vendor, device;
+	char dsp[13];
+
+	if (unvmed_get_downstream_port(u, dsp))
+		return;
+
+	if (pci_device_info_get_ull(dsp, "vendor", &vendor))
+		return;
+
+	if (pci_device_info_get_ull(dsp, "device", &device))
+		return;
+
+	/*
+	 * 8086:7f30: PCI bridge: Intel Corporation Device 7f30 (rev 10).
+	 * Sleep 100ms to avoid duplicated TLP to be issued with the same tag.
+	 */
+	if (vendor == 0x8086 && device == 0x7f30)
+		usleep(100000);
+}
+
 static int unvmed_pci_wait_reset(struct unvme *u)
 {
 	uint64_t bar0;
@@ -2199,6 +2223,8 @@ static int unvmed_pci_wait_reset(struct unvme *u)
 		if ((bar0 & ~0xfULL) == 0x0)
 			break;
 	}
+
+	unvmed_quirk_dsp_sleep_after_reset(u);
 	return 0;
 }
 
