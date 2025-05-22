@@ -54,11 +54,9 @@ unvme start
 unvme add $bdf --nr-ioqs=$nr_ioqs
 
 unvme enable $bdf
-unvme id-ns $bdf -n 1 > /dev/null &
-unvme set-features-noq $bdf -s 0xfffe -c 0xfffe > /dev/null &
+unvme id-ns $bdf -n 1 > /dev/null
+unvme set-features-noq $bdf -s 0xfffe -c 0xfffe > /dev/null
 )
-
-wait
 
 init_hmb &
 
