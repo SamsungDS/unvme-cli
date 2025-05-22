@@ -2411,6 +2411,21 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	/*
+	 * If --data-len= argument is given with either --prp1= or --prp2=,
+	 * return error since --data-len= value is just to read or write the
+	 * DMA buffer data within libunvmed, not user-defined DMA buffers.
+	 *
+	 * If user wants to fill up or write the data, --data-len=0 should be
+	 * given with user-defined memory buffers to --prp1= and --prp2=.
+	 */
+	if ((arg_boolv(prp1) || arg_boolv(prp2)) && arg_intv(data_len) > 0) {
+		unvme_pr_err("If either --prp1= or --prp2= is given, --data-len= "
+				"should not be given\n");
+		ret = EINVAL;
+		goto out;
+	}
+
 	_write = arg_boolv(write);
 	_read = arg_boolv(read);
 
@@ -2431,7 +2446,11 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	if (arg_intv(data_len)) {
+	/*
+	 * If --prp1 and --prp2 both are not given, libunvmed will take care of
+	 * the DMA buffers.
+	 */
+	if ((!arg_boolv(prp1) && !arg_boolv(prp2)) && arg_intv(data_len) > 0) {
 		len = pgmap(&buf, arg_intv(data_len));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
@@ -2481,14 +2500,6 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	sqe.cdw2 = cpu_to_le32(arg_dblv(cdw2));
 	sqe.cdw3 = cpu_to_le32(arg_dblv(cdw3));
 
-	/*
-	 * Override prp1 and prp2 if they are given to inject specific values
-	 */
-	if (arg_boolv(prp1))
-		sqe.dptr.prp1 = cpu_to_le64((uint64_t)arg_dblv(prp1));
-	if (arg_boolv(prp2))
-		sqe.dptr.prp2 = cpu_to_le64((uint64_t)arg_dblv(prp2));
-
 	sqe.cdw10 = cpu_to_le32(arg_dblv(cdw10));
 	sqe.cdw11 = cpu_to_le32(arg_dblv(cdw11));
 	sqe.cdw12 = cpu_to_le32(arg_dblv(cdw12));
@@ -2518,6 +2529,14 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		ret = errno;
 		goto free;
 	}
+
+	/*
+	 * Override prp1 and prp2 if they are given to inject specific values
+	 */
+	if (arg_boolv(prp1))
+		cmd->sqe.dptr.prp1 = cpu_to_le64((uint64_t)arg_dblv(prp1));
+	if (arg_boolv(prp2))
+		cmd->sqe.dptr.prp2 = cpu_to_le64((uint64_t)arg_dblv(prp2));
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
