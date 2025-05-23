@@ -2750,6 +2750,12 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	if (!unvmed_ctrl_enabled(u)) {
+		unvme_pr_err("%s is already disabled\n", arg_strv(dev));
+		ret = EALREADY;
+		goto out;
+	}
+
 	/*
 	 * If --reinit is given, we should gather all the driver context here
 	 * to restore them back when enabling the controller back again.

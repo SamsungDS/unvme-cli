@@ -164,6 +164,11 @@ struct unvme *unvmed_get(const char *bdf)
 	return NULL;
 }
 
+bool unvmed_ctrl_enabled(struct unvme *u)
+{
+	return atomic_load_acquire(&u->state) == UNVME_ENABLED;
+}
+
 int unvmed_nr_cmds(struct unvme *u)
 {
 	return u->nr_cmds;

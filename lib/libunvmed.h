@@ -398,6 +398,14 @@ void unvmed_free_ctrl_all(void);
 struct unvme *unvmed_get(const char *bdf);
 
 /**
+ * unvmed_ctrl_enabled - Check whether the controller is enabled
+ * @u: &struct unvme
+ *
+ * Return: ``true`` on controller is enabled, otherwise ``false``.
+ */
+bool unvmed_ctrl_enabled(struct unvme *u);
+
+/**
  * unvmed_cmb_init - Initialize Controller Memory Buffer
  * @u: &struct unvme
  *
