@@ -1810,7 +1810,7 @@ static void unvmed_delete_iosq_all(struct unvme *u)
 	for (qid = 1; qid < u->nr_sqs; qid++) {
 		struct unvme_sq *usq = unvmed_sq_find(u, qid);
 
-		if (usq && atomic_load_acquire(&usq->refcnt) > 1) {
+		if (usq && atomic_load_acquire(&usq->refcnt) > 0) {
 			if (unvmed_delete_sq(u, qid) < 0) {
 				unvmed_log_err("failed to delete I/O SQ (qid=%d)", qid);
 				return;
