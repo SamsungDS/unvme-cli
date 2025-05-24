@@ -265,6 +265,7 @@ int unvme_get_daemon_pid(void)
 	if (ret < 0)
 		return -1;
 
+	close(fd);
 	return atoi(pid);
 }
 
