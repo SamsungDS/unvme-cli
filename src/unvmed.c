@@ -97,6 +97,7 @@ static inline void unvme_del_job(int client_pid)
 	pthread_mutex_lock(&__job_mutex);
 	list_del(&job->list);
 	pthread_mutex_unlock(&__job_mutex);
+	free(job);
 }
 
 static int unvme_set_pid(void)
@@ -207,8 +208,10 @@ static int __unvme_handler(struct unvme_msg *msg)
 	if (!argv)
 		unvme_pr_return(-ENOMEM, "ERROR: failed to allocate memory\n");
 
-	if (unvme_msg_init(msg, argc, argv))
+	if (unvme_msg_init(msg, argc, argv)) {
+		free(argv);
 		unvme_pr_return(-errno, "ERROR: failed to parse msg\n");
+	}
 
 	/*
 	 * If the message represents termination, simple return here.
@@ -469,14 +472,17 @@ static void unvme_signal_job(struct unvme_msg *msg)
 	if (!job) {
 		unvme_msg_to_client(msg, unvme_msg_pid(msg), 0);
 		unvme_send_msg(msg);
+		free(msg);
 		return;
 	}
+
+	pthread_kill(job->thread, unvme_msg_signum(msg));
+	pthread_join(job->thread, NULL);
 
 	if (unvme_msg_signum(msg) == SIGINT || unvme_msg_signum(msg) == SIGTERM)
 		unvme_del_job(unvme_msg_pid(msg));
 
-	pthread_kill(job->thread, unvme_msg_signum(msg));
-	pthread_join(job->thread, NULL);
+	free(msg);
 }
 
 int unvmed(char *argv[], const char *fio)
