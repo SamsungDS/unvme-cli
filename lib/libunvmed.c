@@ -1136,8 +1136,6 @@ void unvmed_free_ctrl(struct unvme *u)
 	unvmed_free_irqs(u);
 	unvmed_hmb_free(u);
 
-	nvme_close(&u->ctrl);
-
 	pthread_rwlock_wrlock(&u->sq_list_lock);
 	list_for_each_safe(&u->sq_list, usq, next_usq, list)
 		__unvmed_free_usq(u, usq);
@@ -1150,6 +1148,8 @@ void unvmed_free_ctrl(struct unvme *u)
 
 	free(u->sqs);
 	free(u->cqs);
+
+	nvme_close(&u->ctrl);
 
 	unvmed_free_ns_all(u);
 
