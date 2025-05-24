@@ -186,10 +186,8 @@ static int unvme_msg_init(struct unvme_msg *msg, int argc, char **argv)
 	return 0;
 
 err:
-	for (i = 0; i < argc; i++) {
-		if (argv[i])
-			free(argv[i]);
-	}
+	for (i = 0; argv[i]; i++)
+		free(argv[i]);
 
 	if (file)
 		fclose(file);
@@ -239,7 +237,7 @@ static int __unvme_handler(struct unvme_msg *msg)
 	}
 
 out:
-	for (int i = 0; i < argc; i++)
+	for (int i = 0; argv[i]; i++)
 		free(argv[i]);
 	free(argv);
 
