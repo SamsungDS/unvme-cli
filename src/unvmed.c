@@ -431,6 +431,8 @@ static void *unvme_handler(void *opaque)
 	ret = __unvme_handler(msg);
 
 	unvme_exit_job(ret);
+
+	pthread_detach(pthread_self());
 	pthread_exit(NULL);
 }
 
