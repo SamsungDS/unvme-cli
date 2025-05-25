@@ -87,10 +87,8 @@ static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u, struct unvme_sq *us
 	struct nvme_rq *rq;
 
 	rq = nvme_rq_acquire_atomic(usq->q);
-	if (!rq) {
-		unvmed_log_err("failed to acquire nvme request instance");
+	if (!rq)
 		return NULL;
-	}
 
 	atomic_inc(&usq->nr_cmds);
 
