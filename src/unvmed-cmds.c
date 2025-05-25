@@ -892,7 +892,7 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	targetq = unvmed_sq_find(u, arg_intv(qid));
-	if (unvmed_sq_enabled(targetq)) {
+	if (!unvmed_sq_enabled(targetq)) {
 		unvme_pr_err("failed to delete iosq (qid=%u) (not exists)\n", arg_intv(qid));
 		ret = ENOMEDIUM;
 		goto out;
