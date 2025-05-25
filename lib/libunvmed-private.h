@@ -7,17 +7,12 @@ struct unvme_ctx;
 struct unvme_cq_reaper;
 struct iommu_dmabuf;
 
-enum unvme_state {
-	UNVME_DISABLED	= 0,
-	UNVME_ENABLED,
-	UNVME_TEARDOWN,
-};
-
 struct unvme {
 	/* `ctrl` member must be the first member of `struct unvme` */
 	struct nvme_ctrl ctrl;
 
 	enum unvme_state state;
+	pthread_spinlock_t lock;
 
 	uint8_t mps;	/* Memory Page Size (2 ^ (12 + @mps)) */
 

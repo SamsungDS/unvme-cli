@@ -22,11 +22,6 @@
 int __unvmed_logfd = 0;
 int __log_level = 0;
 
-static inline bool unvme_is_enabled(struct unvme *u)
-{
-	return u->state == UNVME_ENABLED;
-}
-
 static void *unvmed_rcq_run(void *opaque);
 static void __unvmed_free_ns(struct __unvme_ns *ns);
 static void __unvmed_free_usq(struct unvme *u, struct __unvme_sq *usq);
@@ -38,6 +33,78 @@ static void __unvmed_delete_cq_all(struct unvme *u);
 static void unvmed_delete_iosq_all(struct unvme *u);
 static void unvmed_delete_iocq_all(struct unvme *u);
 static int unvmed_get_downstream_port(struct unvme *u, char *bdf);
+
+static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
+{
+	return LOAD(u->state);
+}
+
+static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
+{
+	enum unvme_state old;
+	bool change = false;
+
+	pthread_spin_lock(&u->lock);
+	old = unvmed_ctrl_get_state(u);
+
+	switch (state) {
+	case UNVME_DISABLED:
+		switch (old) {
+		case UNVME_RESETTING:
+			change = true;
+			break;
+		default:
+			break;
+		}
+	case UNVME_ENABLING:
+		switch (old) {
+		case UNVME_DISABLED:
+			change = true;
+			break;
+		default:
+			break;
+		}
+	case UNVME_ENABLED:
+		switch (old) {
+		case UNVME_ENABLING:
+			change = true;
+			break;
+		default:
+			break;
+		}
+	case UNVME_RESETTING:
+		switch (old) {
+		case UNVME_DISABLED:
+		case UNVME_ENABLED:
+			change = true;
+			break;
+		default:
+			break;
+		}
+	case UNVME_TEARDOWN:
+		switch (old) {
+		case UNVME_DISABLED:
+		case UNVME_ENABLED:
+			change = true;
+			break;
+		default:
+			break;
+		}
+	default:
+		break;
+	}
+
+	if (change) {
+		STORE(u->state, state);
+		unvmed_log_err("set controller state (%s -> %s)",
+				unvmed_state_str(old), unvmed_state_str(state));
+	} else
+		unvmed_log_err("failed to set controller state (%s -> %s)",
+				unvmed_state_str(old), unvmed_state_str(state));
+
+	pthread_spin_unlock(&u->lock);
+	return change;
+}
 
 static inline struct unvme_rcq *unvmed_rcq_from_ucq(struct unvme_cq *ucq)
 {
@@ -166,7 +233,7 @@ struct unvme *unvmed_get(const char *bdf)
 
 bool unvmed_ctrl_enabled(struct unvme *u)
 {
-	return atomic_load_acquire(&u->state) == UNVME_ENABLED;
+	return unvmed_ctrl_get_state(u) == UNVME_ENABLED;
 }
 
 int unvmed_nr_cmds(struct unvme *u)
@@ -688,6 +755,8 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	assert(u->ctrl.opts.nsqr == opts.nsqr);
 	assert(u->ctrl.opts.ncqr == opts.ncqr);
 
+	pthread_spin_init(&u->lock, 0);
+
 	/*
 	 * XXX: Since unvme-cli does not follow all the behaviors of the driver, it does
 	 * not set up nsqa and ncqa.
@@ -1131,7 +1200,7 @@ void unvmed_free_ctrl(struct unvme *u)
 	/*
 	 * Make sure rcq thread to read the proper state value.
 	 */
-	STORE(u->state, UNVME_TEARDOWN);
+	unvmed_ctrl_set_state(u, UNVME_TEARDOWN);
 
 	unvmed_free_irqs(u);
 	unvmed_hmb_free(u);
@@ -1171,17 +1240,25 @@ void unvmed_free_ctrl_all(void)
 		unvmed_free_ctrl(u);
 }
 
-static void __unvme_reset_ctrl(struct unvme *u)
+static int __unvme_reset_ctrl(struct unvme *u)
 {
-	uint32_t cc = unvmed_read32(u, NVME_REG_CC);
+	uint32_t cc;
 	uint32_t csts;
 
+	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+		errno = EBUSY;
+		return -1;
+	}
+
+	cc = unvmed_read32(u, NVME_REG_CC);
 	unvmed_write32(u, NVME_REG_CC, cc & ~(1 << NVME_CC_EN_SHIFT));
 	while (1) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
 		if (!NVME_CSTS_RDY(csts))
 			break;
 	}
+
+	return 0;
 }
 
 static inline void unvmed_disable_sq_all(struct unvme *u)
@@ -1352,8 +1429,6 @@ static inline void unvmed_cancel_cmd_all(struct unvme *u)
 
 static void unvmed_reset_ctx(struct unvme *u)
 {
-	u->state = UNVME_DISABLED;
-
 	unvmed_disable_sq_all(u);
 	unvmed_disable_cq_all(u);
 	unvmed_disable_ns_all(u);
@@ -1384,9 +1459,14 @@ static void unvmed_reset_ctx(struct unvme *u)
  */
 void unvmed_reset_ctrl(struct unvme *u)
 {
-	__unvme_reset_ctrl(u);
+	if (__unvme_reset_ctrl(u)) {
+		unvmed_log_err("faeild to reset the controller");
+		return;
+	}
 
 	unvmed_reset_ctx(u);
+
+	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 }
 
 void unvmed_reset_ctrl_graceful(struct unvme *u)
@@ -1428,7 +1508,7 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	unvmed_delete_iocq_all(u);
 
 	__unvme_reset_ctrl(u);
-	u->state = UNVME_DISABLED;
+
 	u->asq->enabled = false;
 	u->acq->enabled = false;
 
@@ -1436,6 +1516,8 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 
 	__unvmed_delete_sq(u, __to_sq(u->asq));
 	__unvmed_delete_cq(u, __to_cq(u->acq));
+
+	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 }
 
 static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
@@ -1484,7 +1566,7 @@ static void *unvmed_rcq_run(void *opaque)
 		if (!atomic_load_acquire(&r->refcnt))
 			goto out;
 
-		if (LOAD(u->state) == UNVME_TEARDOWN)
+		if (unvmed_ctrl_get_state(u) == UNVME_TEARDOWN)
 			goto out;
 
 		pthread_rwlock_rdlock(&u->cq_list_lock);
@@ -1508,7 +1590,7 @@ int unvmed_create_adminq(struct unvme *u)
 	struct unvme_cq *ucq;
 	const uint16_t qid = 0;
 
-	if (u->state != UNVME_DISABLED) {
+	if (unvmed_ctrl_get_state(u) != UNVME_DISABLED) {
 		errno = EPERM;
 		goto out;
 	}
@@ -1561,9 +1643,15 @@ out:
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 		      uint8_t mps, uint8_t css)
 {
-	uint32_t cc = unvmed_read32(u, NVME_REG_CC);
+	uint32_t cc;
 	uint32_t csts;
 
+	if (!unvmed_ctrl_set_state(u, UNVME_ENABLING)) {
+		errno = EBUSY;
+		return -1;
+	}
+
+	cc = unvmed_read32(u, NVME_REG_CC);
 	if (NVME_CC_EN(cc)) {
 		unvmed_log_err("Controller (%s) has already been enabled (CC.EN=1)",
 			       unvmed_bdf(u));
@@ -1584,7 +1672,8 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	}
 
 	u->mps = mps;
-	u->state = UNVME_ENABLED;
+
+	unvmed_ctrl_set_state(u, UNVME_ENABLED);
 	return 0;
 }
 
@@ -1737,7 +1826,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_create_sq *sqe;
 
-	if (!unvme_is_enabled(u)) {
+	if (!unvmed_ctrl_enabled(u)) {
 		errno = EPERM;
 		return -1;
 	}
@@ -2250,6 +2339,11 @@ int unvmed_subsystem_reset(struct unvme *u)
 	char config[4096];
 	uint32_t csts;
 
+	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+		errno = EBUSY;
+		return -1;
+	}
+
 	if (unvmed_pci_backup_state(u, config) < 0) {
 		unvmed_log_err("failed to read pci config register");
 		return -1;
@@ -2285,6 +2379,7 @@ int unvmed_subsystem_reset(struct unvme *u)
 	}
 
 	unvmed_reset_ctx(u);
+	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 
 	return 0;
 }
@@ -2301,6 +2396,11 @@ int unvmed_flr(struct unvme *u)
 	ret = asprintf(&path, "/sys/bus/pci/devices/%s/reset_method", unvmed_bdf(u));
 	if (ret < 0)
 		return -1;
+
+	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+		errno = EBUSY;
+		return -1;
+	}
 
 	ret = readmax(path, orig, sizeof(orig));
 	if (ret < 0) {
@@ -2338,7 +2438,9 @@ int unvmed_flr(struct unvme *u)
 		return -1;
 	}
 
+	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 	free(path);
+
 	return 0;
 }
 
@@ -2448,6 +2550,11 @@ int unvmed_hot_reset(struct unvme *u)
 		goto free;
 	}
 
+	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+		errno = EBUSY;
+		return -1;
+	}
+
 	ret = pread(fd, &control, 2, 0x3E);
 	if (ret < 0)
 		goto close;
@@ -2481,6 +2588,7 @@ int unvmed_hot_reset(struct unvme *u)
 		goto close;
 	}
 
+	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 close:
 	close(fd);
 free:
@@ -2509,6 +2617,11 @@ int unvmed_link_disable(struct unvme *u)
 	if (fd < 0) {
 		ret = fd;
 		goto free;
+	}
+
+	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+		errno = EBUSY;
+		return -1;
 	}
 
 	pcie_offset = unvmed_get_pcie_cap_offset(dsp);
@@ -2550,6 +2663,7 @@ int unvmed_link_disable(struct unvme *u)
 		goto close;
 	}
 
+	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 close:
 	close(fd);
 free:

@@ -19,6 +19,47 @@
 struct unvme;
 struct unvme_cmd;
 
+enum unvme_state {
+	/*
+	 * Controller disabled state which is the first state.
+	 */
+	UNVME_DISABLED	= 0,
+	/*
+	 * Started to enable the controller, after this, UNVME_ENABELD.
+	 */
+	UNVME_ENABLING,
+	/*
+	 * Controller enabled state which is alive.
+	 */
+	UNVME_ENABLED,
+	/*
+	 * Resetting the controller, after this, UNVME_DISABLED.
+	 */
+	UNVME_RESETTING,
+	/*
+	 * The final state going to release the unvme controller instance for
+	 * good.
+	 */
+	UNVME_TEARDOWN,
+};
+
+static inline const char *unvmed_state_str(enum unvme_state state)
+{
+	switch (state) {
+	case UNVME_DISABLED:
+		return "DISABLED";
+	case UNVME_ENABLING:
+		return "ENABLING";
+	case UNVME_ENABLED:
+		return "ENABLED";
+	case UNVME_RESETTING:
+		return "RESETTING";
+	case UNVME_TEARDOWN:
+		return "TEARDOWN";
+	}
+	return "Unknown";
+}
+
 /*
  * NVMe spec-based data structures defined in `libvfn`
  */
