@@ -1694,15 +1694,8 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
-	struct unvme_cq *ucq;
 	struct nvme_cmd_delete_q *sqe;
 	int ret;
-
-	ucq = unvmed_cq_find(u, qid);
-	if (!ucq) {
-		errno = EINVAL;
-		return -1;
-	}
 
 	if (!u->asq || !unvmed_sq_enabled(u->asq))
 		return -1;
@@ -1724,8 +1717,11 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 
 	unvmed_cmd_wait(cmd);
 
-	if (nvme_cqe_ok(&cmd->cqe))
-		__unvmed_delete_cq(u, ucq);
+	if (nvme_cqe_ok(&cmd->cqe)) {
+		struct unvme_cq *ucq = unvmed_cq_find(u, qid);
+		if (ucq)
+			__unvmed_delete_cq(u, ucq);
+	}
 
 	ret = unvmed_cqe_status(&cmd->cqe);
 
@@ -1864,14 +1860,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_delete_q *sqe;
-	struct unvme_sq *usq;
 	int ret;
-
-	usq = unvmed_sq_find(u, qid);
-	if (!usq) {
-		errno = EINVAL;
-		return -1;
-	}
 
 	if (!u->asq || !unvmed_sq_enabled(u->asq))
 		return -1;
@@ -1893,8 +1882,11 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 
 	unvmed_cmd_wait(cmd);
 
-	if (nvme_cqe_ok(&cmd->cqe))
-		__unvmed_delete_sq(u, usq);
+	if (nvme_cqe_ok(&cmd->cqe)) {
+		struct unvme_sq *usq = unvmed_sq_find(u, qid);
+		if (usq)
+			__unvmed_delete_sq(u, usq);
+	}
 
 	ret = unvmed_cqe_status(&cmd->cqe);
 
