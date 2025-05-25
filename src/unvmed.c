@@ -154,7 +154,10 @@ static int unvme_msg_init(struct unvme_msg *msg, int argc, char **argv)
 	char *basename;
 	int i = 0;
 
-	file = fopen(msg->msg.argv_file, "r");
+	do {
+		file = fopen(msg->msg.argv_file, "r");
+	} while (!file && errno == EMFILE);
+
 	if (!file) {
 		unvme_pr_err("ERROR: failed to open %s\n", msg->msg.argv_file);
 		return -1;
@@ -378,7 +381,10 @@ static void __unvme_get_stdio(pid_t pid, char *filefmt, FILE **stdio)
 		goto err;
 	}
 
-	file = fopen(filename, "w");
+	do {
+		file = fopen(filename, "w");
+	} while (!file && errno == EMFILE);
+
 	if (!file) {
 		unvmed_log_err("failed to open %s", filename);
 		goto err;
