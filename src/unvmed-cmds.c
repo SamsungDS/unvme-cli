@@ -737,7 +737,12 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_create_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector))) {
+	do {
+		ret = unvmed_create_cq(u, arg_intv(qid), arg_intv(qsize),
+				arg_intv(vector));
+	} while (ret && errno == EBUSY);
+
+	if (ret) {
 		unvme_pr_err("failed to create cq\n");
 		ret = errno;
 	}
@@ -788,7 +793,11 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_delete_cq(u, arg_intv(qid))) {
+	do {
+		ret = unvmed_delete_cq(u, arg_intv(qid));
+	} while (ret && errno == EBUSY);
+
+	if (ret) {
 		unvme_pr_err("failed to delete iocq\n");
 		ret = errno;
 	}
@@ -846,7 +855,12 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_create_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid))) {
+	do {
+		ret = unvmed_create_sq(u, arg_intv(qid), arg_intv(qsize),
+				arg_intv(cqid));
+	} while (ret && errno == EBUSY);
+
+	if (ret) {
 		unvme_pr_err("failed to create iosq\n");
 		ret = errno;
 	}
@@ -898,7 +912,11 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_delete_sq(u, arg_intv(qid))) {
+	do {
+		ret = unvmed_delete_sq(u, arg_intv(qid));
+	} while (ret && errno == EBUSY);
+
+	if (ret) {
 		unvme_pr_err("failed to delete iosq\n");
 		ret = errno;
 	}
@@ -981,7 +999,10 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	do {
+		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -1098,7 +1119,10 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	do {
+		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -1219,7 +1243,10 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	do {
+		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -1341,7 +1368,10 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	do {
+		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -1463,7 +1493,10 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 			ret = ENOENT;
 			goto out;
 		}
-		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+		do {
+			cmd = unvmed_alloc_cmd(u, usq, buf, len);
+		} while (!cmd && errno == EBUSY);
+
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
@@ -1479,7 +1512,10 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		};
 
 	} else {
-		cmd = unvmed_alloc_cmd_nodata(u, usq);
+		do {
+			cmd = unvmed_alloc_cmd_nodata(u, usq);
+		} while (!cmd && errno == EBUSY);
+
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 			ret = errno;
@@ -1564,7 +1600,10 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	do {
+		cmd = unvmed_alloc_cmd_nodata(u, usq);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
@@ -1655,7 +1694,10 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	do {
+		cmd = unvmed_alloc_cmd_nodata(u, usq);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
@@ -1749,7 +1791,9 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 			goto out;
 		}
 
-		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+		do {
+			cmd = unvmed_alloc_cmd(u, usq, buf, len);
+		} while (!cmd && errno == EBUSY);
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
@@ -1765,7 +1809,9 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 		};
 
 	} else {
-		cmd = unvmed_alloc_cmd_nodata(u, usq);
+		do {
+			cmd = unvmed_alloc_cmd_nodata(u, usq);
+		} while (!cmd && errno == EBUSY);
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 			ret = errno;
@@ -1966,7 +2012,10 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(metadata))
 		mfilepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(metadata));
 
-	cmd = unvmed_alloc_cmd_meta(u, usq, buf, len, mbuf, mlen);
+	do {
+		cmd = unvmed_alloc_cmd_meta(u, usq, buf, len, mbuf, mlen);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
@@ -2239,7 +2288,10 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	cmd = unvmed_alloc_cmd_meta(u, usq, buf, len, mbuf, mlen);
+	do {
+		cmd = unvmed_alloc_cmd_meta(u, usq, buf, len, mbuf, mlen);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
@@ -2458,7 +2510,10 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 			goto out;
 		}
 
-		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+		do {
+			cmd = unvmed_alloc_cmd(u, usq, buf, len);
+		} while (!cmd && errno == EBUSY);
+
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
@@ -2485,7 +2540,10 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		};
 
 	} else {
-		cmd = unvmed_alloc_cmd_nodata(u, usq);
+		do {
+			cmd = unvmed_alloc_cmd_nodata(u, usq);
+		} while (!cmd && errno == EBUSY);
+
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
@@ -2657,7 +2715,10 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	do {
+		cmd = unvmed_alloc_cmd_nodata(u, usq);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -3108,7 +3169,10 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	do {
+		cmd = unvmed_alloc_cmd_nodata(u, usq);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
@@ -3197,7 +3261,10 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	do {
+		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
@@ -3294,7 +3361,10 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	do {
+		cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
