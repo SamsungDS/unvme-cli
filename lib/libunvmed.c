@@ -1995,6 +1995,7 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 
 		cmd->cqe = *cqe;
 		cmd->state = UNVME_CMD_S_COMPLETED;
+		unvmed_log_cmd_cmpl(unvmed_bdf(u), cqe);
 
 		if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE) {
 			atomic_store_release(&cmd->completed, 1);
@@ -2040,7 +2041,6 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 		if (cqes)
 			memcpy(&cqes[nr], cqe, sizeof(*cqe));
 		nr++;
-		unvmed_log_cmd_cmpl(unvmed_bdf(u), cqe);
 	}
 
 	do {
