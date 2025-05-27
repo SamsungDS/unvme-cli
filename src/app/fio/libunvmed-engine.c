@@ -1781,10 +1781,9 @@ static char *fio_libunvmed_errdetails(struct thread_data *td, struct io_u *io_u)
 
 	strlcat(msg, "cq entry status (", MAXERRDETAIL);
 
-	snprintf(msgchunk, MAXMSGCHUNK, "sct=0x%02x; ", sct);
-	strlcat(msg, msgchunk, MAXERRDETAIL);
+	snprintf(msgchunk, MAXMSGCHUNK, "status=0x%x(sct=0x%02x, sc=0x%02x))",
+		 io_u->error, sct, sc);
 
-	snprintf(msgchunk, MAXMSGCHUNK, "sc=0x%02x)", sc);
 	strlcat(msg, msgchunk, MAXERRDETAIL);
 
 	return msg;
