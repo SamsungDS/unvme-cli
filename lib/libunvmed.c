@@ -608,7 +608,7 @@ static inline int unvmed_pci_nr_irqs(struct unvme *u)
 static int unvmed_init_irq(struct unvme *u, int vector)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
-	int nr_irqs = u->ctrl.pci.dev.irq_info.count;
+	int nr_irqs = u->irq_info.count;
 
 	if (vector >= nr_irqs) {
 		unvmed_log_err("invalid vector %d", vector);
@@ -642,7 +642,7 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 
 static int unvmed_alloc_irqs(struct unvme *u)
 {
-	int nr_irqs = u->ctrl.pci.dev.irq_info.count;
+	int nr_irqs = u->irq_info.count;
 
 	u->efds = malloc(sizeof(int) * nr_irqs);
 	if (!u->efds)
@@ -739,6 +739,14 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	opts.ncqr = max_nr_ioqs - 1;
 
 	if (nvme_ctrl_init(&u->ctrl, bdf, &opts)) {
+		free(u);
+		return NULL;
+	}
+
+	if (vfio_pci_get_irq_info(&u->ctrl.pci, &u->irq_info)) {
+		unvmed_log_err("failed to get &struct vfio_irq_info from libvfn");
+
+		nvme_close(&u->ctrl);
 		free(u);
 		return NULL;
 	}

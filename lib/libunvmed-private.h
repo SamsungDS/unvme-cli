@@ -10,6 +10,7 @@ struct iommu_dmabuf;
 struct unvme {
 	/* `ctrl` member must be the first member of `struct unvme` */
 	struct nvme_ctrl ctrl;
+	struct vfio_irq_info irq_info;
 
 	enum unvme_state state;
 	pthread_spinlock_t lock;
