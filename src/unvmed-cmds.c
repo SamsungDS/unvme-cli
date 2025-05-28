@@ -331,10 +331,24 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	else
 		unsetenv("VFTOKEN");
 
-	if (!unvmed_init_ctrl(arg_strv(dev), arg_intv(nrioqs))) {
+	u = unvmed_init_ctrl(arg_strv(dev), arg_intv(nrioqs));
+	if (!u) {
 		unvme_pr_err("failed to initialize unvme\n");
 		ret = errno;
 		goto out;
+	}
+
+	/*
+	 * Check whether the device controller has already been enabled even if
+	 * we just created the @u instance successfully here.  To ensure that
+	 * state machines between the two (@u->state and actual device) are
+	 * matched each other, we should check if they are not consistent,
+	 * reset the controller here with an warning.
+	 */
+	if (NVME_CSTS_RDY(unvmed_read32(u, NVME_REG_CSTS))) {
+		unvme_pr_err("controller %s has already been enabled.  Resetting...\n",
+				arg_strv(dev));
+		unvmed_reset_ctrl(u);
 	}
 
 out:
