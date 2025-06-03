@@ -25,6 +25,7 @@ set -x
 bash -c "echo 0 > /sys/bus/pci/devices/$bdf/sriov_numvfs"
 unvme start
 unvme add $bdf
+unvme create-adminq $bdf
 unvme enable $bdf
 )
 

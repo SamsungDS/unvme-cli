@@ -552,11 +552,54 @@ out:
 	return ret;
 }
 
+int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
+{
+	struct unvme *u;
+	struct arg_rex *dev;
+	struct arg_lit *help;
+	struct arg_end *end;
+
+	const char *desc =
+		"Create admin submission and completion queues for the NVMe controller.\n"
+		"This command should be run before enabling the controller.";
+
+	void *argtable[] = {
+		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		help = arg_lit0("h", "help", "Show help message"),
+		end = arg_end(UNVME_ARG_MAX_ERROR),
+	};
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	if (unvmed_ctrl_enabled(u)) {
+		unvme_pr_err("%s is already enabled\n", arg_strv(dev));
+		ret = EALREADY;
+		goto out;
+	}
+
+	if (unvmed_create_adminq(u)) {
+		unvme_pr_err("failed to create adminq\n");
+		ret = errno;
+		goto out;
+	}
+
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
 int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
-	struct arg_lit *no_adminq;
 	struct arg_int *iosqes;
 	struct arg_int *iocqes;
 	struct arg_int *mps;
@@ -565,12 +608,12 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_end *end;
 
 	const char *desc =
-		"Enable NVMe controller along with setting up admin queues.\n"
-		"It will wait for CSTS.RDY to be 1 after setting CC.EN to 1.";
+		"Enable NVMe controller.\n"
+		"It will wait for CSTS.RDY to be 1 after setting CC.EN to 1.\n"
+		"Note: Admin queues must be created before enabling the controller.";
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
-		no_adminq = arg_lit0(NULL, "no-adminq", "[O] Enable device without creating admin queues"),
 		iosqes = arg_int0("s", "iosqes", "<n>", "[O] I/O Sumission Queue Entry Size (2^n) (default: 6)"),
 		iocqes = arg_int0("c", "iocqes", "<n>", "[O] I/O Completion Queue Entry Size (2^n) (default: 4)"),
 		mps = arg_int0("m", "mps", "<n>", "[O] Memory Page Size (2^(12+n)) (default: 0)"),
@@ -595,18 +638,6 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_intv(iosqes) > 0xf) {
-		unvme_pr_err("invalid -s|--iosqes\n");
-		ret = EINVAL;
-		goto out;
-	}
-
-	if (arg_intv(iocqes) > 0xf) {
-		unvme_pr_err("invalid -c|--iocqes\n");
-		ret = EINVAL;
-		goto out;
-	}
-
 	if (arg_intv(mps) > 0xf) {
 		unvme_pr_err("invalid -m|--mps\n");
 		ret = EINVAL;
@@ -619,22 +650,22 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (!arg_boolv(no_adminq) && unvmed_create_adminq(u)) {
-		unvme_pr_err("failed to create adminq\n");
-		ret = errno;
+	if (arg_intv(iosqes) > 0xf) {
+		unvme_pr_err("invalid -s|--iosqes\n");
+		ret = EINVAL;
 		goto out;
 	}
 
-	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes),
-				arg_intv(mps), arg_intv(css))) {
+	if (arg_intv(iocqes) > 0xf) {
+		unvme_pr_err("invalid -c|--iocqes\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes), arg_intv(mps), arg_intv(css))) {
 		unvme_pr_err("failed to enable controller\n");
 		ret = errno;
 		goto out;
-	}
-
-	if (arg_boolv(no_adminq)) {
-		unvme_pr_err("Warning: Admin queues are not created.  "
-				"The following admin commands will not work\n");
 	}
 
 out:

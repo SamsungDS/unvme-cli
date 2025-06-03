@@ -12,6 +12,7 @@ bdf="$1"
 
 unvme start
 unvme add $bdf
+unvme create-adminq $bdf
 unvme enable $bdf
 unvme reset $bdf
 unvme stop

@@ -211,6 +211,7 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_status(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_hmb(int argc, char *argv[], struct unvme_msg *msg);
+int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_enable(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_cmb(int argc, char *argv[], struct unvme_msg *msg);
 int unvme_malloc(int argc, char *argv[], struct unvme_msg *msg);
