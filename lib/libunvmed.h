@@ -809,6 +809,7 @@ void unvmed_reset_ctrl_graceful(struct unvme *u);
 /**
  * unvmed_create_adminq - Configure admin SQ and CQ
  * @u: &struct unvme
+ * @irq: whether to initialize IRQ
  *
  * Create admin SQ and CQ instances in libvfn and configure admin queue
  * registers in controller attribute registers accordingly.  This API does not
@@ -817,7 +818,7 @@ void unvmed_reset_ctrl_graceful(struct unvme *u);
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_create_adminq(struct unvme *u);
+int unvmed_create_adminq(struct unvme *u, bool irq);
 
 /**
  * unvmed_enable_ctrl - Enable NVMe controller

@@ -126,6 +126,7 @@ struct unvme_ctx {
 			uint8_t iocqes;
 			uint8_t mps;
 			uint8_t css;
+			bool admin_irq;
 		} ctrl;
 
 		struct {
