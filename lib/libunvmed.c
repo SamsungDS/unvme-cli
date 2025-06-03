@@ -1592,7 +1592,7 @@ out:
 	pthread_exit(NULL);
 }
 
-int unvmed_create_adminq(struct unvme *u)
+int unvmed_create_adminq(struct unvme *u, bool irq)
 {
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
@@ -1603,7 +1603,7 @@ int unvmed_create_adminq(struct unvme *u)
 		goto out;
 	}
 
-	if (unvmed_pci_nr_irqs(u) > 0 && unvmed_init_irq(u, 0))
+	if (irq && unvmed_pci_nr_irqs(u) > 0 && unvmed_init_irq(u, 0))
 		return -1;
 
 	/*
@@ -1624,7 +1624,7 @@ int unvmed_create_adminq(struct unvme *u)
 	/*
 	 * Override @q->vector of libvfn in case device has no irq to -1.
 	 */
-	if (unvmed_pci_nr_irqs(u) == 0)
+	if (!irq || unvmed_pci_nr_irqs(u) == 0)
 		unvmed_cq_iv(ucq) = -1;
 
 	/*
@@ -2757,6 +2757,8 @@ int unvmed_ctx_init(struct unvme *u)
 	ctx->ctrl.iocqes = NVME_CC_IOCQES(cc);
 	ctx->ctrl.mps = NVME_CC_MPS(cc);
 	ctx->ctrl.css = NVME_CC_CSS(cc);
+	if (u->asq)
+		ctx->ctrl.admin_irq = unvmed_cq_iv(__to_cq(u->acq)) == 0;
 
 	list_add_tail(&u->ctx_list, &ctx->list);
 
@@ -2808,7 +2810,7 @@ static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 {
 	switch (ctx->type) {
 		case UNVME_CTX_T_CTRL:
-			if (unvmed_create_adminq(u))
+			if (unvmed_create_adminq(u, ctx->ctrl.admin_irq))
 				return -1;
 			return unvmed_enable_ctrl(u, ctx->ctrl.iosqes,
 					ctx->ctrl.iocqes, ctx->ctrl.mps,

@@ -556,15 +556,18 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_lit *noint;
 	struct arg_lit *help;
 	struct arg_end *end;
 
 	const char *desc =
 		"Create admin submission and completion queues for the NVMe controller.\n"
-		"This command should be run before enabling the controller.";
+		"This command should be run before enabling the controller.\n"
+		"Use --noint to skip IRQ initialization.";
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		noint = arg_lit0(NULL, "noint", "[O] Skip IRQ initialization"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -585,7 +588,7 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_create_adminq(u)) {
+	if (unvmed_create_adminq(u, !arg_boolv(noint))) {
 		unvme_pr_err("failed to create adminq\n");
 		ret = errno;
 		goto out;
