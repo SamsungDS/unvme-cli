@@ -762,7 +762,7 @@ void unvme_pr_status(const char *format, struct unvme *u)
 			json_object_object_add(sq_obj, "id", json_object_new_int(sq->id));
 			json_object_object_add(sq_obj, "vaddr", json_object_new_int64((uint64_t)sq->mem.vaddr));
 			json_object_object_add(sq_obj, "iova", json_object_new_int64(sq->mem.iova));
-			json_object_object_add(sq_obj, "cq_id", json_object_new_int(sq->cq->id));
+			json_object_object_add(sq_obj, "cqid", json_object_new_int(sq->cq->id));
 			json_object_object_add(sq_obj, "tail", json_object_new_int(sq->tail));
 			json_object_object_add(sq_obj, "ptail", json_object_new_int(sq->ptail));
 			json_object_object_add(sq_obj, "qsize", json_object_new_int(sq->qsize));
@@ -782,7 +782,7 @@ void unvme_pr_status(const char *format, struct unvme *u)
 			json_object_object_add(cq_obj, "head", json_object_new_int(cq->head));
 			json_object_object_add(cq_obj, "qsize", json_object_new_int(cq->qsize));
 			json_object_object_add(cq_obj, "phase", json_object_new_int(cq->phase));
-			json_object_object_add(cq_obj, "vector", json_object_new_int(cq->vector));
+			json_object_object_add(cq_obj, "iv", json_object_new_int(cq->vector));
 			json_object_array_add(cq_array, cq_obj);
 		}
 		json_object_object_add(root, "cq", cq_array);
