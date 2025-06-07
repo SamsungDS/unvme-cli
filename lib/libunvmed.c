@@ -1514,7 +1514,7 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	 * layer.  The queues should be re-enabled (unquiesced) back once
 	 * create I/O queue command is issued.
 	 */
-	unvmed_quiesce_sq_all(u);
+	// unvmed_quiesce_sq_all(u);
 
 	/*
 	 * Wait for all the in-flight commands to complete, meaning that upper
@@ -1528,7 +1528,7 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	}
 	pthread_rwlock_unlock(&u->sq_list_lock);
 
-	unvmed_unquiesce_sq_all(u);
+	// unvmed_unquiesce_sq_all(u);
 
 	/*
 	 * Delete I/O queues created with re-enabling the adminq.
