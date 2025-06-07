@@ -247,6 +247,7 @@ int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist)
 	int nr_ns = 0;
 
 	if (!nslist) {
+		unvmed_log_err("nslist pointer is NULL");
 		errno = EINVAL;
 		return -1;
 	}
@@ -255,8 +256,11 @@ int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist)
 		return 0;
 
 	*nslist = calloc(u->nr_ns, sizeof(struct unvme_ns));
-	if (!*nslist)
+	if (!*nslist) {
+		unvmed_log_err("failed to allocate memory for nslist "
+				"(nr_ns=%u)", u->nr_ns);
 		return -1;
+	}
 
 	pthread_rwlock_rdlock(&u->ns_list_lock);
 	list_for_each(&u->ns_list, ns, list) {
@@ -325,13 +329,17 @@ int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs)
 	int qid;
 
 	if (!sqs) {
+		unvmed_log_err("sqs pointer is NULL");
 		errno = EINVAL;
 		return -1;
 	}
 
 	*sqs = calloc(u->nr_sqs, sizeof(struct nvme_sq));
-	if (!*sqs)
+	if (!*sqs) {
+		unvmed_log_err("failed to allocate memory for sqs (nr_sqs=%u)",
+				u->nr_sqs);
 		return -1;
+	}
 
 	for (qid = 0; qid < u->nr_sqs; qid++) {
 		struct unvme_sq *usq;
@@ -352,13 +360,17 @@ int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs)
 	int qid;
 
 	if (!cqs) {
+		unvmed_log_err("cqs pointer is NULL");
 		errno = EINVAL;
 		return -1;
 	}
 
 	*cqs = calloc(u->nr_cqs, sizeof(struct nvme_cq));
-	if (!*cqs)
+	if (!*cqs) {
+		unvmed_log_err("failed to allocate memory for cqs (nr_cqs=%u)",
+				u->nr_cqs);
 		return -1;
+	}
 
 	for (qid = 0; qid < u->nr_cqs; qid++) {
 		ucq = unvmed_cq_find(u, qid);
@@ -378,6 +390,8 @@ int unvmed_cq_wait_irq(struct unvme *u, int vector)
 	int ret;
 
 	if (vector < 0 || vector >= u->nr_efds) {
+		unvmed_log_err("invalid vector %d (valid range: 0-%d)", vector,
+				u->nr_efds - 1);
 		errno = EINVAL;
 		return -1;
 	}
@@ -391,10 +405,20 @@ int unvmed_cq_wait_irq(struct unvme *u, int vector)
 		ret = epoll_wait(u->reapers[vector].epoll_fd, evs, 1, -1);
 	} while (ret < 0 && errno == EINTR);
 
-	if (ret < 0)
+	if (ret < 0) {
+		unvmed_log_err("epoll_wait failed (vector=%d): %s", vector,
+				strerror(errno));
 		return -1;
+	}
 
-	return eventfd_read(u->efds[vector], &irq);
+	ret = eventfd_read(u->efds[vector], &irq);
+	if (ret < 0) {
+		unvmed_log_err("eventfd_read failed (vector=%d): %s", vector,
+				strerror(errno));
+		return -1;
+	}
+
+	return ret;
 }
 
 static struct __unvme_sq *__unvmed_find_and_get_sq(struct unvme *u,
@@ -1693,10 +1717,13 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	uint16_t qflags = NVME_Q_PC;
 	uint16_t iv = 0;
 
-	if (vector >= 0 && unvmed_init_irq(u, vector))
+	if (vector >= 0 && unvmed_init_irq(u, vector)) {
+		unvmed_log_err("failed to initialize IRQ for vector %d", vector);
 		return -1;
+	}
 
 	if (!u->asq) {
+		unvmed_log_err("admin submission queue not available");
 		errno = EPERM;
 		return -1;
 	}
@@ -1708,6 +1735,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
 	if (!cmd) {
+		unvmed_log_err("failed to allocate command for create_cq (qid=%u)", qid);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		return -1;
 	}
@@ -1734,6 +1762,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	unvmed_cmd_wait(cmd);
 
 	if (!nvme_cqe_ok(&cmd->cqe)) {
+		unvmed_log_err("create_cq command failed (qid=%u, "
+			"status=0x%x)", qid, unvmed_cqe_status(&cmd->cqe));
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		unvmed_cmd_free(cmd);
 		return -1;
@@ -1794,11 +1824,16 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	struct nvme_cmd_delete_q *sqe;
 	int ret;
 
-	if (!u->asq || !unvmed_sq_enabled(u->asq))
+	if (!u->asq || !unvmed_sq_enabled(u->asq)) {
+		unvmed_log_err("admin submission queue not available or not "
+				"enabled");
 		return -1;
+	}
 
 	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
 	if (!cmd) {
+		unvmed_log_err("failed to allocate command for delete_cq "
+				"(qid=%u)", qid);
 		return -1;
 	}
 
@@ -1835,17 +1870,20 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	struct nvme_cmd_create_sq *sqe;
 
 	if (!unvmed_ctrl_enabled(u)) {
+		unvmed_log_err("controller is not enabled");
 		errno = EPERM;
 		return -1;
 	}
 
 	if (!u->asq) {
+		unvmed_log_err("admin submission queue not available");
 		errno = EPERM;
 		return -1;
 	}
 
 	ucq = unvmed_cq_find(u, cqid);
 	if (!ucq) {
+		unvmed_log_err("completion queue not found (cqid=%u)", cqid);
 		errno = ENODEV;
 		return -1;
 	}
@@ -1857,6 +1895,8 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
 	if (!cmd) {
+		unvmed_log_err("failed to allocate command for create_sq "
+				"(qid=%u)", qid);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		return -1;
 	}
@@ -1878,6 +1918,8 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	unvmed_cmd_wait(cmd);
 
 	if (!nvme_cqe_ok(&cmd->cqe)) {
+		unvmed_log_err("create_sq command failed (qid=%u, "
+			"status=0x%x)", qid, unvmed_cqe_status(&cmd->cqe));
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		unvmed_cmd_free(cmd);
 		return -1;
@@ -1914,7 +1956,8 @@ static void unvmed_delete_iosq_all(struct unvme *u)
 
 		if (usq && atomic_load_acquire(&usq->refcnt) > 0) {
 			if (unvmed_delete_sq(u, qid) < 0) {
-				unvmed_log_err("failed to delete I/O SQ (qid=%d)", qid);
+				unvmed_log_err("failed to delete I/O SQ "
+						"(qid=%d)", qid);
 				return;
 			}
 		}
@@ -1930,7 +1973,8 @@ static void unvmed_delete_iocq_all(struct unvme *u)
 
 		if (ucq && atomic_load_acquire(&ucq->refcnt) > 0) {
 			if (unvmed_delete_cq(u, qid) < 0) {
-				unvmed_log_err("failed to delete I/O CQ (qid=%d)", qid);
+				unvmed_log_err("failed to delete I/O CQ "
+						"(qid=%d)", qid);
 				return;
 			}
 		}
@@ -1959,11 +2003,16 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	struct nvme_cmd_delete_q *sqe;
 	int ret;
 
-	if (!u->asq || !unvmed_sq_enabled(u->asq))
+	if (!u->asq || !unvmed_sq_enabled(u->asq)) {
+		unvmed_log_err("admin submission queue not available or not "
+				"enabled");
 		return -1;
+	}
 
 	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
 	if (!cmd) {
+		unvmed_log_err("failed to allocate command for delete_sq "
+				"(qid=%u)", qid);
 		return -1;
 	}
 
@@ -2004,8 +2053,11 @@ ssize_t unvmed_to_vaddr(struct unvme *u, uint64_t iova, void **vaddr)
 	ssize_t ret;
 
 	ret = iommu_translate_iova(ctx, iova, vaddr);
-	if (ret < 0)
+	if (ret < 0) {
+		unvmed_log_err("failed to translate iova 0x%lx to vaddr",
+				iova);
 		return -1;
+	}
 
 	return ret;
 }
@@ -2754,26 +2806,75 @@ int unvmed_ctx_init(struct unvme *u)
 
 static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 {
+	int ret;
+
+	unvmed_log_debug("restoring context type=%d", ctx->type);
+
 	switch (ctx->type) {
 		case UNVME_CTX_T_CTRL:
-			if (unvmed_create_adminq(u))
+			unvmed_log_debug("restoring controller context "
+				       "(iosqes=%u, iocqes=%u, mps=%u, css=%u)",
+				       ctx->ctrl.iosqes, ctx->ctrl.iocqes,
+				       ctx->ctrl.mps, ctx->ctrl.css);
+			if (unvmed_create_adminq(u)) {
+				unvmed_log_err("failed to create admin queue "
+					       "during context restore");
 				return -1;
-			return unvmed_enable_ctrl(u, ctx->ctrl.iosqes,
+			}
+			ret = unvmed_enable_ctrl(u, ctx->ctrl.iosqes,
 					ctx->ctrl.iocqes, ctx->ctrl.mps,
 					ctx->ctrl.css);
+			if (ret) {
+				unvmed_log_err("failed to enable controller "
+					       "during context restore");
+			}
+			return ret;
 		case UNVME_CTX_T_NS:
-			int ret;
+			unvmed_log_debug("restoring namespace context (nsid=%u)",
+				       ctx->ns.nsid);
 			ret = unvmed_init_ns(u, ctx->ns.nsid, NULL);
-			if (ret)
+			if (ret) {
+				unvmed_log_err("failed to init namespace %u "
+					       "during context restore",
+					       ctx->ns.nsid);
 				return ret;
-			return unvmed_init_meta_ns(u, ctx->ns.nsid, NULL);
+			}
+			ret = unvmed_init_meta_ns(u, ctx->ns.nsid, NULL);
+			if (ret) {
+				unvmed_log_err("failed to init meta namespace %u "
+					       "during context restore",
+					       ctx->ns.nsid);
+			}
+			return ret;
 		case UNVME_CTX_T_CQ:
-			return unvmed_create_cq(u, ctx->cq.qid, ctx->cq.qsize,
+			unvmed_log_debug("restoring completion queue context "
+				       "(qid=%u, qsize=%u, vector=%d)",
+				       ctx->cq.qid, ctx->cq.qsize,
+				       ctx->cq.vector);
+			ret = unvmed_create_cq(u, ctx->cq.qid, ctx->cq.qsize,
 					ctx->cq.vector);
+			if (ret) {
+				unvmed_log_err("failed to create CQ %u "
+					       "during context restore",
+					       ctx->cq.qid);
+			}
+			return ret;
 		case UNVME_CTX_T_SQ:
-			return unvmed_create_sq(u, ctx->sq.qid, ctx->sq.qsize,
+			unvmed_log_debug("restoring submission queue context "
+				       "(qid=%u, qsize=%u, cqid=%u)",
+				       ctx->sq.qid, ctx->sq.qsize,
+				       ctx->sq.cqid);
+			ret = unvmed_create_sq(u, ctx->sq.qid, ctx->sq.qsize,
 					ctx->sq.cqid);
+			if (ret) {
+				unvmed_log_err("failed to create SQ %u "
+					       "during context restore",
+					       ctx->sq.qid);
+			}
+			return ret;
 		default:
+			unvmed_log_err("unknown context type %d during restore",
+				       ctx->type);
 			return -1;
 	}
 }

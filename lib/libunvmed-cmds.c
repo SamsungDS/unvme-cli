@@ -26,6 +26,7 @@ static int unvmed_sqe_set_tags(struct unvme *u, uint32_t nsid, struct nvme_cmd_r
 
 	struct unvme_ns *ns = unvmed_ns_get(u, nsid);
 	if (!ns) {
+		unvmed_log_err("namespace not found (nsid=%u)", nsid);
 		errno = EINVAL;
 		return -1;
 	}
@@ -61,6 +62,8 @@ static int unvmed_sqe_set_tags(struct unvme *u, uint32_t nsid, struct nvme_cmd_r
 			cdw3 |= (stag << (16 - sts)) & 0xffff;
 		break;
 	default:
+		unvmed_log_err("unsupported protection information format (%u)",
+			       pif);
 		return -1;
 	}
 
@@ -87,8 +90,10 @@ static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u, struct unvme_sq *us
 	struct nvme_rq *rq;
 
 	rq = nvme_rq_acquire_atomic(usq->q);
-	if (!rq)
+	if (!rq) {
+		unvmed_log_err("failed to acquire request from queue");
 		return NULL;
+	}
 
 	atomic_inc(&usq->nr_cmds);
 
@@ -161,15 +166,19 @@ static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, struct unvme_sq *usq
 	struct unvme_cmd *cmd;
 
 	cmd = __unvmed_cmd_alloc(u, usq);
-	if (!cmd)
+	if (!cmd) {
+		unvmed_log_err("failed to allocate command");
 		return NULL;
+	}
 
 	if (unvmed_buf_init(u, &cmd->buf, buf, len)) {
+		unvmed_log_err("failed to initialize data buffer");
 		__unvmed_cmd_free(cmd);
 		return NULL;
 	}
 
 	if (unvmed_buf_init(u, &cmd->mbuf, mbuf, mlen)) {
+		unvmed_log_err("failed to initialize metadata buffer");
 		unvmed_buf_free(u, &cmd->buf);
 		__unvmed_cmd_free(cmd);
 		return NULL;
@@ -201,6 +210,8 @@ struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq,
 				   void *buf, size_t len)
 {
 	if (!buf || !len) {
+		unvmed_log_err("invalid buffer parameters (buf=%p, len=%zu)",
+			       buf, len);
 		errno = EINVAL;
 		return NULL;
 	}
@@ -218,6 +229,8 @@ struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
 					size_t mlen)
 {
 	if (!buf || !len) {
+		unvmed_log_err("invalid buffer parameters (buf=%p, len=%zu)",
+			       buf, len);
 		errno = EINVAL;
 		return NULL;
 	}
@@ -231,8 +244,10 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	if (nr_iov <= 0)
 		return 0;
 
-	if (nvme_rq_mapv_prp(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov))
+	if (nvme_rq_mapv_prp(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for PRP");
 		return -1;
+	}
 	return 0;
 }
 
@@ -242,8 +257,10 @@ int __unvmed_mapv_prp_list(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	if (!prplist)
 		prplist = cmd->rq->page.vaddr;
 
-	if (nvme_mapv_prp(&cmd->u->ctrl, prplist, sqe, iov, nr_iov))
+	if (nvme_mapv_prp(&cmd->u->ctrl, prplist, sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for PRP list");
 		return -1;
+	}
 	return 0;
 }
 
@@ -255,16 +272,20 @@ int unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe)
 int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		      struct iovec *iov, int nr_iov)
 {
-	if (nvme_rq_mapv_sgl(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov))
+	if (nvme_rq_mapv_sgl(&cmd->u->ctrl, cmd->rq, sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for SGL");
 		return -1;
+	}
 	return 0;
 }
 
 int __unvmed_mapv_sgl_seg(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 			  struct nvme_sgld *seg, struct iovec *iov, int nr_iov)
 {
-	if (nvme_mapv_sgl(&cmd->u->ctrl, seg, sqe, iov, nr_iov))
+	if (nvme_mapv_sgl(&cmd->u->ctrl, seg, sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for SGL segment");
 		return -1;
+	}
 	return 0;
 }
 
