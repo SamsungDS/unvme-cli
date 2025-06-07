@@ -126,7 +126,7 @@ while [ $SECONDS -lt $end_time ]; do
             ;;
     esac
 
-    echo "Executing: $COMMAND"
+    echo -n "."
     $COMMAND
     if [ $? -ne 0 ]; then
         echo "${RESET_TYPE} reset failed!"
