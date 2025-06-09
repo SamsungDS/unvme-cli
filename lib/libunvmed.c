@@ -2578,6 +2578,8 @@ int unvmed_hot_reset(struct unvme *u)
 	if (ret < 0)
 		goto close;
 
+	usleep(2 * 1000);
+
 	control &= ~(1 << 6);
 	ret = pwrite(fd, &control, 2, 0x3E);
 	if (ret < 0)
@@ -2651,6 +2653,8 @@ int unvmed_link_disable(struct unvme *u)
 	ret = pwrite(fd, &control, 2, pcie_offset + 0x10);
 	if (ret < 0)
 		goto close;
+
+	usleep(2 * 1000);
 
 	control &= ~(1 << 4);
 	ret = pwrite(fd, &control, 2, pcie_offset + 0x10);
