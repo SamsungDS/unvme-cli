@@ -2585,6 +2585,7 @@ int unvmed_hot_reset(struct unvme *u)
 	if (ret < 0)
 		goto close;
 
+	usleep(100 * 1000);
 	if (unvmed_pci_wait_reset(u) < 0) {
 		unvmed_log_err("failed to wait for PCI to be reset");
 		goto close;
@@ -2661,6 +2662,7 @@ int unvmed_link_disable(struct unvme *u)
 	if (ret < 0)
 		goto close;
 
+	usleep(100 * 1000);
 	if (unvmed_pci_wait_reset(u) < 0) {
 		unvmed_log_err("failed to wait for PCI to be reset");
 		goto close;
