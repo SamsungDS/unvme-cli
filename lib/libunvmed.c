@@ -2145,7 +2145,15 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
 
 int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes)
 {
-	return __unvmed_cq_run_n(u, ucq, cqes, ucq->q->qsize - 1, true);
+	int n;
+
+	n = __unvmed_cq_run_n(u, ucq, cqes, ucq->q->qsize - 1, true);
+	if (n > 0) {
+		if (!unvmed_cq_irq_enabled(ucq))
+			nvme_cq_update_head(ucq->q);
+	}
+
+	return n;
 }
 
 int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
