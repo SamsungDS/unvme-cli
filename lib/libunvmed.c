@@ -2532,6 +2532,7 @@ static int unvmed_get_downstream_port(struct unvme *u, char *bdf)
 	}
 
 	strncpy(bdf, ++dsp, 12);
+	bdf[12] = '\0';
 
 	free(rpath);
 	free(path);
