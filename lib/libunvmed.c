@@ -2328,25 +2328,64 @@ static void unvmed_quirk_dsp_sleep_after_reset(struct unvme *u)
 		usleep(100000);
 }
 
+static int unvmed_get_pcie_cap_offset(char *bdf);
 static int unvmed_pci_wait_reset(struct unvme *u)
 {
+	uint16_t pcie_offset;
+	uint16_t link_status;
 	uint64_t bar0;
+	char dsp[13];
 
+	if (unvmed_get_downstream_port(u, dsp) < 0) {
+		unvmed_log_err("failed to get downstream port while waiting to be reset");
+		return -1;
+	}
+
+	pcie_offset = unvmed_get_pcie_cap_offset(dsp);
+	if (pcie_offset == -1) {
+		unvmed_log_err("failed to get PCIe Cap. register offset (0xffff)");
+		return -1;
+	}
+
+	unvmed_log_debug("waiting for DSP(%s) link to be up ...", dsp);
 	while (true) {
-		if (unvmed_pci_get_config(unvmed_bdf(u), &bar0, 0x10, 8))
+		if (unvmed_pci_get_config(dsp, &link_status, pcie_offset + 0x12, 2)) {
+			unvmed_log_err("failed to CfgRd (offset=%#x, size=%d)",
+					pcie_offset + 0x12, 2);
 			return -1;
+		}
 
 		/*
-		 * Continue on link-down state.
+		 * Wait for the following bitfield in Link Status Register.
+		 *   - [13] Data Link Layer Link Active
 		 */
-		if (bar0 == 0xffffffff)
-			continue;
+		if (link_status & (1 << 13))
+			break;
 
+	}
+
+	unvmed_log_debug("waiting for USP(%s) link to be reset ...",
+			unvmed_bdf(u));
+	while (true) {
+		if (unvmed_pci_get_config(unvmed_bdf(u), &bar0, 0x10, 8)) {
+			unvmed_log_err("failed to CfgRd (offset=%#x, size=%d)",
+					0x10, 8);
+			return -1;
+		}
+
+		/*
+		 * Wait until BAR0 register to be reset to 0x0
+		 */
 		if ((bar0 & ~0xfULL) == 0x0)
 			break;
+
+		usleep(1000);
 	}
 
 	unvmed_quirk_dsp_sleep_after_reset(u);
+
+	unvmed_log_debug("DSP(%s) <-> USP(%s) has been reset successfully",
+			dsp, unvmed_bdf(u));
 	return 0;
 }
 
