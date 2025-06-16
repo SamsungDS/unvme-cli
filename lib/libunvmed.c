@@ -2216,13 +2216,13 @@ int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
 	return nr_sqes;
 }
 
-static inline int unvmed_pci_get_config(struct unvme *u, void *buf,
+static inline int unvmed_pci_get_config(const char *bdf, void *buf,
 					off_t offset, size_t size) {
 	char *path = NULL;
 	int ret;
 	int fd;
 
-	ret = asprintf(&path, "/sys/bus/pci/devices/%s/config", unvmed_bdf(u));
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/config", bdf);
 	if (ret < 0)
 		return -1;
 
@@ -2247,7 +2247,7 @@ static inline int unvmed_pci_get_config(struct unvme *u, void *buf,
 
 static inline int unvmed_pci_backup_config(struct unvme *u, void *config)
 {
-	return unvmed_pci_get_config(u, config, 0, 0x1000);
+	return unvmed_pci_get_config(unvmed_bdf(u), config, 0, 0x1000);
 }
 
 static inline int unvmed_pci_restore_config(struct unvme *u, void *config)
@@ -2333,7 +2333,7 @@ static int unvmed_pci_wait_reset(struct unvme *u)
 	uint64_t bar0;
 
 	while (true) {
-		if (unvmed_pci_get_config(u, &bar0, 0x10, 8))
+		if (unvmed_pci_get_config(unvmed_bdf(u), &bar0, 0x10, 8))
 			return -1;
 
 		/*
