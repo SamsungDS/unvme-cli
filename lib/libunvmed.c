@@ -1736,6 +1736,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	if (!nvme_cqe_ok(&cmd->cqe)) {
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		unvmed_cmd_free(cmd);
+		errno = EINVAL;
 		return -1;
 	}
 
@@ -1880,6 +1881,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	if (!nvme_cqe_ok(&cmd->cqe)) {
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		unvmed_cmd_free(cmd);
+		errno = EINVAL;
 		return -1;
 	}
 
