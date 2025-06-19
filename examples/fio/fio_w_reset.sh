@@ -65,6 +65,7 @@ trap "unvme stop -a" EXIT
         unvme log-level 2
     fi
     unvme add $BDF --nr-ioqs=$NR_IOQS
+    unvme create-adminq $BDF
     unvme enable $BDF
     unvme id-ns $BDF -n 1
 )

@@ -26,6 +26,7 @@ set -x
 unvme start
 unvme add $bdf --nr-ioqs=$(nproc)
 
+unvme create-adminq $bdf
 unvme enable $bdf
 unvme id-ns $bdf -n 1 > /dev/null
 unvme set-features-noq $bdf -s 0xfffe -c 0xfffe > /dev/null
