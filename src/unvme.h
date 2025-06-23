@@ -11,6 +11,8 @@
 #include <sys/msg.h>
 #include <sys/mman.h>
 #include <sys/signal.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <ccan/list/list.h>
 
 #include <argtable3.h>
@@ -48,6 +50,11 @@ struct unvme_msg {
 		char bdf[UNVME_BDF_STRLEN];
 		char pwd[UNVME_PWD_STRLEN];
 		int pid;  /* client pid */
+
+		/*
+		 * UDS-specific fields managed by daemon.
+		 */
+		struct sockaddr_un cli_addr;
 
 		union {
 			/*
@@ -133,34 +140,24 @@ static inline struct command *unvme_get_cmd(const char *name)
 #define UNVME_STDOUT		"/var/log/unvmed/stdout-%d"
 #define UNVME_STDERR		"/var/log/unvmed/stderr-%d"
 
-#define UNVME_MSGQ		"/dev/mqueue/unvmed"
-
-static inline int unvme_msgq_send(int msg_id, struct unvme_msg *msg)
+static inline int unvme_socket_recv(int sock, struct unvme_msg *msg,
+				    struct sockaddr_un *addr)
 {
-	return msgsnd(msg_id, msg, sizeof(msg->msg), 0);
+	socklen_t addr_len = sizeof(*addr);
+
+	return recvfrom(sock, msg, sizeof(*msg), 0,
+			(struct sockaddr *)addr, &addr_len);
 }
 
-static inline int unvme_msgq_recv(int msg_id, struct unvme_msg *msg, long type)
+static inline int unvme_socket_send(int sock, struct unvme_msg *msg,
+				    struct sockaddr_un *addr)
 {
-	return msgrcv(msg_id, msg, sizeof(msg->msg), type, 0);
+	return sendto(sock, msg, sizeof(*msg), 0,
+			(struct sockaddr *)addr, sizeof(*addr));
 }
 
-static inline int unvme_msgq_get(const char *keyfile)
-{
-	int msg_id;
-	key_t key;
-
-	key = ftok(keyfile, 0x0);
-	if (key < 0)
-		return -1;
-
-	msg_id = msgget(key, 0666);
-	if (msg_id < 0)
-		return -1;
-
-	return msg_id;
-}
-
+#define UNVME_DAEMON_SOCK	"/var/run/unvmed.sock"
+#define UNVME_CLI_SOCK		"/var/run/unvmed-%d.sock"
 #define UNVME_DAEMON_PID	"/var/run/unvmed.pid"
 #define UNVME_DAEMON_VER	"/var/run/unvmed.ver"
 

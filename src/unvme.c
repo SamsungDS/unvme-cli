@@ -37,6 +37,9 @@ static bool __stdio_stop;
 static pthread_t __stdio_th[4];
 static struct command *__cmd;
 
+static int sock = -1;
+static char sock_path[64];
+
 static int unvme_help(int argc, char *argv[], struct unvme_msg *msg);
 static int unvme_version(int argc, char *argv[], struct unvme_msg *msg);
 static struct command cmds[] = {
@@ -148,36 +151,20 @@ struct command *unvme_cmds(void)
 	return cmds;
 }
 
-static int unvme_send_msg(struct unvme_msg *msg)
+static int unvme_send_msg(int sock, struct unvme_msg *msg)
 {
-	int msgq = unvme_msgq_get(UNVME_MSGQ);
+	struct sockaddr_un daemon_addr = {0, };
 
-	if (msgq < 0)
-		unvme_pr_return(-1, "ERROR: failed to get msgq\n");
+	daemon_addr.sun_family = AF_UNIX;
+	strncpy(daemon_addr.sun_path, UNVME_DAEMON_SOCK,
+			sizeof(daemon_addr.sun_path) - 1);
 
-	if (unvme_msgq_send(msgq, msg) < 0) {
-		if (errno == EIDRM)
-			unvme_pr_err("ERROR: failed to send a msg to daemon, "
-					"see 'unvme log' for details\n");
-	}
-
-	return 0;
+	return unvme_socket_send(sock, msg, &daemon_addr);
 }
 
-static int unvme_recv_msg(struct unvme_msg *msg)
+static int unvme_recv_msg(int sock, struct unvme_msg *msg)
 {
-	int msgq = unvme_msgq_get(UNVME_MSGQ);
-
-	if (msgq < 0)
-		unvme_pr_return(-1, "ERROR: failed to get msgq\n");
-
-	if (unvme_msgq_recv(msgq, msg, unvme_msg_pid(msg)) < 0) {
-		if (errno == EIDRM)
-			unvme_pr_err("ERROR: failed to receive a msg from daemon, "
-					"see 'unvme log' for details\n");
-	}
-
-	return 0;
+	return unvme_socket_recv(sock, msg, NULL);
 }
 
 /*
@@ -413,12 +400,25 @@ static void unvme_sigint(int signum)
 	unvme_msg_to_daemon(&msg);
 	unvme_msg_signum(&msg) = signum;
 
-	unvme_send_msg(&msg);
-	unvme_recv_msg(&msg);
+	unvme_send_msg(sock, &msg);
+	unvme_recv_msg(sock, &msg);
+
+	/*
+	 * Close @sock here to avoid invalid attempts to unvme_recv_msg() in
+	 * main() after this sigint handler.
+	 */
+	close(sock);
+	unlink(sock_path);
+	sock = -1;
 }
 
 static void unvme_cleanup(void)
 {
+	if (sock >= 0) {
+		close(sock);
+		unlink(sock_path);
+	}
+
 	if (__cmd)
 		unvme_stdio_finish(!!(__cmd->ctype & UNVME_APP_CMD));
 }
@@ -493,6 +493,28 @@ static int unvme_msg_init(struct unvme_msg *msg, int argc, char *argv[],
 	return 0;
 }
 
+static int unvme_socket_get(void)
+{
+	int sockfd;
+	struct sockaddr_un addr;
+
+	snprintf(sock_path, sizeof(sock_path), UNVME_CLI_SOCK, getpid());
+	unlink(sock_path);
+
+	sockfd = socket(AF_UNIX, SOCK_DGRAM, 0);
+	if (sockfd < 0)
+		return -1;
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, sock_path, sizeof(addr.sun_path)-1);
+
+	if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+		return -1;
+
+	return sockfd;
+}
+
 int main(int argc, char *argv[])
 {
 	struct unvme_msg msg = {0, };
@@ -531,11 +553,14 @@ int main(int argc, char *argv[])
 		unvme_pr_return(errno, "ERROR: Mismatch between unvmed and "
 				"unvme versions.  Please restart unvmed.\n");
 
+	sock = unvme_socket_get();
+	if (sock < 0)
+		unvme_pr_return(errno, "ERROR: Failed to get daemon socket\n");
+
 	if (unvme_msg_init(&msg, argc, argv, bdf, sizeof(bdf)))
 		return -1;
 
 	atexit(unvme_cleanup);
-	signal(SIGINT, unvme_sigint);
 
 	app_cmd = !!(__cmd->ctype & UNVME_APP_CMD);
 
@@ -545,9 +570,11 @@ int main(int argc, char *argv[])
 	 */
 	unvme_stdio_init(app_cmd);
 
-	if (unvme_send_msg(&msg))
+	if (unvme_send_msg(sock, &msg) < 0)
 		return -1;
-	if (unvme_recv_msg(&msg))
+
+	signal(SIGINT, unvme_sigint);
+	if (unvme_recv_msg(sock, &msg) < 0)
 		return -1;
 
 	unvme_cleanup();

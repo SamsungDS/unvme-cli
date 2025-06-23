@@ -41,6 +41,8 @@ static pthread_mutex_t __job_mutex;
 
 __thread struct unvme_msg *__msg;
 
+static int sock;
+
 static void unvme_callstack_dump(void)
 {
 	void *callstack[128];
@@ -249,64 +251,31 @@ out:
 	return ret;
 }
 
-static int unvme_msgq_delete(const char *keyfile)
+static int unvme_socket_create(void)
 {
-	key_t key;
-	int msg_id;
-
-	key = ftok(keyfile, 0x0);
-	if (key < 0)
-		return -1;
-
-	msg_id = msgget(key, 0666);
-	if (msg_id < 0)
-		return -1;
-
-	if (msgctl(msg_id, IPC_RMID, NULL) < 0)
-		return -1;
-
-	if (remove(keyfile))
-		return -1;
-
-	return 0;
-}
-
-static int unvme_msgq_create(const char *keyfile)
-{
-	int msg_id;
-	key_t key;
+	struct sockaddr_un addr;
 	int fd;
 
-retry:
-	fd = open(keyfile, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
-	if (fd < 0) {
-		if (errno == EEXIST) {
-			if (!remove(keyfile))
-				goto retry;
-		}
-		unvme_pr_return(-1, "failed to create msgq keyfile %s\n",
-				keyfile);
-	}
-	close(fd);
-
-	key = ftok(keyfile, 0x0);
-	if (key < 0)
-		unvme_pr_return(-1, "ERROR: failed to get a key\n");
+	unlink(UNVME_DAEMON_SOCK);
 
 	/*
-	 * If the message queue already exists, remove it and re-create.
+	 * The reason why we take SOCK_DGRAM is to support multiple message
+	 * sending from cli to daemon for cases such as CTRL-C SIGINT case.
 	 */
-	msg_id = msgget(key, 0666);
-	if (msg_id >= 0) {
-		if (msgctl(msg_id, IPC_RMID, NULL) < 0)
-			unvme_pr_return(-1, "ERROR: failed to remove a msgq\n");
+	fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+	if (fd < 0)
+		return -1;
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, UNVME_DAEMON_SOCK, sizeof(addr.sun_path) - 1);
+
+	if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+		close(fd);
+		return -1;
 	}
 
-	msg_id = msgget(key, IPC_CREAT | 0666);
-	if (msg_id < 0)
-		unvme_pr_return(-1, "ERROR: failed to get a msgq\n");
-
-	return msg_id;
+	return fd;
 }
 
 static void unvme_release(int signum)
@@ -315,8 +284,6 @@ static void unvme_release(int signum)
 		free(__libfio);
 		__libfio = NULL;
 	}
-
-	unvme_msgq_delete(UNVME_MSGQ);
 
 	unvmed_free_ctrl_all();
 
@@ -355,18 +322,14 @@ static inline int unvme_cmdline_strlen(void)
 	return len;
 }
 
-static int unvme_recv_msg(struct unvme_msg *msg)
+static int unvme_recv_msg(int sock, struct unvme_msg *msg)
 {
-	int msgq = unvme_msgq_get(UNVME_MSGQ);
-
-	return unvme_msgq_recv(msgq, msg, getpid());
+	return unvme_socket_recv(sock, msg, &msg->msg.cli_addr);
 }
 
-static int unvme_send_msg(struct unvme_msg *msg)
+static int unvme_send_msg(int sock, struct unvme_msg *msg)
 {
-	int msgq = unvme_msgq_get(UNVME_MSGQ);
-
-	return unvme_msgq_send(msgq, msg);
+	return unvme_socket_send(sock, msg, &msg->msg.cli_addr);
 }
 
 static void __unvme_get_stdio(pid_t pid, char *filefmt, FILE **stdio)
@@ -414,7 +377,7 @@ void unvme_exit_job(int ret)
 		return;
 
 	unvme_msg_to_client(__msg, unvme_msg_pid(__msg), ret);
-	unvme_send_msg(__msg);
+	unvme_send_msg(sock, __msg);
 
 	fclose(__stdout);
 	fclose(__stderr);
@@ -477,7 +440,7 @@ static void unvme_signal_job(struct unvme_msg *msg)
 	 */
 	if (!job) {
 		unvme_msg_to_client(msg, unvme_msg_pid(msg), 0);
-		unvme_send_msg(msg);
+		unvme_send_msg(sock, msg);
 		free(msg);
 		return;
 	}
@@ -527,7 +490,9 @@ int unvmed(char *argv[], const char *fio)
 		unvmed_log_err("failed to redirect stdout to %s", UNVME_DAEMON_STDERR);
 	setvbuf(stderr, NULL, _IOLBF, 0);
 
-	unvme_msgq_create(UNVME_MSGQ);
+	sock = unvme_socket_create();
+	if (sock < 0)
+		unvme_pr_return(errno, "ERROR: failed to create daemon socket");
 
 	unvmed_log_info("unvmed daemon process is sucessfully created "
 			"(pid=%d, ver='%s')", getpid(), UNVME_VERSION);
@@ -550,14 +515,15 @@ int unvmed(char *argv[], const char *fio)
 	while (true) {
 		msg = unvme_alloc_msg();
 
-		if (unvme_recv_msg(msg) < 0)
+		if (unvme_recv_msg(sock, msg) < 0) {
+			unvmed_log_err("failed to receive message");
 			return -1;
+		}
 
 		if (unvme_msg_is_normal(msg))
 			unvme_run_job(msg);
 		else
 			unvme_signal_job(msg);
-
 	}
 
 	/*
