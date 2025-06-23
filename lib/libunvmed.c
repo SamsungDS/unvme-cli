@@ -1822,6 +1822,8 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	}
 
 	ret = unvmed_cqe_status(&cmd->cqe);
+	if (ret == 0x10C)
+		errno = EILSEQ;
 
 	unvmed_cmd_free(cmd);
 	return ret;
