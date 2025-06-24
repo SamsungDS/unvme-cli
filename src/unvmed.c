@@ -200,6 +200,23 @@ err:
 	return -1;
 }
 
+static void unvme_stdio_redirect(struct unvme_msg *msg)
+{
+	dup2(msg->msg.stdout_fd, STDOUT_FILENO);
+	dup2(msg->msg.stderr_fd, STDERR_FILENO);
+}
+
+static void unvme_stdio_reset(void)
+{
+	if (!freopen(UNVME_DAEMON_STDOUT, "w", stdout))
+		unvmed_log_err("failed to redirect stdout to %s", UNVME_DAEMON_STDOUT);
+	setvbuf(stdout, NULL, _IOLBF, 0);
+
+	if (!freopen(UNVME_DAEMON_STDERR, "w", stderr))
+		unvmed_log_err("failed to redirect stderr to %s", UNVME_DAEMON_STDERR);
+	setvbuf(stderr, NULL, _IOLBF, 0);
+}
+
 static int __unvme_handler(struct unvme_msg *msg)
 {
 	struct command *cmd;
@@ -232,13 +249,17 @@ static int __unvme_handler(struct unvme_msg *msg)
 		 * We should truncate the stdout and stderr file which will be
 		 * written by the application thread per every running.
 		 */
-		if (cmd->ctype & UNVME_APP_CMD)
+		if (cmd->ctype & UNVME_APP_CMD) {
 			pthread_mutex_lock(&__app_mutex);
+			unvme_stdio_redirect(msg);
+		}
 
 		ret = cmd->func(argc, argv, msg);
 
-		if (cmd->ctype & UNVME_APP_CMD)
+		if (cmd->ctype & UNVME_APP_CMD) {
+			unvme_stdio_reset();
 			pthread_mutex_unlock(&__app_mutex);
+		}
 	}
 
 out:
@@ -480,12 +501,7 @@ int unvmed(char *argv[], const char *fio)
 	unvmed_init(UNVME_DAEMON_LOG, log_level);
 
 	close(STDIN_FILENO);
-	if (!freopen(UNVME_DAEMON_STDOUT, "w", stdout))
-		unvmed_log_err("failed to redirect stdout to %s", UNVME_DAEMON_STDOUT);
-	setvbuf(stdout, NULL, _IOLBF, 0);
-	if (!freopen(UNVME_DAEMON_STDERR, "w", stderr))
-		unvmed_log_err("failed to redirect stdout to %s", UNVME_DAEMON_STDERR);
-	setvbuf(stderr, NULL, _IOLBF, 0);
+	unvme_stdio_reset();
 
 	sock = unvme_socket_create();
 	if (sock < 0)

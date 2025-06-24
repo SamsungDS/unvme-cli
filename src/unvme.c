@@ -28,11 +28,6 @@
 
 #include <argtable3.h>
 
-/*
- * for async stdio print handlers
- */
-static bool __stdio_stop;
-static pthread_t __stdio_th[4];
 static struct command *__cmd;
 
 static int sock = -1;
@@ -288,75 +283,6 @@ bool unvme_is_daemon_running(void)
 	return true;
 }
 
-static void __unvme_stdio_pr(const char *fname, int stdio, bool to_remove)
-{
-	char buf[256];
-	int token = 1;
-	ssize_t bytes;
-	int fd;
-
-	fd = open(fname, O_RDONLY, 0);
-	if (fd < 0)
-		return;
-
-	while (token > 0) {
-		if (__stdio_stop)
-			token--;
-
-		while ((bytes = read(fd, buf, 256)) > 0) {
-			if (write(stdio, buf, bytes) < 0) {
-				close(fd);
-				return;
-			}
-		}
-		usleep(1000);
-	}
-
-	close(fd);
-
-	if (to_remove)
-		remove(fname);
-}
-
-static void *unvme_app_stdout_handler(void *opaque)
-{
-	__unvme_stdio_pr(UNVME_DAEMON_STDOUT, STDOUT_FILENO, false);
-
-	if (truncate(UNVME_DAEMON_STDOUT, 0))
-		unvme_pr_err("failed to truncate %s\n", UNVME_DAEMON_STDOUT);
-	pthread_exit(NULL);
-}
-
-static void *unvme_app_stderr_handler(void *opaque)
-{
-	__unvme_stdio_pr(UNVME_DAEMON_STDERR, STDERR_FILENO, false);
-
-	if (truncate(UNVME_DAEMON_STDERR, 0))
-		unvme_pr_err("failed to truncate %s\n", UNVME_DAEMON_STDERR);
-	pthread_exit(NULL);
-}
-
-static void unvme_stdio_init(bool app_stdio)
-{
-	if (app_stdio) {
-		pthread_create(&__stdio_th[2], NULL, unvme_app_stdout_handler, NULL);
-		pthread_create(&__stdio_th[3], NULL, unvme_app_stderr_handler, NULL);
-	}
-}
-
-static void unvme_stdio_finish(bool app_stdio)
-{
-	__stdio_stop = true;
-
-	pthread_join(__stdio_th[0], NULL);
-	pthread_join(__stdio_th[1], NULL);
-
-	if (app_stdio) {
-		pthread_join(__stdio_th[2], NULL);
-		pthread_join(__stdio_th[3], NULL);
-	}
-}
-
 static void unvme_sigint(int signum)
 {
 	struct unvme_msg msg = {0, };
@@ -382,9 +308,6 @@ static void unvme_cleanup(void)
 		close(sock);
 		unlink(sock_path);
 	}
-
-	if (__cmd)
-		unvme_stdio_finish(!!(__cmd->ctype & UNVME_APP_CMD));
 }
 
 static int unvme_check_ver(void)
@@ -483,7 +406,6 @@ int main(int argc, char *argv[])
 {
 	struct unvme_msg msg = {0, };
 	const char *name = argv[1];
-	bool app_cmd;
 	char bdf[UNVME_BDF_STRLEN];
 	int ret;
 
@@ -525,14 +447,6 @@ int main(int argc, char *argv[])
 		return -1;
 
 	atexit(unvme_cleanup);
-
-	app_cmd = !!(__cmd->ctype & UNVME_APP_CMD);
-
-	/*
-	 * Prepare stderr file for the current process to receive from the
-	 * daemon process.
-	 */
-	unvme_stdio_init(app_cmd);
 
 	if (unvme_send_msg(sock, &msg) < 0)
 		return -1;
