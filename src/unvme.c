@@ -29,6 +29,7 @@
 #include <argtable3.h>
 
 static struct command *__cmd;
+static char argv_file[UNVME_PWD_STRLEN];
 
 static int sock = -1;
 static char sock_path[64];
@@ -304,6 +305,8 @@ static void unvme_sigint(int signum)
 
 static void unvme_cleanup(void)
 {
+	remove(argv_file);
+
 	if (sock >= 0) {
 		close(sock);
 		unlink(sock_path);
@@ -359,6 +362,7 @@ static int unvme_msg_init(struct unvme_msg *msg, int argc, char *argv[],
 		return -1;
 	}
 
+	strcpy(argv_file, msg->msg.argv_file);
 	unvme_msg_to_daemon(msg);
 	msg->msg.argc = argc;
 	memcpy(msg->msg.bdf, bdf, bdf_len);
