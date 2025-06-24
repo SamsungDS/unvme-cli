@@ -324,7 +324,36 @@ static inline int unvme_cmdline_strlen(void)
 
 static int unvme_recv_msg(int sock, struct unvme_msg *msg)
 {
-	return unvme_socket_recv(sock, msg, &msg->msg.cli_addr);
+	struct cmsghdr *cmsg;
+	char controlbuf[CMSG_SPACE(sizeof(int) * 2)];
+	struct iovec iov = {
+		.iov_base = msg,
+		.iov_len = sizeof(*msg),
+	};
+	struct msghdr hdr = {
+		.msg_name = &msg->msg.cli_addr,
+		.msg_namelen = sizeof(msg->msg.cli_addr),
+		.msg_iov = &iov,
+		.msg_iovlen = 1,
+		.msg_control = controlbuf,
+		.msg_controllen = sizeof(controlbuf),
+	};
+	int *fds;
+	int ret;
+
+	ret = recvmsg(sock, &hdr, 0);
+	if (ret < 0)
+		return -1;
+
+	cmsg = CMSG_FIRSTHDR(&hdr);
+	if (!cmsg)
+		return -1;
+
+	fds = (int *)CMSG_DATA(cmsg);
+	msg->msg.stdout_fd = fds[0];
+	msg->msg.stderr_fd = fds[1];
+
+	return ret;
 }
 
 static int unvme_send_msg(int sock, struct unvme_msg *msg)
@@ -332,43 +361,10 @@ static int unvme_send_msg(int sock, struct unvme_msg *msg)
 	return unvme_socket_send(sock, msg, &msg->msg.cli_addr);
 }
 
-static void __unvme_get_stdio(pid_t pid, char *filefmt, FILE **stdio)
+static void unvme_get_stdio(struct unvme_msg *msg)
 {
-	char *filename = NULL;
-	FILE *file;
-	int ret;
-
-	ret = asprintf(&filename, filefmt, pid);
-	if (ret < 0) {
-		unvmed_log_err("failed to init stdio (ret=%d)", ret);
-		goto err;
-	}
-
-	do {
-		file = fopen(filename, "w");
-	} while (!file && errno == EMFILE);
-
-	if (!file) {
-		unvmed_log_err("failed to open %s", filename);
-		goto err;
-	}
-
-	*stdio = file;
-	setbuf(*stdio, NULL);
-
-	free(filename);
-	return;
-err:
-	if (filename)
-		free(filename);
-
-	unvme_release(0);
-}
-
-static void unvme_get_stdio(pid_t pid)
-{
-	__unvme_get_stdio(pid, UNVME_STDOUT, &__stdout);
-	__unvme_get_stdio(pid, UNVME_STDERR, &__stderr);
+	__stdout = fdopen(msg->msg.stdout_fd, "w");
+	__stderr = fdopen(msg->msg.stderr_fd, "w");
 }
 
 void unvme_exit_job(int ret)
@@ -379,7 +375,9 @@ void unvme_exit_job(int ret)
 	unvme_msg_to_client(__msg, unvme_msg_pid(__msg), ret);
 	unvme_send_msg(sock, __msg);
 
+	fflush(__stdout);
 	fclose(__stdout);
+	fflush(__stderr);
 	fclose(__stderr);
 
 	unvme_del_job(unvme_msg_pid(__msg));
@@ -391,12 +389,11 @@ void unvme_exit_job(int ret)
 static void *unvme_handler(void *opaque)
 {
 	struct unvme_msg *msg = (struct unvme_msg *)opaque;
-	pid_t pid = unvme_msg_pid(msg);
 	int ret;
 
 	__msg = msg;
 
-	unvme_get_stdio(pid);
+	unvme_get_stdio(msg);
 	ret = __unvme_handler(msg);
 
 	unvme_exit_job(ret);

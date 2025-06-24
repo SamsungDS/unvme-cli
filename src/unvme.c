@@ -31,8 +31,6 @@
 /*
  * for async stdio print handlers
  */
-static char *__stdout_fname;
-static char *__stderr_fname;
 static bool __stdio_stop;
 static pthread_t __stdio_th[4];
 static struct command *__cmd;
@@ -153,13 +151,33 @@ struct command *unvme_cmds(void)
 
 static int unvme_send_msg(int sock, struct unvme_msg *msg)
 {
+	char controlbuf[CMSG_SPACE(sizeof(int) * 2)];
+	struct iovec iov = {
+		.iov_base = msg,
+		.iov_len = sizeof(*msg),
+	};
+	struct msghdr hdr = {
+		.msg_iov = &iov,
+		.msg_iovlen = 1,
+		.msg_control = controlbuf,
+		.msg_controllen = sizeof(controlbuf),
+	};
+	struct cmsghdr *cmsg = CMSG_FIRSTHDR(&hdr);
+	int fds[2] = {STDOUT_FILENO, STDERR_FILENO};
 	struct sockaddr_un daemon_addr = {0, };
 
 	daemon_addr.sun_family = AF_UNIX;
 	strncpy(daemon_addr.sun_path, UNVME_DAEMON_SOCK,
 			sizeof(daemon_addr.sun_path) - 1);
+	hdr.msg_name = &daemon_addr;
+	hdr.msg_namelen = sizeof(daemon_addr);
 
-	return unvme_socket_send(sock, msg, &daemon_addr);
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(int) * 2);
+	memcpy(CMSG_DATA(cmsg), &fds, sizeof(int) * 2);
+
+	return sendmsg(sock, &hdr, 0);
 }
 
 static int unvme_recv_msg(int sock, struct unvme_msg *msg)
@@ -270,42 +288,6 @@ bool unvme_is_daemon_running(void)
 	return true;
 }
 
-static void unvme_exit(void)
-{
-	exit(EXIT_FAILURE);
-}
-
-static void __unvme_stdio_init(char **fname, char *filefmt)
-{
-	pid_t pid = getpid();
-	FILE *file;
-	int ret;
-
-	ret = asprintf(fname, filefmt, pid);
-	if (ret < 0) {
-		unvme_pr_err("failed to init stdio (ret=%d)\n", ret);
-		goto err;
-	}
-
-	if (mkdir("/var/log/unvmed", 0755) < 0 && errno != EEXIST) {
-		unvme_pr_err("failed to create /var/log/unvmed dir\n");
-		goto err;
-	}
-
-	file = fopen(*fname, "w");
-	if (!file) {
-		unvme_pr_err("failed to create %s\n", *fname);
-		goto err;
-	}
-
-	fclose(file);
-	return;
-err:
-	if (*fname)
-		free(*fname);
-	unvme_exit();
-}
-
 static void __unvme_stdio_pr(const char *fname, int stdio, bool to_remove)
 {
 	char buf[256];
@@ -336,18 +318,6 @@ static void __unvme_stdio_pr(const char *fname, int stdio, bool to_remove)
 		remove(fname);
 }
 
-static void *unvme_stdout_handler(void *opaque)
-{
-	__unvme_stdio_pr(__stdout_fname, STDOUT_FILENO, true);
-	pthread_exit(NULL);
-}
-
-static void *unvme_stderr_handler(void *opaque)
-{
-	__unvme_stdio_pr(__stderr_fname, STDERR_FILENO, true);
-	pthread_exit(NULL);
-}
-
 static void *unvme_app_stdout_handler(void *opaque)
 {
 	__unvme_stdio_pr(UNVME_DAEMON_STDOUT, STDOUT_FILENO, false);
@@ -368,12 +338,6 @@ static void *unvme_app_stderr_handler(void *opaque)
 
 static void unvme_stdio_init(bool app_stdio)
 {
-	__unvme_stdio_init(&__stdout_fname, UNVME_STDOUT);
-	__unvme_stdio_init(&__stderr_fname, UNVME_STDERR);
-
-	pthread_create(&__stdio_th[0], NULL, unvme_stdout_handler, NULL);
-	pthread_create(&__stdio_th[1], NULL, unvme_stderr_handler, NULL);
-
 	if (app_stdio) {
 		pthread_create(&__stdio_th[2], NULL, unvme_app_stdout_handler, NULL);
 		pthread_create(&__stdio_th[3], NULL, unvme_app_stderr_handler, NULL);

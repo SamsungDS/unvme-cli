@@ -55,6 +55,8 @@ struct unvme_msg {
 		 * UDS-specific fields managed by daemon.
 		 */
 		struct sockaddr_un cli_addr;
+		int stdout_fd;
+		int stderr_fd;
 
 		union {
 			/*
