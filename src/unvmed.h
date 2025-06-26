@@ -53,6 +53,7 @@ const char *unvmed_get_libfio(void);
 extern __thread FILE *__stdout;
 extern __thread FILE *__stderr;
 
+void unvme_flush_stdio(void);
 void unvme_exit_job(int ret);
 
 #ifdef unvme_pr

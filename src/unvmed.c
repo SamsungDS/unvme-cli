@@ -388,6 +388,12 @@ static void unvme_get_stdio(struct unvme_msg *msg)
 	__stderr = fdopen(msg->msg.stderr_fd, "w");
 }
 
+void unvme_flush_stdio(void)
+{
+	fflush(__stdout);
+	fflush(__stderr);
+}
+
 void unvme_exit_job(int ret)
 {
 	if (!__msg)
@@ -396,9 +402,8 @@ void unvme_exit_job(int ret)
 	unvme_msg_to_client(__msg, unvme_msg_pid(__msg), ret);
 	unvme_send_msg(sock, __msg);
 
-	fflush(__stdout);
+	unvme_flush_stdio();
 	fclose(__stdout);
-	fflush(__stderr);
 	fclose(__stderr);
 
 	unvme_del_job(unvme_msg_pid(__msg));

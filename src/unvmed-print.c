@@ -38,6 +38,14 @@ void unvme_pr_sqe(union nvme_cmd *sqe)
 	json_object_object_add(root, "sqe", sqe_obj);
 	unvme_pr_err("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_SPACED));
 
+	/*
+	 * Flush stdout and stderr in unvmed daemon process which will go to
+	 * the CLI process stdout and stderr since @sqe might be needed by the
+	 * CLI process while @cqe does not come yet.  To ensure that @sqe
+	 * structure to be printed in the client side, flush the stdio here.
+	 */
+	unvme_flush_stdio();
+
 	json_object_put(root);
 }
 
