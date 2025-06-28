@@ -52,9 +52,14 @@ void unvme_pr_sqe(union nvme_cmd *sqe)
 void unvme_pr_cqe(struct nvme_cqe *cqe)
 {
 	uint32_t sct, sc;
+	uint8_t p, crd, m, dnr;
 
+	p = (le16_to_cpu(cqe->sfp) >> 0) & 0x1;
 	sct = (le16_to_cpu(cqe->sfp) >> 9) & 0x7;
 	sc = (le16_to_cpu(cqe->sfp) >> 1) & 0xff;
+	crd = (le16_to_cpu(cqe->sfp) >> 12) & 0x3;
+	m = (le16_to_cpu(cqe->sfp) >> 14) & 0x1;
+	dnr = (le16_to_cpu(cqe->sfp) >> 15) & 0x1;
 
 	struct json_object *root = json_object_new_object();
 	struct json_object *cqe_obj = json_object_new_object();
@@ -64,8 +69,12 @@ void unvme_pr_cqe(struct nvme_cqe *cqe)
 	json_object_object_add(cqe_obj, "cid", json_object_new_int(cqe->cid));
 	json_object_object_add(cqe_obj, "dw0", json_object_new_int(le32_to_cpu(cqe->dw0)));
 	json_object_object_add(cqe_obj, "dw1", json_object_new_int(le32_to_cpu(cqe->dw1)));
+	json_object_object_add(cqe_obj, "p", json_object_new_int(p));
 	json_object_object_add(cqe_obj, "sct", json_object_new_int(sct));
 	json_object_object_add(cqe_obj, "sc", json_object_new_int(sc));
+	json_object_object_add(cqe_obj, "crd", json_object_new_int(crd));
+	json_object_object_add(cqe_obj, "m", json_object_new_int(m));
+	json_object_object_add(cqe_obj, "dnr", json_object_new_int(dnr));
 
 	json_object_object_add(root, "cqe", cqe_obj);
 	unvme_pr_err("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_SPACED));
