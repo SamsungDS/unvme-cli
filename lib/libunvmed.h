@@ -925,7 +925,7 @@ int unvmed_cmd_prep_delete_sq(struct unvme_cmd *cmd, uint32_t qid);
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_cmd_prep_create_cq(struct unvme_cmd *cmd, struct unvme *u,
-			      uint32_t qid, uint32_t qsize, uint32_t vector);
+			      uint32_t qid, uint32_t qsize, int vector);
 
 /**
  * unvmed_cmd_prep_delete_cq - Prepare Delete I/O Completion Queue command instance

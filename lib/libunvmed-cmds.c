@@ -823,7 +823,7 @@ int unvmed_cmd_prep_delete_sq(struct unvme_cmd *cmd, uint32_t qid)
 }
 
 int unvmed_cmd_prep_create_cq(struct unvme_cmd *cmd, struct unvme *u, uint32_t qid, uint32_t qsize,
-			      uint32_t vector)
+			      int vector)
 {
 	struct nvme_cmd_create_cq *sqe = (struct nvme_cmd_create_cq *)&cmd->sqe;
 	uint16_t qflags = NVME_Q_PC;
