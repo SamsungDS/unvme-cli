@@ -1486,13 +1486,6 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	unvmed_disable_ns_all(u);
 
 	/*
-	 * Quiesce all submission queues to prevent I/O submission from upper
-	 * layer.  The queues should be re-enabled (unquiesced) back once
-	 * create I/O queue command is issued.
-	 */
-	unvmed_quiesce_sq_all(u);
-
-	/*
 	 * Wait for all the in-flight commands to complete, meaning that upper
 	 * layer application consumed all the completion queue entries that
 	 * issued.
@@ -1503,8 +1496,6 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 			;
 	}
 	pthread_rwlock_unlock(&u->sq_list_lock);
-
-	unvmed_unquiesce_sq_all(u);
 
 	/*
 	 * Delete I/O queues created with re-enabling the adminq.
@@ -3077,4 +3068,100 @@ int unvmed_mem_free(struct unvme *u, uint64_t iova)
 		return -1;
 
 	return __unvmed_mem_free(u, buf);
+}
+
+struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
+				uint32_t cqid)
+{
+	struct unvme_cq *ucq;
+	struct unvme_sq *usq;
+
+	ucq = unvmed_cq_find(u, cqid);
+	if (!ucq) {
+		unvmed_log_err("failed to find corresponding I/O CQ (qid=%d)",
+				cqid);
+		errno = ENODEV;
+		return NULL;
+	}
+
+	if (nvme_configure_sq(&u->ctrl, qid, qsize, ucq->q, 0) < 0) {
+		unvmed_log_err("failed to configure I/O SQ in libvfn");
+		return NULL;
+	}
+
+	usq = unvmed_init_usq(u, qid, qsize, ucq);
+	if (!usq) {
+		unvmed_log_err("failed to initialize usq instance. "
+				"discard sq instance from libvfn (qid=%d)",
+				qid);
+		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+		return NULL;
+	}
+
+	return usq;
+}
+
+struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
+				int vector)
+{
+	struct unvme_cq *ucq;
+
+	if (vector >= 0 && unvmed_init_irq(u, vector)) {
+		unvmed_log_err("failed to initialize irq (vector=%d)", vector);
+		return NULL;
+	}
+
+	if (!u->asq) {
+		unvmed_log_err("failed to initialize I/O CQ due to no Admin SQ");
+		errno = EPERM;
+		return NULL;
+	}
+
+	if (nvme_configure_cq(&u->ctrl, qid, qsize, vector)) {
+		unvmed_log_err("failed to configure I/O CQ in libvfn");
+		return NULL;
+	}
+
+	ucq = unvmed_init_ucq(u, qid);
+	if (!ucq) {
+		unvmed_log_err("failed to initialize ucq instance. "
+				"discard cq instance from libvfn (qid=%d)",
+				qid);
+		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+		return NULL;
+	}
+
+	/*
+	 * XXX: This should be done in unvmed_init_ucq()
+	 */
+	if (vector < 0)
+		unvmed_cq_iv(ucq) = -1;
+
+	return ucq;
+}
+
+int unvmed_free_sq(struct unvme *u, uint16_t qid)
+{
+	struct unvme_sq *usq = unvmed_sq_find(u, qid);
+
+	if (!usq) {
+		errno = ENODEV;
+		return -1;
+	}
+
+	__unvmed_delete_sq(u, usq);
+	return 0;
+}
+
+int unvmed_free_cq(struct unvme *u, uint16_t qid)
+{
+	struct unvme_cq *ucq = unvmed_cq_find(u, qid);
+
+	if (!ucq) {
+		errno = ENODEV;
+		return -1;
+	}
+
+	__unvmed_delete_cq(u, ucq);
+	return 0;
 }

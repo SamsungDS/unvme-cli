@@ -893,6 +893,102 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 int unvmed_delete_sq(struct unvme *u, uint32_t qid);
 
 /**
+ * unvmed_cmd_prep_create_sq - Prepare Create I/O Submission Queue command instance
+ * @cmd: command instance allocated from submission queue
+ * @u: unvme controller instance
+ * @qid: submission queue identifier
+ * @qsize: submission queue size
+ * @cqid: completion queue identifier
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_create_sq(struct unvme_cmd *cmd, struct unvme *u,
+			      uint32_t qid, uint32_t qsize, uint32_t cqid);
+
+/**
+ * unvmed_cmd_prep_delete_sq - Prepare Delete I/O Submission Queue command instance
+ * @cmd: command instance allocated from submission queue
+ * @qid: submission queue identifier to delete
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_delete_sq(struct unvme_cmd *cmd, uint32_t qid);
+
+/**
+ * unvmed_cmd_prep_create_cq - Prepare Create I/O Completion Queue command instance
+ * @cmd: command instance allocated from submission queue
+ * @u: unvme controller instance
+ * @qid: completion queue identifier
+ * @qsize: completion queue size
+ * @vector: interrupt vector for this completion queue
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_create_cq(struct unvme_cmd *cmd, struct unvme *u,
+			      uint32_t qid, uint32_t qsize, uint32_t vector);
+
+/**
+ * unvmed_cmd_prep_delete_cq - Prepare Delete I/O Completion Queue command instance
+ * @cmd: command instance allocated from submission queue
+ * @qid: completion queue identifier to delete
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_cmd_prep_delete_cq(struct unvme_cmd *cmd, uint32_t qid);
+
+/**
+ * unvmed_init_sq - Configure and initialize submission queue
+ * @u: unvme controller instance
+ * @qid: submission queue identifier
+ * @qsize: queue size
+ * @cqid: completion queue identifier
+ *
+ * This function performs both nvme_configure_sq() and usq initialization
+ * before SQE preparation. This separates libvfn operations from command prep.
+ *
+ * Return: initialized usq instance on success, NULL on error with ``errno`` set.
+ */
+struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
+				uint32_t cqid);
+
+/**
+ * unvmed_init_cq - Configure and initialize completion queue
+ * @u: unvme controller instance
+ * @qid: completion queue identifier
+ * @qsize: queue size
+ * @vector: interrupt vector
+ *
+ * This function performs CQ configuration and ucq initialization
+ * before SQE preparation. This separates libvfn operations from command prep.
+ *
+ * Return: initialized ucq instance on success, NULL on error with ``errno`` set.
+ */
+struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
+				int vector);
+
+/**
+ * unvmed_free_sq - Clean up SQ on command error
+ * @u: unvme controller instance
+ * @qid: submission queue identifier
+ *
+ * This function cleans up both usq and libvfn sq when command fails.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_free_sq(struct unvme *u, uint16_t qid);
+
+/**
+ * unvmed_free_cq - Clean up CQ on command error
+ * @u: unvme controller instance
+ * @qid: completion queue identifier
+ *
+ * This function cleans up both ucq and libvfn cq when command fails.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_free_cq(struct unvme *u, uint16_t qid);
+
+/**
  * unvmed_to_iova - Translate given vaddr to an I/O virtual address (IOVA)
  * @u: &struct unvme
  * @buf: virtual address to translate

@@ -738,6 +738,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *qid;
 	struct arg_int *qsize;
 	struct arg_int *vector;
+	struct arg_lit *verbose;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -751,10 +752,13 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		qid = arg_int1("q", "qid", "<n>", "[M] Completion Queue ID to create"),
 		qsize = arg_int1("z", "qsize", "<n>", "[M] Queue size (1-based)"),
 		vector = arg_int0("v", "vector", "<n>", "[O] Interrupt vector (defaults: -1)"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	struct unvme_sq *usq;
+	struct unvme_cq *ucq;
+	struct unvme_cmd *cmd;
 	int ret = 0;
 
 	/* Set default argument values prior to parsing */
@@ -785,13 +789,45 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	ret = unvmed_create_cq(u, arg_intv(qid), arg_intv(qsize),
-			arg_intv(vector));
-
-	if (ret) {
-		unvme_pr_err("failed to create cq\n");
+	ucq = unvmed_init_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector));
+	if (!ucq) {
+		unvme_pr_err("failed to configure and initialize I/O CQ\n");
 		ret = errno;
+		goto out;
 	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		unvmed_free_cq(u, arg_intv(qid));
+		ret = errno;
+		goto out;
+	}
+
+	if (unvmed_cmd_prep_create_cq(cmd, u, arg_intv(qid), arg_intv(qsize),
+				      arg_intv(vector)) < 0) {
+		unvme_pr_err("failed to prepare Create I/O Completion Queue command\n");
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
+	if (ret || !nvme_cqe_ok(&cmd->cqe)) {
+		unvme_pr_err("failed to create iocq\n");
+		ret = EINVAL;
+		goto free;
+	}
+
+free:
+	unvmed_cmd_free(cmd);
+	if (ret)
+		unvmed_free_cq(u, arg_intv(qid));
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -802,6 +838,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *qid;
+	struct arg_lit *verbose;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -811,10 +848,12 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		qid = arg_int1("q", "qid", "<n>", "[M] Completion Queue ID to delete"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	struct unvme_sq *usq;
+	struct unvme_cmd *cmd;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -839,12 +878,40 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	ret = unvmed_delete_cq(u, arg_intv(qid));
-
-	if (ret) {
-		unvme_pr_err("failed to delete iocq\n");
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
+		goto out;
 	}
+
+	if (unvmed_cmd_prep_delete_cq(cmd, arg_intv(qid)) < 0) {
+		unvme_pr_err("failed to prepare Delete I/O Completion Queue command\n");
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
+	if (!nvme_cqe_ok(&cmd->cqe)) {
+		unvme_pr_err("failed to delete iocq\n");
+		ret = EINVAL;
+		goto free;
+	}
+
+	if (unvmed_free_cq(u, arg_intv(qid))) {
+		unvme_pr_err("failed to delete iocq in libunvmed\n");
+		ret = errno;
+		goto free;
+	}
+
+free:
+	unvmed_cmd_free(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -857,6 +924,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *qid;
 	struct arg_int *qsize;
 	struct arg_int *cqid;
+	struct arg_lit *verbose;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -870,10 +938,13 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		qid = arg_int1("q", "qid", "<n>", "[M] Submission Queue ID to create"),
 		qsize = arg_int1("z", "qsize", "<n>", "[M] Queue size (1-based)"),
 		cqid = arg_int1("c", "cqid", "<n>", "[M] Completion Queue ID"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	struct unvme_sq *usq, *targetq;
+	struct unvme_cq *ucq;
+	struct unvme_cmd *cmd;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -899,13 +970,54 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	ret = unvmed_create_sq(u, arg_intv(qid), arg_intv(qsize),
-			arg_intv(cqid));
-
-	if (ret) {
-		unvme_pr_err("failed to create iosq\n");
-		ret = errno;
+	ucq = unvmed_cq_find(u, arg_intv(cqid));
+	if (!ucq) {
+		unvme_pr_err("failed to find cq (cqid=%u)\n", arg_intv(cqid));
+		ret = ENODEV;
+		goto out;
 	}
+
+	targetq = unvmed_init_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid));
+	if (!targetq) {
+		unvme_pr_err("failed to configure and initialize io submission queue\n");
+		ret = errno;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		unvmed_free_sq(u, arg_intv(qid));
+		ret = errno;
+		goto out;
+	}
+
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
+	if (unvmed_cmd_prep_create_sq(cmd, u, arg_intv(qid), arg_intv(qsize),
+				      arg_intv(cqid)) < 0) {
+		unvme_pr_err("failed to prepare Create I/O Submission Queue command\n");
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
+	if (!nvme_cqe_ok(&cmd->cqe)) {
+		unvme_pr_err("failed to create iosq\n");
+		ret = EINVAL;
+		goto free;
+	}
+
+free:
+	unvmed_cmd_free(cmd);
+	if (ret)
+		unvmed_free_sq(u, arg_intv(qid));
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -916,6 +1028,8 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_int *qid;
+	struct arg_lit *verbose;
+	struct arg_lit *nodb;
 	struct arg_lit *help;
 	struct arg_end *end;
 	const char *desc =
@@ -925,10 +1039,13 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		qid = arg_int1("q", "qid", "<n>", "[M] Submission Queue ID to delete"),
+		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
+		nodb = arg_lit0("N", "nodb", "[O] Don't update tail doorbell of the submission queue"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	struct unvme_sq *usq, *targetq;
+	struct unvme_cmd *cmd;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -954,12 +1071,46 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	ret = unvmed_delete_sq(u, arg_intv(qid));
-
-	if (ret) {
-		unvme_pr_err("failed to delete iosq\n");
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
 		ret = errno;
+		goto out;
 	}
+
+	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
+
+	if (arg_boolv(nodb))
+		cmd->flags |= UNVMED_CMD_F_NODB;
+
+	if (unvmed_cmd_prep_delete_sq(cmd, arg_intv(qid)) < 0) {
+		unvme_pr_err("failed to prepare Delete I/O Submission Queue command\n");
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
+	if (!nvme_cqe_ok(&cmd->cqe)) {
+		unvme_pr_err("failed to delete iosq\n");
+		ret = EINVAL;
+		goto free;
+	}
+
+	if (unvmed_free_sq(u, arg_intv(qid))) {
+		unvme_pr_err("failed to delete iosq in libunvmed\n");
+		ret = errno;
+		goto free;
+	}
+
+free:
+	unvmed_cmd_free(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;

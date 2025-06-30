@@ -794,3 +794,57 @@ int unvmed_cmd_wait(struct unvme_cmd *cmd)
 {
 	return __unvmed_cmd_wait(cmd);
 }
+
+int unvmed_cmd_prep_create_sq(struct unvme_cmd *cmd, struct unvme *u, uint32_t qid, uint32_t qsize,
+			      uint32_t cqid)
+{
+	struct nvme_cmd_create_sq *sqe = (struct nvme_cmd_create_sq *)&cmd->sqe;
+
+	sqe->opcode = nvme_admin_create_sq;
+	sqe->qid = cpu_to_le16(qid);
+	sqe->prp1 = cpu_to_le64(u->ctrl.sq[qid].mem.iova);
+	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
+	sqe->qflags = cpu_to_le16(NVME_Q_PC);
+	sqe->cqid = cpu_to_le16((uint16_t)cqid);
+	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+
+	return 0;
+}
+
+int unvmed_cmd_prep_delete_sq(struct unvme_cmd *cmd, uint32_t qid)
+{
+	struct nvme_cmd_delete_q *sqe = (struct nvme_cmd_delete_q *)&cmd->sqe;
+
+	sqe->opcode = nvme_admin_delete_sq;
+	sqe->qid = cpu_to_le16(qid);
+	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+
+	return 0;
+}
+
+int unvmed_cmd_prep_create_cq(struct unvme_cmd *cmd, struct unvme *u, uint32_t qid, uint32_t qsize,
+			      uint32_t vector)
+{
+	struct nvme_cmd_create_cq *sqe = (struct nvme_cmd_create_cq *)&cmd->sqe;
+
+	sqe->opcode = nvme_admin_create_cq;
+	sqe->qid = cpu_to_le16(qid);
+	sqe->prp1 = cpu_to_le64(u->ctrl.cq[qid].mem.iova);
+	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
+	sqe->qflags = cpu_to_le16(NVME_Q_PC);
+	sqe->iv = cpu_to_le16((uint16_t)vector);
+	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+
+	return 0;
+}
+
+int unvmed_cmd_prep_delete_cq(struct unvme_cmd *cmd, uint32_t qid)
+{
+	struct nvme_cmd_delete_q *sqe = (struct nvme_cmd_delete_q *)&cmd->sqe;
+
+	sqe->opcode = nvme_admin_delete_cq;
+	sqe->qid = cpu_to_le16(qid);
+	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+
+	return 0;
+}
