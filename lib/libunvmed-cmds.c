@@ -826,13 +826,20 @@ int unvmed_cmd_prep_create_cq(struct unvme_cmd *cmd, struct unvme *u, uint32_t q
 			      uint32_t vector)
 {
 	struct nvme_cmd_create_cq *sqe = (struct nvme_cmd_create_cq *)&cmd->sqe;
+	uint16_t qflags = NVME_Q_PC;
+	uint16_t iv = 0;
+
+	if (vector >= 0) {
+		qflags |= NVME_CQ_IEN;
+		iv = (uint16_t)vector;
+	}
 
 	sqe->opcode = nvme_admin_create_cq;
 	sqe->qid = cpu_to_le16(qid);
 	sqe->prp1 = cpu_to_le64(u->ctrl.cq[qid].mem.iova);
 	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
-	sqe->qflags = cpu_to_le16(NVME_Q_PC);
-	sqe->iv = cpu_to_le16((uint16_t)vector);
+	sqe->qflags = cpu_to_le16(qflags);
+	sqe->iv = cpu_to_le16(iv);
 	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
 
 	return 0;
