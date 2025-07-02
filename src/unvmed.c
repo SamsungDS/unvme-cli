@@ -399,12 +399,12 @@ void unvme_exit_job(int ret)
 	if (!__msg)
 		return;
 
-	unvme_msg_to_client(__msg, unvme_msg_pid(__msg), ret);
-	unvme_send_msg(sock, __msg);
-
 	unvme_flush_stdio();
 	fclose(__stdout);
 	fclose(__stderr);
+
+	unvme_msg_to_client(__msg, unvme_msg_pid(__msg), ret);
+	unvme_send_msg(sock, __msg);
 
 	unvme_del_job(unvme_msg_pid(__msg));
 
