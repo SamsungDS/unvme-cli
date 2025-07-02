@@ -1730,6 +1730,14 @@ static int fio_libunvmed_getevents(struct thread_data *td, unsigned int min,
 				unsigned int max, const struct timespec *t)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
+
+	/*
+	 * This function's called before .open_file() when the read_iolog
+	 * option is enabled meaning that @ld->usq can be NULL.
+	 */
+	if (td->o.read_iolog_file && !ld->usq)
+		return 0;
+
 	struct nvme_cqe *cqes = ld->cqes;
 	struct unvme_cq *ucq = ld->usq->ucq;
 	int ret;
