@@ -952,6 +952,15 @@ struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 				uint32_t cqid);
 
 /**
+ * unvmed_enable_sq - Enable the corresponding @usq finally
+ * @usq: submission queue (&struct unvme_sq)
+ *
+ * If application initializes @usq with `unvmed_init_sq()` and the Create I/O
+ * SQ command successfully done, call this function to finally enable the @usq.
+ */
+void unvmed_enable_sq(struct unvme_sq *usq);
+
+/**
  * unvmed_init_cq - Configure and initialize completion queue
  * @u: unvme controller instance
  * @qid: completion queue identifier
@@ -965,6 +974,15 @@ struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
  */
 struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 				int vector);
+
+/**
+ * unvmed_enable_cq - Enable the corresponding @ucq finally
+ * @ucq: completion queue (&struct unvme_cq)
+ *
+ * If application initializes @ucq with `unvmed_init_cq()` and the Create I/O
+ * CQ command successfully done, call this function to finally enable the @ucq.
+ */
+void unvmed_enable_cq(struct unvme_cq *ucq);
 
 /**
  * unvmed_free_sq - Clean up SQ on command error

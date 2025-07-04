@@ -824,6 +824,8 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto free;
 	}
 
+	unvmed_enable_cq(ucq);
+
 free:
 	unvmed_cmd_free(cmd);
 	if (ret)
@@ -1013,6 +1015,8 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		ret = EINVAL;
 		goto free;
 	}
+
+	unvmed_enable_sq(targetq);
 
 free:
 	unvmed_cmd_free(cmd);

@@ -1119,8 +1119,12 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		unvmed_sq_get(u, qid);
 	}
 
-	usq->enabled = true;
 	return __to_sq(usq);
+}
+
+void unvmed_enable_sq(struct unvme_sq *usq)
+{
+	usq->enabled = true;
 }
 
 static void __unvmed_free_usq(struct unvme *u, struct __unvme_sq *usq)
@@ -1167,8 +1171,12 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 		unvmed_cq_get(u, qid);
 	}
 
-	ucq->enabled = true;
 	return __to_cq(ucq);
+}
+
+void unvmed_enable_cq(struct unvme_cq *ucq)
+{
+	ucq->enabled = true;
 }
 
 static void __unvmed_free_ucq(struct unvme *u, struct __unvme_cq *ucq)
@@ -1628,6 +1636,8 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	if (!usq)
 		goto free_ucq;
 
+	unvmed_enable_cq(ucq);
+	unvmed_enable_sq(usq);
 	return 0;
 
 free_ucq:
@@ -1743,6 +1753,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 	if (vector < 0)
 		unvmed_cq_iv(ucq) = -1;
+
+	unvmed_enable_cq(ucq);
 
 	unvmed_cmd_free(cmd);
 	return 0;
@@ -1887,6 +1899,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		unvmed_cmd_free(cmd);
 		return -1;
 	}
+	unvmed_enable_sq(usq);
 
 	unvmed_cmd_free(cmd);
 	return 0;
