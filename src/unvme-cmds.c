@@ -11,6 +11,7 @@
 
 #include <sys/signal.h>
 #include <sys/msg.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 #include <ccan/str/str.h>
@@ -100,6 +101,7 @@ out:
 
 static int __kill(const char *name)
 {
+	struct stat buffer;
 	char pids[16];
 	char *cmd = NULL;
 	pid_t pid;
@@ -130,11 +132,13 @@ static int __kill(const char *name)
 			continue;
 
 		kill(pid, SIGTERM);
-		if (waitpid(pid, NULL, 0) < 0) {
-			kill(pid, SIGKILL);
-			waitpid(pid, NULL, 0);
-		}
 	}
+
+	/*
+	 * Ensure that the daemon process is successfully terminated.
+	 */
+	while (!stat(UNVME_DAEMON_PID, &buffer))
+		sleep(0.01);
 
 	pclose(fp);
 	return 0;
