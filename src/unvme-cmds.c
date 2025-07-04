@@ -101,7 +101,6 @@ out:
 
 static int __kill(const char *name)
 {
-	struct stat buffer;
 	char pids[16];
 	char *cmd = NULL;
 	pid_t pid;
@@ -137,7 +136,7 @@ static int __kill(const char *name)
 	/*
 	 * Ensure that the daemon process is successfully terminated.
 	 */
-	while (!stat(UNVME_DAEMON_PID, &buffer))
+	while (unvme_is_daemon_running())
 		sleep(0.01);
 
 	pclose(fp);
