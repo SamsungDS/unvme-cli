@@ -8,6 +8,118 @@
 #include "libunvmed.h"
 #include "libunvmed-private.h"
 
+static inline int __find_first_zero(uint8_t byte)
+{
+	if (byte == -1)
+		return -1;
+
+	for (int i = 0; i < 8; i++) {
+		if (!(byte & (1 << i)))
+			return i;
+	}
+
+	return -1;
+}
+
+static int unvmed_cid_alloc(struct unvme_sq *usq, uint16_t *cid)
+{
+	struct unvme_bitmap *bitmap = &usq->cids;
+	int i = atomic_load_acquire(&bitmap->top);
+
+	for (;;) {
+		uint8_t old = atomic_load_acquire(&bitmap->bits[i]);
+		uint8_t desired;
+		int pos;
+
+		if (old == 0xFF)
+			break;
+
+		pos = __find_first_zero(old);
+		if (pos < 0)
+			break;
+
+		desired = old | (1 << pos);
+		if (atomic_cmpxchg(&bitmap->bits[i], old, desired)) {
+			*cid = i * 8 + pos;
+			return 0;
+		}
+	}
+
+	for (i = 0; i < bitmap->nr_bytes; ++i) {
+		uint8_t old = atomic_load_acquire(&bitmap->bits[i]);
+		uint8_t desired;
+		int pos;
+
+		if (old == 0xFF)
+			continue;
+
+		pos = __find_first_zero(old);
+		if (pos < 0)
+			continue;
+
+		desired = old | (1 << pos);
+		if (atomic_cmpxchg(&bitmap->bits[i], old, desired)) {
+			atomic_store_release(&bitmap->top, i);
+			*cid = i * 8 + pos;
+			return 0;
+		}
+	}
+
+	errno = EBUSY;
+	return -1;
+}
+
+static int unvmed_cid_alloc_n(struct unvme_sq *usq, uint16_t cid)
+{
+	struct unvme_bitmap *bitmap = &usq->cids;
+	size_t byte_index = cid / 8;
+	size_t bit_index = cid % 8;
+
+	uint8_t mask = 1 << bit_index;
+	uint8_t old;
+	uint8_t desired;
+
+	if (cid >= bitmap->size) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	do {
+		old = atomic_load_acquire(&bitmap->bits[byte_index]);
+		if (old & mask) {
+			errno = EBUSY;
+			return -1;
+		}
+
+		desired = old | mask;
+	} while (!atomic_cmpxchg(&bitmap->bits[byte_index], old, desired));
+
+	return 0;
+}
+
+static int unvmed_cid_free(struct unvme_sq *usq, uint16_t cid)
+{
+	struct unvme_bitmap *bitmap = &usq->cids;
+	size_t byte_index = cid / 8;
+	size_t bit_index = cid % 8;
+
+	uint8_t mask = ~(1 << bit_index);
+	uint8_t old;
+	uint8_t desired;
+
+	if (cid >= bitmap->size) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	do {
+		old = atomic_load_acquire(&bitmap->bits[byte_index]);
+		desired = old & mask;
+	} while (!atomic_cmpxchg(&bitmap->bits[byte_index], old, desired));
+
+	return 0;
+}
+
 /*
  * This function is from `libnvme` with few modifications.  It updates the
  * given @sqe with cdw2, cdw3, cdw14 and cdw15, remaining fields should be
@@ -85,15 +197,24 @@ static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u, struct unvme_sq *us
 {
 	struct unvme_cmd *cmd;
 	struct nvme_rq *rq;
+	uint16_t cid;
 
 	rq = nvme_rq_acquire_atomic(usq->q);
 	if (!rq)
 		return NULL;
 
+	cid = rq->cid;
+
+	if (unvmed_cid_alloc_n(usq, cid)) {
+		nvme_rq_release_atomic(rq);
+		return NULL;
+	}
+
 	atomic_inc(&usq->nr_cmds);
 
-	cmd = &usq->cmds[rq->cid];
+	cmd = &usq->cmds[cid];
 	memset(cmd, 0, sizeof(*cmd));
+	cmd->cid = cid;
 	cmd->u = u;
 	cmd->usq = usq;
 	cmd->rq = rq;
@@ -182,10 +303,12 @@ void __unvmed_cmd_free(struct unvme_cmd *cmd)
 {
 	struct unvme_sq *usq = cmd->usq;
 	struct nvme_rq *rq = cmd->rq;
+	uint16_t cid = cmd->cid;
 
 	memset(cmd, 0, sizeof(*cmd));
 	atomic_dec(&usq->nr_cmds);
 
+	unvmed_cid_free(usq, cid);
 	nvme_rq_release_atomic(rq);
 }
 

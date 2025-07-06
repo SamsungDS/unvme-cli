@@ -74,6 +74,19 @@ struct nvme_cq;
 struct nvme_rq;
 
 /*
+ * struct unvme_bitmap - atomic bitmap data structure
+ * @size: Number of bits
+ * @nr_bytes: Number of bytes to cover @size
+ * @bits: Actual bitmap data array
+ */
+struct unvme_bitmap {
+	size_t size;
+	size_t nr_bytes;
+	uint8_t *bits;
+	int top;
+};
+
+/*
  * struct unvme_ns - Namespace instance
  * @u: unvme controller instance
  * @refcnt: reference count
@@ -125,6 +138,7 @@ struct name {			\
 	struct nvme_sq *q;	\
 	struct unvme_cq *ucq;	\
 	struct unvme_cmd *cmds; \
+	struct unvme_bitmap cids;\
 	int nr_cmds;		\
 	pthread_spinlock_t lock;\
 	bool enabled;		\
@@ -212,6 +226,7 @@ struct unvme_cmd {
 	unsigned long flags;
 
 	struct unvme_sq *usq;
+	uint16_t cid;
 
 	/*
 	 * rq->opaque will point to the current structure pointer.

@@ -1081,6 +1081,29 @@ out:
 	return ret;
 }
 
+static int unvmed_cid_init(struct unvme_sq *usq, size_t size)
+{
+	struct unvme_bitmap *bitmap = &usq->cids;
+
+	bitmap->size = size;
+	bitmap->nr_bytes = (size + 8 - 1) / 8;
+	bitmap->bits = calloc(bitmap->nr_bytes, sizeof(uint8_t));
+
+	if (!bitmap->bits) {
+		errno = ENOMEM;
+		return -1;
+	}
+
+	return 0;
+}
+
+static void unvmed_cid_free(struct unvme_sq *usq)
+{
+	struct unvme_bitmap *bitmap = &usq->cids;
+
+	free(bitmap->bits);
+}
+
 static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 					uint32_t qsize, struct unvme_cq *ucq)
 {
@@ -1109,13 +1132,18 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	if (alloc) {
 		usq->cmds = calloc(qsize, sizeof(struct unvme_cmd));
 
+		if (unvmed_cid_init(__to_sq(usq), qsize) < 0) {
+			free(usq->cmds);
+			free(usq);
+			return NULL;
+		}
+
 		pthread_rwlock_wrlock(&u->sq_list_lock);
 		list_add_tail(&u->sq_list, &usq->list);
 		u->sqs[qid] = __to_sq(usq);
 		if (!qid)
 			u->asq = __to_sq(usq);
 		pthread_rwlock_unlock(&u->sq_list_lock);
-
 		unvmed_sq_get(u, qid);
 	}
 
@@ -1129,6 +1157,7 @@ void unvmed_enable_sq(struct unvme_sq *usq)
 
 static void __unvmed_free_usq(struct unvme *u, struct __unvme_sq *usq)
 {
+	unvmed_cid_free(__to_sq(usq));
 	u->sqs[unvmed_sq_id(usq)] = NULL;
 	if (!unvmed_sq_id(usq))
 		u->asq = NULL;
