@@ -2022,4 +2022,124 @@ int unvmed_mem_free(struct unvme *u, uint64_t iova);
 #define unvmed_write64(u, offset, value) \
 	mmio_write64(unvmed_reg(u) + (offset), cpu_to_le64((value)))
 
+/**
+ * unvmed_cmd_prep_create_ns - Prepare Create Namespace command instance
+ * @cmd: command instance allocated from submission queue
+ * @nsze: namespace size (NSZE)
+ * @ncap: namespace capacity (NCAP)
+ * @flbas: formatted logical block size (FLBAS)
+ * @dps: data protection settings (DPS)
+ * @nmic: namespace multipath and sharing capabilities (NMIC)
+ * @anagrp_id: ANA Group Identifier (ANAGRPID)
+ * @nvmset_id: NVM Set Identifier (NVMSETID)
+ * @endg_id: Endurance Group Identifier (ENDGID)
+ * @csi: command set identifier (CSI)
+ * @lbstm: logical block storage tag mask (LBSTM)
+ * @nphndls: number of placement handles (NPHNDLS)
+ * @phndls: Placemenet Handles (PHNDLS)
+ * @iov: iovec for namespace management data
+ * @nr_iov: number of iovec
+ *
+ * Returns 0 on success, -1 on failure. The command must be submitted
+ * explicitly by the caller.
+ */
+int unvmed_cmd_prep_create_ns(struct unvme_cmd *cmd, uint64_t nsze,
+			      uint64_t ncap, uint8_t flbas, uint8_t dps,
+			      uint8_t nmic, uint32_t anagrp_id,
+			      uint16_t nvmset_id, uint16_t endg_id,
+			      uint8_t csi, uint64_t lbstm, uint16_t nphndls,
+			      uint16_t *phndls, struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_create_ns - Create Namespace
+ * @cmd: command instance allocated from submission queue
+ * @nsze: namespace size (NSZE)
+ * @ncap: namespace capacity (NCAP)
+ * @flbas: formatted logical block size (FLBAS)
+ * @dps: data protection settings (DPS)
+ * @nmic: namespace multipath and sharing capabilities (NMIC)
+ * @anagrp_id: ANA Group Identifier (ANAGRPID)
+ * @nvmset_id: NVM Set Identifier (NVMSETID)
+ * @endg_id: Endurance Group Identifier (ENDGID)
+ * @csi: command set identifier (CSI)
+ * @lbstm: logical block storage tag mask (LBSTM)
+ * @nphndls: number of placement handles (NPHNDLS)
+ * @phndls: Placemenet Handles (PHNDLS)
+ * @iov: iovec for namespace management data
+ * @nr_iov: number of iovec
+ *
+ * Returns command result on success (>= 0) or a negative error on failure.
+ */
+int unvmed_create_ns(struct unvme_cmd *cmd, uint64_t nsze, uint64_t ncap,
+		     uint8_t flbas, uint8_t dps, uint8_t nmic,
+		     uint32_t anagrp_id, uint16_t nvmset_id, uint16_t endg_id,
+		     uint8_t csi, uint64_t lbstm, uint16_t nphndls,
+		     uint16_t *phndls, struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_cmd_prep_delete_ns - Prepare Delete Namespace command instance
+ * @cmd: command instance allocated from submission queue
+ * @nsid: namespace identifier to delete
+ */
+int unvmed_cmd_prep_delete_ns(struct unvme_cmd *cmd, uint32_t nsid);
+
+/**
+ * unvmed_delete_ns - Delete a namespace
+ * @cmd: command instance allocated from submission queue
+ * @nsid: namespace identifier to delete
+ */
+int unvmed_delete_ns(struct unvme_cmd *cmd, uint32_t nsid);
+
+/**
+ * unvmed_cmd_prep_attach_ns - Prepare Attach Namespace command instance
+ * @cmd: command instance allocated from submission queue
+ * @nsid: namespace identifier to attach
+ * @nr_ctrlids: number of controller identifiers
+ * @ctrlids: array of controller identifiers
+ * @iov: scatter gather list for controller list data
+ * @nr_iov: number of scatter gather list entries
+ */
+int unvmed_cmd_prep_attach_ns(struct unvme_cmd *cmd, uint32_t nsid,
+			      int nr_ctrlids, uint16_t *ctrlids,
+			      struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_attach_ns - Attach a namespace to controllers
+ * @cmd: command instance allocated from submission queue
+ * @nsid: namespace identifier to attach
+ * @nr_ctrlids: number of controller identifiers
+ * @ctrlids: array of controller identifiers
+ * @iov: scatter gather list for controller list data
+ * @nr_iov: number of scatter gather list entries
+ */
+int unvmed_attach_ns(struct unvme_cmd *cmd, uint32_t nsid,
+		     int nr_ctrlids, uint16_t *ctrlids,
+		     struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_cmd_prep_detach_ns - Prepare Detach Namespace command instance
+ * @cmd: command instance allocated from submission queue
+ * @nsid: namespace identifier to detach
+ * @nr_ctrlids: number of controller identifiers
+ * @ctrlids: array of controller identifiers
+ * @iov: scatter gather list for controller list data
+ * @nr_iov: number of scatter gather list entries
+ */
+int unvmed_cmd_prep_detach_ns(struct unvme_cmd *cmd, uint32_t nsid,
+			      int nr_ctrlids, uint16_t *ctrlids,
+			      struct iovec *iov, int nr_iov);
+
+/**
+ * unvmed_detach_ns - Detach a namespace from controllers
+ * @cmd: command instance allocated from submission queue
+ * @nsid: namespace identifier to detach
+ * @nr_ctrlids: number of controller identifiers
+ * @ctrlids: array of controller identifiers
+ * @iov: scatter gather list for controller list data
+ * @nr_iov: number of scatter gather list entries
+ */
+int unvmed_detach_ns(struct unvme_cmd *cmd, uint32_t nsid,
+		     int nr_ctrlids, uint16_t *ctrlids,
+		     struct iovec *iov, int nr_iov);
+
 #endif

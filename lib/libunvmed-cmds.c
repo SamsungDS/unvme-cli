@@ -790,6 +790,150 @@ int unvmed_id_secondary_ctrl_list(struct unvme_cmd *cmd, struct iovec *iov,
 	return unvmed_cmd_issue_and_wait(cmd);
 }
 
+int unvmed_cmd_prep_create_ns(struct unvme_cmd *cmd, uint64_t nsze,
+			      uint64_t ncap, uint8_t flbas, uint8_t dps,
+			      uint8_t nmic, uint32_t anagrp_id,
+			      uint16_t nvmset_id, uint16_t endg_id,
+			      uint8_t csi, uint64_t lbstm, uint16_t nphndls,
+			      uint16_t *phndls, struct iovec *iov, int nr_iov)
+{
+	union nvme_cmd *sqe = &cmd->sqe;
+	struct nvme_ns_mgmt_host_sw_specified *id_ns =
+		(struct nvme_ns_mgmt_host_sw_specified *)cmd->buf.va;
+
+	id_ns->nsze = cpu_to_le64(nsze);
+	id_ns->ncap = cpu_to_le64(ncap);
+	id_ns->flbas = flbas;
+	id_ns->dps = dps;
+	id_ns->nmic = nmic;
+	id_ns->anagrpid = cpu_to_le32(anagrp_id);
+	id_ns->nvmsetid = cpu_to_le16(nvmset_id);
+	id_ns->endgid = cpu_to_le16(endg_id);
+	id_ns->lbstm = cpu_to_le64(lbstm);
+	id_ns->nphndls = cpu_to_le16(nphndls);
+	for (int i = 0; i < nphndls; i++)
+		id_ns->phndl[i] = cpu_to_le16(phndls[i]);
+
+	sqe->opcode = nvme_admin_ns_mgmt;
+	sqe->cdw10 = NVME_NS_MGMT_SEL_CREATE;
+	sqe->cdw11 = cpu_to_le32(csi << 24);
+	nvme_rq_prep_cmd(cmd->rq, sqe);
+
+	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for prp");
+		return -1;
+	}
+	return 0;
+}
+
+int unvmed_create_ns(struct unvme_cmd *cmd, uint64_t nsze, uint64_t ncap,
+		     uint8_t flbas, uint8_t dps, uint8_t nmic,
+		     uint32_t anagrp_id, uint16_t nvmset_id, uint16_t endg_id,
+		     uint8_t csi, uint64_t lbstm, uint16_t nphndls,
+		     uint16_t *phndls, struct iovec *iov, int nr_iov)
+{
+	if (unvmed_cmd_prep_create_ns(cmd, nsze, ncap, flbas, dps, nmic,
+				      anagrp_id, nvmset_id, endg_id, csi, lbstm,
+				      nphndls, phndls, iov, nr_iov) < 0) {
+		unvmed_log_err("failed to prepare Create Namespace command");
+		return -1;
+	}
+
+	return unvmed_cmd_issue_and_wait(cmd);
+}
+
+int unvmed_cmd_prep_delete_ns(struct unvme_cmd *cmd, uint32_t nsid)
+{
+	union nvme_cmd *sqe = &cmd->sqe;
+
+	sqe->opcode = nvme_admin_ns_mgmt;
+	sqe->cdw10 = NVME_NS_MGMT_SEL_DELETE;
+	sqe->nsid = cpu_to_le32(nsid);
+	nvme_rq_prep_cmd(cmd->rq, sqe);
+
+	return 0;
+}
+
+int unvmed_delete_ns(struct unvme_cmd *cmd, uint32_t nsid)
+{
+	if (unvmed_cmd_prep_delete_ns(cmd, nsid) < 0) {
+		unvmed_log_err("failed to prepare Delete Namespace command");
+		return -1;
+	}
+
+	return unvmed_cmd_issue_and_wait(cmd);
+}
+
+int unvmed_cmd_prep_attach_ns(struct unvme_cmd *cmd, uint32_t nsid,
+			      int nr_ctrlids, uint16_t *ctrlids,
+			      struct iovec *iov, int nr_iov)
+{
+	union nvme_cmd *sqe = &cmd->sqe;
+	__le16 *__ctrlids = (uint16_t *)cmd->buf.va;
+
+	__ctrlids[0] = cpu_to_le16(nr_ctrlids);
+	for (int i = 0; i < nr_ctrlids; i++)
+		__ctrlids[i+1] = cpu_to_le16(ctrlids[i]);
+
+	sqe->opcode = nvme_admin_ns_attach;
+	sqe->nsid = cpu_to_le32(nsid);
+	sqe->cdw10 = NVME_NS_ATTACH_SEL_CTRL_ATTACH;
+	nvme_rq_prep_cmd(cmd->rq, sqe);
+
+	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for prp");
+		return -1;
+	}
+	return 0;
+}
+
+int unvmed_attach_ns(struct unvme_cmd *cmd, uint32_t nsid,
+		     int nr_ctrlids, uint16_t *ctrlids,
+		     struct iovec *iov, int nr_iov)
+{
+	if (unvmed_cmd_prep_attach_ns(cmd, nsid, nr_ctrlids, ctrlids, iov, nr_iov) < 0) {
+		unvmed_log_err("failed to prepare Attach Namespace command");
+		return -1;
+	}
+
+	return unvmed_cmd_issue_and_wait(cmd);
+}
+
+int unvmed_cmd_prep_detach_ns(struct unvme_cmd *cmd, uint32_t nsid,
+			      int nr_ctrlids, uint16_t *ctrlids,
+			      struct iovec *iov, int nr_iov)
+{
+	union nvme_cmd *sqe = &cmd->sqe;
+	__le16 *__ctrlids = (uint16_t *)cmd->buf.va;
+
+	__ctrlids[0] = cpu_to_le16(nr_ctrlids);
+	for (int i = 0; i < nr_ctrlids; i++)
+		__ctrlids[i+1] = cpu_to_le16(ctrlids[i]);
+
+	sqe->opcode = nvme_admin_ns_attach;
+	sqe->nsid = cpu_to_le32(nsid);
+	sqe->cdw10 = NVME_NS_ATTACH_SEL_CTRL_DEATTACH;
+	nvme_rq_prep_cmd(cmd->rq, sqe);
+
+	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
+		unvmed_log_err("failed to map iovec for prp");
+		return -1;
+	}
+	return 0;
+}
+
+int unvmed_detach_ns(struct unvme_cmd *cmd, uint32_t nsid,
+		     int nr_ctrlids, uint16_t *ctrlids,
+		     struct iovec *iov, int nr_iov)
+{
+	if (unvmed_cmd_prep_detach_ns(cmd, nsid, nr_ctrlids, ctrlids, iov, nr_iov) < 0) {
+		unvmed_log_err("failed to prepare Deattach Namespace command");
+		return -1;
+	}
+
+	return unvmed_cmd_issue_and_wait(cmd);
+}
+
 int unvmed_cmd_wait(struct unvme_cmd *cmd)
 {
 	return __unvmed_cmd_wait(cmd);

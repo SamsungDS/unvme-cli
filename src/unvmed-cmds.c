@@ -3741,3 +3741,389 @@ out:
 	unvme_free_args(argtable);
 	return ret;
 }
+
+int unvme_create_ns(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Create a namespace with the specified parameters.";
+
+	struct unvme *u;
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+
+	struct arg_int *csi = arg_int0("y", "csi", "<NUM>", "[O] command set identifier (CSI)");
+
+	/* Identify Namespace data structure */
+	struct arg_dbl *nsze = arg_dbl1("s", "nsze", "<IONUM>", "[M] size of ns (NSZE)");
+	struct arg_dbl *ncap = arg_dbl1("c", "ncap", "<IONUM>", "[M] capacity of ns (NCAP)");
+	struct arg_int *flbas = arg_int1("f", "flbas", "<NUM>", "[M] Formatted LBA size (FLBAS)");
+	struct arg_int *dps = arg_int0("d", "dps", "<NUM>", "[O] data protection settings (DPS)");
+	struct arg_int *nmic = arg_int0("m", "nmic", "<NUM>", "[O] multipath and sharing capabilities (NMIC)");
+	struct arg_int *anagrp_id = arg_int0("a", "anagrp-id", "<NUM>", "[O] ANA Group Identifier (ANAGRPID)");
+	struct arg_int *nvmset_id = arg_int0("i", "nvmset-id", "<NUM>", "[O] NVM Set Identifier (NVMSETID)");
+	struct arg_int *endg_id = arg_int0("e", "endg-id", "<NUM>", "[O] Endurance Group Identifier (ENDGID)");
+	struct arg_dbl *lbstm = arg_dbl0("l", "lbstm", "<IONUM>", "[O] logical block storage tag mask (LBSTM)");
+
+	/* FDP-related attributes */
+	struct arg_int *phndls = arg_intn("p", "phndls", "<n>", 0, 128, "[O] Placement Handle Associated RUH, multiple -p|--phndls can be given");
+
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print SQE and CQE in stderr");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+
+	void *argtable[] = {dev, csi, nsze, ncap, flbas, dps, nmic, anagrp_id,
+		nvmset_id, endg_id, lbstm, phndls, verbose, help,
+		end};
+
+	const size_t size = sizeof(struct nvme_ns_mgmt_host_sw_specified);
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq;
+	ssize_t len;
+	void *buf = NULL;
+	struct iovec iov;
+	uint16_t __phndls[128];
+	int ret;
+
+	arg_intv(csi) = 0;
+	arg_intv(dps) = 0;
+	arg_intv(nmic) = 0;
+	arg_intv(anagrp_id) = 0;
+	arg_intv(nvmset_id) = 0;
+	arg_intv(endg_id) = 0;
+	arg_dblv(lbstm) = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	len = pgmap(&buf, size);
+	if (len < 0) {
+		unvme_pr_err("failed to allocate data buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		pgunmap(buf, len);
+		ret = errno;
+		goto out;
+	}
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = size,
+	};
+
+	for (int i = 0; i < phndls->count; i++)
+		__phndls[i] = (uint16_t)phndls->ival[i];
+
+	if (unvmed_cmd_prep_create_ns(cmd, arg_dblv(nsze), arg_dblv(ncap),
+				      arg_intv(flbas), arg_intv(dps),
+				      arg_intv(nmic), arg_intv(anagrp_id),
+				      arg_intv(nvmset_id), arg_intv(endg_id),
+				      arg_intv(csi), arg_dblv(lbstm),
+				      phndls->count, __phndls, &iov, 1) < 0) {
+		unvme_pr_err("failed to prepare Create Namespace command\n");
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
+	if (!ret) {
+		unvme_pr("{ \"nsid\": %u }\n", le32_to_cpu(cmd->cqe.dw0));
+		if (unvmed_init_ns(u, le32_to_cpu(cmd->cqe.dw0), NULL)) {
+			unvme_pr_err("failed to initialize ns instance\n");
+			ret = errno;
+		}
+	} else if (ret < 0)
+		unvme_pr_err("failed to create namespace\n");
+
+free:
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
+int unvme_delete_ns(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Delete the given namespace by sending a namespace management command";
+
+	struct unvme *u;
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+
+	struct arg_dbl *nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID");
+
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print SQE and CQE in stderr");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+
+	void *argtable[] = {dev, nsid, verbose, help, end};
+
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq;
+	int ret;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, usq);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		ret = errno;
+		goto out;
+	}
+
+	if (unvmed_cmd_prep_delete_ns(cmd, arg_dblv(nsid)) < 0) {
+		unvme_pr_err("failed to prepare Delete Namespace command\n");
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
+	if (!ret) {
+		if (unvmed_init_ns(u, arg_dblv(nsid), NULL)) {
+			unvme_pr_err("failed to initialize ns instance\n");
+			ret = errno;
+		}
+	} else if (ret < 0)
+		unvme_pr_err("failed to delete namespace\n");
+
+free:
+	unvmed_cmd_free(cmd);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
+int unvme_attach_ns(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Attach the given namespace to one or more given controller(s)";
+
+	struct unvme *u;
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+
+	struct arg_dbl *nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID");
+	struct arg_int *ctrlids = arg_intn("c", "controllers", "<n>", 0, 2047, "[O] One or more controller ids");
+
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print SQE and CQE in stderr");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+
+	void *argtable[] = {dev, verbose, nsid, ctrlids, help, end};
+
+	const size_t size = 4096;
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq;
+	uint16_t __ctrlids[2048];
+	struct iovec iov;
+	void *buf = NULL;
+	ssize_t len;
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	len = pgmap(&buf, size);
+	if (len < 0) {
+		unvme_pr_err("failed to allocate data buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		ret = errno;
+		goto out;
+	}
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = size,
+	};
+
+	for (int i = 0; i < ctrlids->count; i++)
+		__ctrlids[i] = (uint16_t)ctrlids->ival[i];
+
+	if (unvmed_cmd_prep_attach_ns(cmd, arg_dblv(nsid), ctrlids->count,
+				__ctrlids, &iov, 1) < 0) {
+		unvme_pr_err("failed to prepare Attach Namespace command\n");
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
+	if (!ret) {
+		if (unvmed_init_ns(u, arg_dblv(nsid), NULL)) {
+			unvme_pr_err("failed to initialize ns instance\n");
+			ret = errno;
+		}
+	} else if (ret < 0)
+		unvme_pr_err("failed to attach namespace\n");
+
+free:
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
+
+int unvme_detach_ns(int argc, char *argv[], struct unvme_msg *msg)
+{
+	const char *desc =
+		"Deattach the given namespace from one or more given controller(s)";
+
+	struct unvme *u;
+	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
+
+	struct arg_dbl *nsid = arg_dbl1("n", "nsid", "<n>", "[M] Namespace ID");
+	struct arg_int *ctrlids = arg_intn("c", "controllers", "<n>", 0, 2047, "[O] One or more controller ids");
+
+	struct arg_lit *verbose = arg_lit0("v", "verbose", "[O] Print SQE and CQE in stderr");
+	struct arg_lit *help = arg_lit0("h", "help", "Show help message");
+	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
+
+	void *argtable[] = {dev, verbose, nsid, ctrlids, help, end};
+
+	const size_t size = 4096;
+	struct unvme_cmd *cmd;
+	struct unvme_sq *usq;
+	uint16_t __ctrlids[2048];
+	struct iovec iov;
+	void *buf = NULL;
+	ssize_t len;
+	int ret = 0;
+
+	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
+
+	u = unvmed_get(arg_strv(dev));
+	if (!u) {
+		unvme_pr_err("%s is not added to unvmed\n", arg_strv(dev));
+		ret = ENODEV;
+		goto out;
+	}
+
+	usq = unvmed_sq_find(u, 0);
+	if (!usq || !unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	len = pgmap(&buf, size);
+	if (len < 0) {
+		unvme_pr_err("failed to allocate data buffer\n");
+		ret = errno;
+		goto out;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+		ret = errno;
+		goto out;
+	}
+
+	iov = (struct iovec) {
+		.iov_base = buf,
+		.iov_len = size,
+	};
+
+	for (int i = 0; i < ctrlids->count; i++)
+		__ctrlids[i] = (uint16_t)ctrlids->ival[i];
+
+	if (unvmed_cmd_prep_detach_ns(cmd, arg_dblv(nsid), ctrlids->count,
+				__ctrlids, &iov, 1) < 0) {
+		unvme_pr_err("failed to prepare Deattach Namespace command\n");
+		ret = errno;
+		goto free;
+	}
+
+	if (arg_boolv(verbose))
+		unvme_pr_sqe(&cmd->sqe);
+
+	ret = unvmed_cmd_issue_and_wait(cmd);
+
+	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
+		unvme_pr_cqe(&cmd->cqe);
+
+	if (!ret) {
+		if (unvmed_init_ns(u, arg_dblv(nsid), NULL)) {
+			unvme_pr_err("failed to initialize ns instance\n");
+			ret = errno;
+		}
+	} else if (ret < 0)
+		unvme_pr_err("failed to deattach namespace\n");
+
+free:
+	unvmed_cmd_free(cmd);
+	pgunmap(buf, len);
+out:
+	unvme_free_args(argtable);
+	return ret;
+}
