@@ -131,13 +131,29 @@ static int __kill(const char *name)
 			continue;
 
 		kill(pid, SIGTERM);
-	}
 
-	/*
-	 * Ensure that the daemon process is successfully terminated.
-	 */
-	while (unvme_is_daemon_running())
-		sleep(0.01);
+		for (int i = 0; i < 100; i++) {
+			if (kill(pid, 0) == -1 && errno == ESRCH)
+				break;
+			usleep(10 * 1000);
+		}
+
+		if (!kill(pid, 0)) {
+			bool killed = false;
+
+			kill(pid, SIGKILL);
+			for (int i = 0; i < 100; i++) {
+				if (kill(pid, 0) == -1 && errno == ESRCH) {
+					killed = true;
+					break;
+				}
+				usleep(10 * 1000);
+			}
+
+			if (!killed)
+				unvme_pr_err("failed to stop process(%d)\n", pid);
+		}
+	}
 
 	pclose(fp);
 	return 0;
