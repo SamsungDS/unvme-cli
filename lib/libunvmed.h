@@ -722,6 +722,7 @@ int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl);
  * unvmed_alloc_cmd - Allocate a NVMe command instance.
  * @u: &struct unvme
  * @usq: submission queue instance (&struct unvme_sq)
+ * @cid: command identifier (if NULL, automatically allocated)
  * @buf: user data buffer virtual address
  * @len: size of user data buffer in bytes
  *
@@ -738,13 +739,14 @@ int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl);
  *
  * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
  */
-struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq, void *buf,
-				   size_t len);
+struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq,
+				   uint16_t *cid, void *buf, size_t len);
 
 /**
  * unvmed_alloc_cmd_nodata - Allocate a NVMe command instance without data
  * @u: &struct unvme
  * @usq: submission queue instance (&struct unvme_sq)
+ * @cid: command identifier (if NULL, automatically allocated)
  *
  * Allocate a NVMe command instance without data buffer to trasnfer.
  *
@@ -752,12 +754,14 @@ struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq, void *
  *
  * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
  */
-struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, struct unvme_sq *usq);
+struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u,
+					  struct unvme_sq *usq, uint16_t *cid);
 
 /**
  * unvmed_alloc_cmd_meta - Allocate a NVMe command instance with metadata
  * @u: &struct unvme
  * @usq: submission queue instance (&struct unvme_sq)
+ * @cid: command identifier (if NULL, automatically allocated)
  * @buf: user data buffer virtual address
  * @len: size of user data buffer in bytes
  * @mbuf: metadata buffer virtual address
@@ -771,8 +775,9 @@ struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, struct unvme_sq *usq)
  *
  * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
  */
-struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq, void *buf,
-					size_t len, void *mbuf, size_t mlen);
+struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
+					uint16_t *cid, void *buf, size_t len,
+					void *mbuf, size_t mlen);
 
 /**
  * __unvmed_cmd_free - Destroy a NVMe command instance

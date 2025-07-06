@@ -1261,9 +1261,9 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 		buf = libunvmed_prp_iomem(ld, io_u);
 
 	if (mlen)
-		cmd = unvmed_alloc_cmd_meta(ld->u, ld->usq, buf, len, mbuf, mlen);
+		cmd = unvmed_alloc_cmd_meta(ld->u, ld->usq, NULL, buf, len, mbuf, mlen);
 	else
-		cmd = unvmed_alloc_cmd(ld->u, ld->usq, buf, len);
+		cmd = unvmed_alloc_cmd(ld->u, ld->usq, NULL, buf, len);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
@@ -1364,7 +1364,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	if (!io_u->xfer_buf && io_u->xfer_buflen > 0)
 		buf = io_u->buf;
 
-	cmd = unvmed_alloc_cmd(ld->u, ld->usq, buf, dsm_range_size);
+	cmd = unvmed_alloc_cmd(ld->u, ld->usq, NULL, buf, dsm_range_size);
 	if (!cmd)
 		return FIO_Q_BUSY;
 
@@ -1398,7 +1398,7 @@ static enum fio_q_status fio_libunvmed_fsync(struct thread_data *td,
 	struct unvme_cmd *cmd;
 	union nvme_cmd sqe = {0, };
 
-	cmd = unvmed_alloc_cmd_nodata(ld->u, ld->usq);
+	cmd = unvmed_alloc_cmd_nodata(ld->u, ld->usq, NULL);
 	if (!cmd)
 		return FIO_Q_BUSY;
 

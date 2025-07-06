@@ -193,28 +193,36 @@ static void unvmed_buf_free(struct unvme *u, struct unvme_buf *buf)
 		pgunmap(buf->va, buf->len);
 }
 
-static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u, struct unvme_sq *usq)
+static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u,
+					    struct unvme_sq *usq, uint16_t *cid)
 {
 	struct unvme_cmd *cmd;
 	struct nvme_rq *rq;
-	uint16_t cid;
+	uint16_t __cid;
 
 	rq = nvme_rq_acquire_atomic(usq->q);
 	if (!rq)
 		return NULL;
 
-	cid = rq->cid;
+	if (cid) {
+		__cid = *cid;
 
-	if (unvmed_cid_alloc_n(usq, cid)) {
-		nvme_rq_release_atomic(rq);
-		return NULL;
+		if (unvmed_cid_alloc_n(usq, __cid)) {
+			nvme_rq_release_atomic(rq);
+			return NULL;
+		}
+	} else {
+		if (unvmed_cid_alloc(usq, &__cid)) {
+			nvme_rq_release_atomic(rq);
+			return NULL;
+		}
 	}
 
 	atomic_inc(&usq->nr_cmds);
 
-	cmd = &usq->cmds[cid];
+	cmd = &usq->cmds[__cid];
 	memset(cmd, 0, sizeof(*cmd));
-	cmd->cid = cid;
+	cmd->cid = __cid;
 	cmd->u = u;
 	cmd->usq = usq;
 	cmd->rq = rq;
@@ -276,12 +284,12 @@ static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
 }
 
 static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, struct unvme_sq *usq,
-					   void *buf, size_t len, void *mbuf,
-					   size_t mlen)
+					   uint16_t *cid, void *buf,
+					   size_t len, void *mbuf, size_t mlen)
 {
 	struct unvme_cmd *cmd;
 
-	cmd = __unvmed_cmd_alloc(u, usq);
+	cmd = __unvmed_cmd_alloc(u, usq, cid);
 	if (!cmd)
 		return NULL;
 
@@ -321,31 +329,32 @@ void unvmed_cmd_free(struct unvme_cmd *cmd)
 }
 
 struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq,
-				   void *buf, size_t len)
+				   uint16_t *cid, void *buf, size_t len)
 {
 	if (!buf || !len) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	return __unvmed_cmd_init(u, usq, buf, len, NULL, 0);
+	return __unvmed_cmd_init(u, usq, cid, buf, len, NULL, 0);
 }
 
-struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u, struct unvme_sq *usq)
+struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u,
+					  struct unvme_sq *usq, uint16_t *cid)
 {
-	return __unvmed_cmd_init(u, usq, NULL, 0, NULL, 0);
+	return __unvmed_cmd_init(u, usq, cid, NULL, 0, NULL, 0);
 }
 
 struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
-					void *buf, size_t len, void *mbuf,
-					size_t mlen)
+					uint16_t *cid, void *buf, size_t len,
+					void *mbuf, size_t mlen)
 {
 	if (!buf || !len) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	return __unvmed_cmd_init(u, usq, buf, len, mbuf, mlen);
+	return __unvmed_cmd_init(u, usq, cid, buf, len, mbuf, mlen);
 }
 
 int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
@@ -402,7 +411,7 @@ int unvmed_cmd_prep(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	union nvme_cmd *__sqe = &cmd->sqe;
 
 	*__sqe  = *sqe;
-	nvme_rq_prep_cmd(cmd->rq, __sqe);
+	__sqe->cid = cmd->cid;
 
 	if (!__sqe->dptr.prp1 && !__sqe->dptr.prp2) {
 		if (__unvmed_mapv_prp(cmd, __sqe, iov, nr_iov)) {
@@ -449,7 +458,7 @@ int unvmed_cmd_prep_id_ns(struct unvme_cmd *cmd, uint32_t nsid,
 	sqe->opcode = nvme_admin_identify;
 	sqe->nsid = cpu_to_le32(nsid);
 	sqe->cns = cpu_to_le32(0x0);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -475,7 +484,7 @@ int unvmed_cmd_prep_id_ctrl(struct unvme_cmd *cmd, struct iovec *iov, int nr_iov
 
 	sqe->opcode = nvme_admin_identify;
 	sqe->cns = NVME_IDENTIFY_CNS_CTRL;
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -502,7 +511,7 @@ int unvmed_cmd_prep_id_active_nslist(struct unvme_cmd *cmd, uint32_t nsid,
 	sqe->opcode = nvme_admin_identify;
 	sqe->nsid = cpu_to_le32(nsid);
 	sqe->cns = cpu_to_le32(0x2);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -530,7 +539,7 @@ int unvmed_cmd_prep_nvm_id_ns(struct unvme_cmd *cmd, uint32_t nsid,
 	sqe->opcode = nvme_admin_identify;
 	sqe->nsid = cpu_to_le32(nsid);
 	sqe->cns = NVME_IDENTIFY_CNS_CSI_NS;
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -563,7 +572,7 @@ int unvmed_cmd_prep_set_features(struct unvme_cmd *cmd, uint32_t nsid,
 	sqe->rsvd42 = cpu_to_le16(save << CDW10_SAVE_SHIFT);
 	sqe->cdw11 = cpu_to_le32(cdw11);
 	sqe->cdw12 = cpu_to_le32(cdw12);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -599,7 +608,7 @@ int unvmed_cmd_prep_set_features_hmb(struct unvme_cmd *cmd, uint32_t hsize,
 	sqe->cdw13 = cpu_to_le32(descs_addr & 0xffffffff);
 	sqe->cdw14 = cpu_to_le32(descs_addr >> 32);
 	sqe->cdw15 = cpu_to_le32(nr_descs);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	return 0;
 }
@@ -632,7 +641,7 @@ int unvmed_cmd_prep_get_features(struct unvme_cmd *cmd, uint32_t nsid,
 	sqe->sel = sel;
 	sqe->cdw11 = cpu_to_le32(cdw11);
 	sqe->cdw14 = cpu_to_le32(cdw14);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -667,7 +676,7 @@ int unvmed_cmd_prep_read(struct unvme_cmd *cmd, uint32_t nsid, uint64_t slba,
 	sqe->nsid = cpu_to_le32(nsid);
 	sqe->slba = cpu_to_le64(slba);
 	sqe->nlb = cpu_to_le16(nlb);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (cmd->flags & UNVMED_CMD_F_SGL)
 		ret = __unvmed_mapv_sgl(cmd, &cmd->sqe, iov, nr_iov);
@@ -741,7 +750,7 @@ int unvmed_cmd_prep_write(struct unvme_cmd *cmd, uint32_t nsid, uint64_t slba,
 	sqe->nsid = cpu_to_le32(nsid);
 	sqe->slba = cpu_to_le64(slba);
 	sqe->nlb = cpu_to_le16(nlb);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (cmd->flags & UNVMED_CMD_F_SGL)
 		ret = __unvmed_mapv_sgl(cmd, &cmd->sqe, iov, nr_iov);
@@ -815,7 +824,7 @@ int unvmed_cmd_prep_format(struct unvme_cmd *cmd, uint32_t nsid, uint8_t lbaf,
 	sqe->cdw10 = ((lbaf >> 4 & 3) << 12) | ((ses & 0x7) << 9) |
 		((pil & 0x1) << 8) | ((pi & 0x7) << 5) | ((mset & 0x1) << 4) |
 		(lbaf & 0xf);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	return 0;
 }
@@ -839,7 +848,7 @@ int unvmed_cmd_prep_virt_mgmt(struct unvme_cmd *cmd, uint32_t cntlid,
 	sqe->opcode = nvme_admin_virtual_mgmt;
 	sqe->cdw10 = ((act & 0xf) | ((rt & 0x7) << 8) | ((cntlid & 0xffff) << 16));
 	sqe->cdw11 = (nr & 0xffff);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	return 0;
 }
@@ -864,7 +873,7 @@ int unvmed_cmd_prep_id_primary_ctrl_caps(struct unvme_cmd *cmd,
 	sqe->opcode = nvme_admin_identify;
 	sqe->ctrlid = cntlid;
 	sqe->cns = NVME_IDENTIFY_CNS_PRIMARY_CTRL_CAP;
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -893,7 +902,7 @@ int unvmed_cmd_prep_id_secondary_ctrl_list(struct unvme_cmd *cmd,
 	sqe->opcode = nvme_admin_identify;
 	sqe->ctrlid = cntlid;
 	sqe->cns = NVME_IDENTIFY_CNS_SECONDARY_CTRL_LIST;
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -940,7 +949,7 @@ int unvmed_cmd_prep_create_ns(struct unvme_cmd *cmd, uint64_t nsze,
 	sqe->opcode = nvme_admin_ns_mgmt;
 	sqe->cdw10 = NVME_NS_MGMT_SEL_CREATE;
 	sqe->cdw11 = cpu_to_le32(csi << 24);
-	nvme_rq_prep_cmd(cmd->rq, sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -972,7 +981,7 @@ int unvmed_cmd_prep_delete_ns(struct unvme_cmd *cmd, uint32_t nsid)
 	sqe->opcode = nvme_admin_ns_mgmt;
 	sqe->cdw10 = NVME_NS_MGMT_SEL_DELETE;
 	sqe->nsid = cpu_to_le32(nsid);
-	nvme_rq_prep_cmd(cmd->rq, sqe);
+	sqe->cid = cmd->cid;
 
 	return 0;
 }
@@ -1001,7 +1010,7 @@ int unvmed_cmd_prep_attach_ns(struct unvme_cmd *cmd, uint32_t nsid,
 	sqe->opcode = nvme_admin_ns_attach;
 	sqe->nsid = cpu_to_le32(nsid);
 	sqe->cdw10 = NVME_NS_ATTACH_SEL_CTRL_ATTACH;
-	nvme_rq_prep_cmd(cmd->rq, sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -1036,7 +1045,7 @@ int unvmed_cmd_prep_detach_ns(struct unvme_cmd *cmd, uint32_t nsid,
 	sqe->opcode = nvme_admin_ns_attach;
 	sqe->nsid = cpu_to_le32(nsid);
 	sqe->cdw10 = NVME_NS_ATTACH_SEL_CTRL_DEATTACH;
-	nvme_rq_prep_cmd(cmd->rq, sqe);
+	sqe->cid = cmd->cid;
 
 	if (__unvmed_mapv_prp(cmd, &cmd->sqe, iov, nr_iov)) {
 		unvmed_log_err("failed to map iovec for prp");
@@ -1073,7 +1082,7 @@ int unvmed_cmd_prep_create_sq(struct unvme_cmd *cmd, struct unvme *u, uint32_t q
 	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
 	sqe->qflags = cpu_to_le16(NVME_Q_PC);
 	sqe->cqid = cpu_to_le16((uint16_t)cqid);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	return 0;
 }
@@ -1084,7 +1093,7 @@ int unvmed_cmd_prep_delete_sq(struct unvme_cmd *cmd, uint32_t qid)
 
 	sqe->opcode = nvme_admin_delete_sq;
 	sqe->qid = cpu_to_le16(qid);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	return 0;
 }
@@ -1107,7 +1116,7 @@ int unvmed_cmd_prep_create_cq(struct unvme_cmd *cmd, struct unvme *u, uint32_t q
 	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
 	sqe->qflags = cpu_to_le16(qflags);
 	sqe->iv = cpu_to_le16(iv);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	return 0;
 }
@@ -1118,7 +1127,7 @@ int unvmed_cmd_prep_delete_cq(struct unvme_cmd *cmd, uint32_t qid)
 
 	sqe->opcode = nvme_admin_delete_cq;
 	sqe->qid = cpu_to_le16(qid);
-	nvme_rq_prep_cmd(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
 
 	return 0;
 }

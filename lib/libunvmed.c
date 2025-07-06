@@ -830,7 +830,7 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd(u, u->asq, id_ns, sizeof(*id_ns));
+	cmd = unvmed_alloc_cmd(u, u->asq, NULL, id_ns, sizeof(*id_ns));
 	if (!cmd) {
 		unvmed_log_err("failed to allocate a command instance");
 		return -1;
@@ -939,7 +939,7 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd(u, u->asq, nvm_id_ns, sizeof(*nvm_id_ns));
+	cmd = unvmed_alloc_cmd(u, u->asq, NULL, nvm_id_ns, sizeof(*nvm_id_ns));
 	if (!cmd) {
 		unvmed_log_err("failed to allocate a command instance");
 		return -1;
@@ -984,7 +984,7 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd(u, u->asq, id_ctrl, sizeof(*id_ctrl));
+	cmd = unvmed_alloc_cmd(u, u->asq, NULL, id_ctrl, sizeof(*id_ctrl));
 	if (!cmd) {
 		unvmed_log_err("failed to allocate a command instance");
 		return -1;
@@ -1372,7 +1372,7 @@ static inline void unvmed_put_cqe(struct unvme_cq *ucq, uint32_t head,
 	cqe.qw0 = cpu_to_le64(0);
 	cqe.sqhd = cpu_to_le16(0);
 	cqe.sqid = cpu_to_le16(cmd->rq->sq->id);
-	cqe.cid = cmd->rq->cid;
+	cqe.cid = cmd->cid;
 	cqe.sfp = cpu_to_le16((status << 1) | (phase & 1));
 
 	__cqe = unvmed_get_cqe(ucq, head);
@@ -1736,7 +1736,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
+	cmd = unvmed_alloc_cmd_nodata(u, u->asq, NULL);
 	if (!cmd) {
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		return -1;
@@ -1830,7 +1830,7 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	if (!u->asq || !unvmed_sq_enabled(u->asq))
 		return -1;
 
-	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
+	cmd = unvmed_alloc_cmd_nodata(u, u->asq, NULL);
 	if (!cmd) {
 		return -1;
 	}
@@ -1890,7 +1890,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
+	cmd = unvmed_alloc_cmd_nodata(u, u->asq, NULL);
 	if (!cmd) {
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		return -1;
@@ -1999,7 +1999,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	if (!u->asq || !unvmed_sq_enabled(u->asq))
 		return -1;
 
-	cmd = unvmed_alloc_cmd_nodata(u, u->asq);
+	cmd = unvmed_alloc_cmd_nodata(u, u->asq, NULL);
 	if (!cmd) {
 		return -1;
 	}
@@ -2068,7 +2068,8 @@ int unvmed_unmap_vaddr(struct unvme *u, void *buf)
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags)
 {
-	nvme_rq_post(cmd->rq, (union nvme_cmd *)sqe);
+	sqe->cid = cmd->cid;
+	nvme_sq_post(cmd->rq->sq, (union nvme_cmd *)sqe);
 
 	STORE(cmd->state, UNVME_CMD_S_SUBMITTED);
 	unvmed_log_cmd_post(unvmed_bdf(cmd->u), cmd->rq->sq->id, sqe);
