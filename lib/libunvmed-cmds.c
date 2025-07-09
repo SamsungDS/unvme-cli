@@ -200,22 +200,20 @@ static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u,
 	struct nvme_rq *rq;
 	uint16_t __cid;
 
-	rq = nvme_rq_acquire_atomic(usq->q);
-	if (!rq)
-		return NULL;
-
 	if (cid) {
 		__cid = *cid;
 
-		if (unvmed_cid_alloc_n(usq, __cid)) {
-			nvme_rq_release_atomic(rq);
+		if (unvmed_cid_alloc_n(usq, __cid))
 			return NULL;
-		}
 	} else {
-		if (unvmed_cid_alloc(usq, &__cid)) {
-			nvme_rq_release_atomic(rq);
+		if (unvmed_cid_alloc(usq, &__cid))
 			return NULL;
-		}
+	}
+
+	rq = nvme_rq_acquire_atomic(usq->q);
+	if (!rq) {
+		unvmed_cid_free(usq, __cid);
+		return NULL;
 	}
 
 	atomic_inc(&usq->nr_cmds);
