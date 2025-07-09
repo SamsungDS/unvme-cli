@@ -1132,7 +1132,10 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	if (alloc) {
 		usq->cmds = calloc(qsize, sizeof(struct unvme_cmd));
 
-		if (unvmed_cid_init(__to_sq(usq), qsize) < 0) {
+		/*
+		 * libvfn manages @rq instances for (@qsize-1).
+		 */
+		if (unvmed_cid_init(__to_sq(usq), qsize - 1) < 0) {
 			free(usq->cmds);
 			free(usq);
 			return NULL;
