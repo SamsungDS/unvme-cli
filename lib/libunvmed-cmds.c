@@ -87,7 +87,7 @@ static int unvmed_cid_alloc_n(struct unvme_sq *usq, uint16_t cid)
 	do {
 		old = atomic_load_acquire(&bitmap->bits[byte_index]);
 		if (old & mask) {
-			errno = EBUSY;
+			errno = EEXIST;
 			return -1;
 		}
 

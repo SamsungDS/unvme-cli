@@ -737,7 +737,8 @@ int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl);
  *
  * This API is thread-safe.
  *
- * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
+ * Return: Command instance (&struct unvme_cmd), ``NULL`` on error with errno
+ *         set (EBUSY: full, EEXIST: @cid already exists).
  */
 struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq,
 				   uint16_t *cid, void *buf, size_t len);
@@ -752,7 +753,8 @@ struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq,
  *
  * This API is thread-safe.
  *
- * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
+ * Return: Command instance (&struct unvme_cmd), ``NULL`` on error with errno
+ *         set (EBUSY: full, EEXIST: @cid already exists).
  */
 struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u,
 					  struct unvme_sq *usq, uint16_t *cid);
@@ -773,7 +775,8 @@ struct unvme_cmd *unvmed_alloc_cmd_nodata(struct unvme *u,
  *
  * This API is thread-safe.
  *
- * Return: Command instance (&struct unvme_cmd), ``NULL`` on error.
+ * Return: Command instance (&struct unvme_cmd), ``NULL`` on error with errno
+ *         set (EBUSY: full, EEXIST: @cid already exists).
  */
 struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
 					uint16_t *cid, void *buf, size_t len,
