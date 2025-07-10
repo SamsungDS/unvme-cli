@@ -16,7 +16,11 @@
 
 #include <nvme/types.h>
 #include <ccan/str/str.h>
+
+#undef atomic_load_acquire
+#undef atomic_store_release
 #include <vfn/nvme.h>
+
 #include "libunvmed.h"
 
 #include "verify.h"

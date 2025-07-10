@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include <stdio.h>
 #include <sys/time.h>
+#include <sys/uio.h>
 
 #include <ccan/str/str.h>
 

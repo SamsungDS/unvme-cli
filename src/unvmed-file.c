@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <sys/uio.h>
+
 #include <vfn/nvme.h>
 #include <nvme/types.h>
 

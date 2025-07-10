@@ -6,6 +6,7 @@
  */
 
 #include <errno.h>
+#include <sys/uio.h>
 
 #include <ccan/str/str.h>
 #include <nvme/types.h>
