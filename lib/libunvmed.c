@@ -2071,20 +2071,20 @@ int unvmed_unmap_vaddr(struct unvme *u, void *buf)
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags)
 {
+	int nr_cmds;
+
 	sqe->cid = cmd->cid;
 	nvme_sq_post(cmd->rq->sq, (union nvme_cmd *)sqe);
 
 	STORE(cmd->state, UNVME_CMD_S_SUBMITTED);
 	unvmed_log_cmd_post(unvmed_bdf(cmd->u), cmd->rq->sq->id, sqe);
 
-	if (!(flags & UNVMED_CMD_F_NODB)) {
-		int nr_cmds;
+	do {
+		nr_cmds = cmd->u->nr_cmds;
+	} while (!atomic_cmpxchg(&cmd->u->nr_cmds, nr_cmds, nr_cmds + 1));
 
+	if (!(flags & UNVMED_CMD_F_NODB))
 		nvme_sq_update_tail(cmd->rq->sq);
-		do {
-			nr_cmds = cmd->u->nr_cmds;
-		} while (!atomic_cmpxchg(&cmd->u->nr_cmds, nr_cmds, nr_cmds + 1));
-	}
 }
 
 struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe)
@@ -2242,17 +2242,12 @@ int unvmed_sq_nr_pending_sqes(struct unvme_sq *usq)
 int unvmed_sq_update_tail(struct unvme *u, struct unvme_sq *usq)
 {
 	int nr_sqes;
-	int nr_cmds;
 
 	nr_sqes = unvmed_sq_nr_pending_sqes(usq);
 	if (!nr_sqes)
 		return 0;
 
 	nvme_sq_update_tail(usq->q);
-
-	do {
-		nr_cmds = u->nr_cmds;
-	} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds + nr_sqes));
 
 	return nr_sqes;
 }
