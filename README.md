@@ -17,10 +17,54 @@ by `fio` with `libunvmed` ioengine which is bundled within this program.
 **Requirements**
   - libvfn (>= 5.1.0)
   - libnvme (>= 1.8.0)
-  - fio (optional)
+  - fio (>= 3.40)
 
 Provide *fio* path with `-Dwith-fio=` option to enable `unvme fio` command,
 otherwise, `unvme fio` command will not be bundled inside of `unvme` executable.
+
+
+### FIO
+`unvme-cli` provides an exteranl `libunvmed` I/O engine for `fio`.  Device
+configurations (e.g., controller enable, queue creations, ...) can be done by
+CLI commands and I/O benchmarking cna be done with **unmodified** fio, but only
+just built as a shared object.
+
+Build upstream FIO with no any changes, but the following configure options to
+make it as a shared object.
+
+```bash
+cd </path/to/fio/src>
+LDFLAGS="-shared" ./configure --extra-cflags='-fPIC' \
+	--disable-numa \
+	--disable-rdma \
+	--disable-rados \
+	--disable-rbd \
+	--disable-http \
+	--disable-gfapi \
+	--disable-libnfs \
+	--disable-lex \
+	--disable-pmem \
+	--disable-native \
+	--disable-xnvme \
+	--disable-libblkio \
+	--disable-libzbc \
+	--disable-tcmalloc \
+	--dynamic-libengines \
+	--disable-dfs \
+	--disable-tls
+make -j`nproc`
+```
+
+`fio` shared object is now ready to be linked to unvme-cli.  This file sholud
+be either located to library path (e.g., /usr/local/lib/) or given to `unvme
+start` command with `--with-fio=` argument.
+
+```bash
+$ file fio
+fio: ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), dynamically linked ...
+```
+
+### unvme-cli
 
 ```bash
 meson setup build -Dwith-fio=</path/to/fio/src>
