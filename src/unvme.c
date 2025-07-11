@@ -288,7 +288,7 @@ bool unvme_is_daemon_running(void)
 	return true;
 }
 
-static void unvme_sigint(int signum)
+static void unvme_exit(int signum)
 {
 	struct unvme_msg msg = {0, };
 
@@ -459,7 +459,9 @@ int main(int argc, char *argv[])
 	if (unvme_send_msg(sock, &msg) < 0)
 		return -1;
 
-	signal(SIGINT, unvme_sigint);
+	signal(SIGINT, unvme_exit);
+	signal(SIGTERM, unvme_exit);
+
 	if (unvme_recv_msg(sock, &msg) < 0)
 		return -1;
 
