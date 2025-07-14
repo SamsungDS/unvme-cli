@@ -593,6 +593,7 @@ static int libunvmed_init_data(struct thread_data *td)
 	struct unvme *u;
 	struct unvme_ns *ns;
 	uint32_t lba_size;
+	ssize_t ret;
 	size_t mlen;
 
 	if (td->io_ops_data)
@@ -662,11 +663,14 @@ static int libunvmed_init_data(struct thread_data *td)
 		libunvmed_log("md_per_io_size will be ignored\n");
 
 	if (td->o.td_ddir == TD_DDIR_TRIM) {
-		ld->trim_iomem_size = td->o.iodepth * td_max_bs(td);
-		if (pgmap(&ld->trim_iomem, ld->trim_iomem_size) < 0) {
+		ld->trim_iomem_size = td->o.iodepth * sizeof(struct nvme_dsm_range) * NVME_DSM_MAX_RANGES;
+		ret = pgmap(&ld->trim_iomem, ld->trim_iomem_size);
+		if (ret < 0) {
 			libunvmed_log("failed to mmap() for TRIM buffer\n");
 			return -ENOMEM;
 		}
+
+		ld->trim_iomem_size = ret;
 
 		if (unvmed_map_vaddr(u, ld->trim_iomem, ld->trim_iomem_size,
 					&ld->trim_iomem_iova, 0)) {
@@ -1031,7 +1035,7 @@ static int fio_libunvmed_io_u_init(struct thread_data *td, struct io_u *io_u)
 	io_u->engine_data = mo;
 
 	if (td->o.td_ddir == TD_DDIR_TRIM) {
-		io_u->buflen = td_max_bs(td) * io_u->index;
+		io_u->buflen = sizeof(struct nvme_dsm_range) * NVME_DSM_MAX_RANGES * io_u->index;
 		io_u->buf = ld->trim_iomem + io_u->buflen;
 	}
 
