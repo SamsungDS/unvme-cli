@@ -1384,7 +1384,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	sqe.cdw11 = NVME_DSMGMT_AD;
 
 	range->cattr = 0;
-	range->nlb = cpu_to_le16(nlb + 1);
+	range->nlb = cpu_to_le32(nlb + 1);
 	range->slba = cpu_to_le64(slba);
 
 	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, &cmd->buf.iov, 1)) {
