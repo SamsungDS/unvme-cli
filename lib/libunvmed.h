@@ -86,6 +86,15 @@ struct unvme_bitmap {
 	int top;
 };
 
+struct unvme_vcq {
+	int qsize;
+	uint16_t head;
+	uint16_t tail;
+
+	/* CQE array for @qsize */
+	struct nvme_cqe *cqe;
+};
+
 /*
  * struct unvme_ns - Namespace instance
  * @u: unvme controller instance
@@ -138,6 +147,7 @@ struct name {			\
 	struct nvme_sq *q;	\
 	struct unvme_cq *ucq;	\
 	struct unvme_cmd *cmds; \
+	struct unvme_vcq *vcq;	\
 	struct unvme_bitmap cids;\
 	int nr_cmds;		\
 	pthread_spinlock_t lock;\
@@ -1146,7 +1156,7 @@ struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
  *
  * Return: Number of cq entries fetched.
  */
-int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
+int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
 		      struct nvme_cqe *cqes, int nr_cqes, bool nowait);
 
 /**
@@ -1160,7 +1170,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
  *
  * Return: Number of cq entries fetched.
  */
-int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
+int unvmed_cq_run(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq, struct nvme_cqe *cqes);
 
 /**
  * unvmed_cq_run_n - Reap ``N`` CQ entries from a completion queue
@@ -1174,7 +1184,7 @@ int unvmed_cq_run(struct unvme *u, struct unvme_cq *ucq, struct nvme_cqe *cqes);
  *
  * Return: Number of cq entries fetched.
  */
-int unvmed_cq_run_n(struct unvme *u, struct unvme_cq *ucq,
+int unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
 		    struct nvme_cqe *cqes, int min, int max);
 
 /**

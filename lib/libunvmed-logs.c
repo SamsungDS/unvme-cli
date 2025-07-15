@@ -181,3 +181,27 @@ void unvmed_log_cmd_cmpl(const char *bdf, struct nvme_cqe *cqe)
 		 (sfp >> 9) & 0x7, (sfp >> 1) & 0xFF,
 		 (sfp >> 12) & 0xFF, (sfp >> 14) & 0x1, (sfp >> 15) & 0x1);
 }
+
+void unvmed_log_cmd_vcq_push(struct nvme_cqe *cqe)
+{
+	uint16_t sfp = le16_to_cpu(cqe->sfp);
+
+	unvmed_log_debug("cqe (qid=%d, cid=%d, dw0=0x%x, dw1=0x%x, head=%d, "
+		 "phase=%d, sct=0x%x, sc=0x%x, crd=0x%x, more=%d, dnr=%d)",
+		 cqe->sqid, cqe->cid, le32_to_cpu(cqe->dw0),
+		 le32_to_cpu(cqe->dw1), le16_to_cpu(cqe->sqhd), sfp & 0x1,
+		 (sfp >> 9) & 0x7, (sfp >> 1) & 0xFF,
+		 (sfp >> 12) & 0xFF, (sfp >> 14) & 0x1, (sfp >> 15) & 0x1);
+}
+
+void unvmed_log_cmd_vcq_pop(struct nvme_cqe *cqe)
+{
+	uint16_t sfp = le16_to_cpu(cqe->sfp);
+
+	unvmed_log_debug("cqe (qid=%d, cid=%d, dw0=0x%x, dw1=0x%x, head=%d, "
+		 "phase=%d, sct=0x%x, sc=0x%x, crd=0x%x, more=%d, dnr=%d)",
+		 cqe->sqid, cqe->cid, le32_to_cpu(cqe->dw0),
+		 le32_to_cpu(cqe->dw1), le16_to_cpu(cqe->sqhd), sfp & 0x1,
+		 (sfp >> 9) & 0x7, (sfp >> 1) & 0xFF,
+		 (sfp >> 12) & 0xFF, (sfp >> 14) & 0x1, (sfp >> 15) & 0x1);
+}

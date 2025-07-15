@@ -68,5 +68,7 @@ ____unvmed_log(const int lv, const char *fmt, ...)
  */
 void unvmed_log_cmd_post(const char *bdf, uint32_t sqid, union nvme_cmd *sqe);
 void unvmed_log_cmd_cmpl(const char *bdf, struct nvme_cqe *cqe);
+void unvmed_log_cmd_vcq_push(struct nvme_cqe *cqe);
+void unvmed_log_cmd_vcq_pop(struct nvme_cqe *cqe);
 
 #endif

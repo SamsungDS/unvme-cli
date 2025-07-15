@@ -1750,7 +1750,7 @@ static int fio_libunvmed_getevents(struct thread_data *td, unsigned int min,
 	struct unvme_cq *ucq = ld->usq->ucq;
 	int ret;
 
-	ret = unvmed_cq_run_n(ld->u, ucq, cqes, min, max);
+	ret = unvmed_cq_run_n(ld->u, ld->usq, ucq, cqes, min, max);
 	if (ret < 0)
 		return -errno;
 
