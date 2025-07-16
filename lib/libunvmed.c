@@ -1564,7 +1564,6 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 static void __unvmed_rcq_run(struct unvme_cq *ucq, struct unvme_rcq *rcq)
 {
 	struct unvme *u = ucq->u;
-	struct unvme_cmd *cmd;
 	struct nvme_cqe *cqe;
 	int ret;
 
@@ -1573,15 +1572,10 @@ static void __unvmed_rcq_run(struct unvme_cq *ucq, struct unvme_rcq *rcq)
 		if (!cqe)
 			break;
 
-		cmd = unvmed_get_cmd_from_cqe(u, cqe);
-		if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE)
-			goto next;
-
 		do {
 			ret = unvmed_rcq_push(u, rcq, cqe);
 		} while (ret == -EAGAIN);
 
-next:
 		nvme_cq_update_head(ucq->q);
 	}
 }
@@ -2138,6 +2132,16 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 			do {
 				nr_cmds = u->nr_cmds;
 			} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - 1));
+
+			nvme_cq_update_head(ucq->q);
+
+			/*
+			 * Return NULL to caller since if @cmd->flags has
+			 * UNVMED_CMD_F_WAKEUP_ON_CQE set, application will
+			 * have the responsibility to wrap the the given @cmd
+			 * from waking up @cmd->completed.
+			 */
+			cqe = NULL;
 		}
 	}
 	unvmed_cq_exit(ucq);
