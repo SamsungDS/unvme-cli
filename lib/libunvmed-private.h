@@ -19,14 +19,17 @@ struct unvme {
 
 	int nr_sqs;
 	int nr_cqs;
-	struct list_head sq_list;
-	pthread_rwlock_t sq_list_lock;
-	struct list_head cq_list;
-	pthread_rwlock_t cq_list_lock;
 
 	struct unvme_sq *asq;
 	struct unvme_cq *acq;
 
+	/*
+	 * SQ and CQ instances should not be freed in the runtime even controller reset
+	 * happens.  Instances should be remained as is, which means we should reuse
+	 * the instance when we re-create a queue with the same qid.  This is because
+	 * application (e.g., fio) may keep trying to issue I/O commands with no-aware
+	 * of reset behavior.
+	 */
 	struct unvme_sq **sqs;
 	struct unvme_cq **cqs;
 
@@ -87,25 +90,6 @@ struct __unvme_ns {
 	unvme_declare_ns();
 	struct list_node list;
 };
-
-/*
- * SQ and CQ instances should not be freed in the runtime even controller reset
- * happens.  Instances should be remained as is, which means we should reuse
- * the instance when we re-create a queue with the same qid.  This is because
- * application (e.g., fio) may keep trying to issue I/O commands with no-aware
- * of reset behavior.
- */
-struct __unvme_sq {
-	unvme_declare_sq();
-	struct list_node list;
-};
-#define __to_sq(usq)		((struct unvme_sq *)(usq))
-
-struct __unvme_cq {
-	unvme_declare_cq();
-	struct list_node list;
-};
-#define __to_cq(ucq)		((struct unvme_cq *)(ucq))
 
 /*
  * Driver context
