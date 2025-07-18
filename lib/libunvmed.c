@@ -1355,22 +1355,20 @@ static inline struct nvme_cqe *unvmed_get_cqe(struct unvme_cq *ucq, uint32_t hea
 	return (struct nvme_cqe *)(ucq->q->mem.vaddr + (head << NVME_CQES));
 }
 
-static inline void unvmed_put_cqe(struct unvme_cq *ucq, uint32_t head,
-				  uint8_t phase, struct unvme_cmd *cmd)
+static inline void unvmed_put_cqe(struct unvme *u, struct unvme_cq *ucq,
+				  struct unvme_cmd *cmd)
 {
 	uint16_t status = (NVME_SCT_PATH << NVME_SCT_SHIFT) |
 		NVME_SC_CMD_ABORTED_BY_HOST;
-	struct nvme_cqe *__cqe;
 	struct nvme_cqe cqe;
 
 	cqe.qw0 = cpu_to_le64(0);
 	cqe.sqhd = cpu_to_le16(0);
 	cqe.sqid = cpu_to_le16(cmd->rq->sq->id);
 	cqe.cid = cmd->cid;
-	cqe.sfp = cpu_to_le16((status << 1) | (phase & 1));
+	cqe.sfp = cpu_to_le16((status << 1));
 
-	__cqe = unvmed_get_cqe(ucq, head);
-	*__cqe = cqe;
+	unvmed_vcq_push(u, cmd->usq->vcq, &cqe);
 
 	unvmed_log_info("canceled command (sqid=%u, cid=%u)", cqe.sqid, cqe.cid);
 }
@@ -1418,14 +1416,8 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 
 	for (int i = 0; i < usq->q->qsize; i++) {
 		cmd = &usq->cmds[i];
-		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED) {
-			unvmed_put_cqe(ucq, head, phase ^ 1, cmd);
-
-			if (++head == ucq->q->qsize) {
-				head = 0;
-				phase ^= 0x1;
-			}
-		}
+		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED)
+			unvmed_put_cqe(u, ucq, cmd);
 	}
 
 	unvmed_cq_exit(ucq);
