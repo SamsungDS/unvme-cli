@@ -990,6 +990,9 @@ struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
  *
  * If application initializes @usq with `unvmed_init_sq()` and the Create I/O
  * SQ command successfully done, call this function to finally enable the @usq.
+ *
+ * XXX: This function has to be called only in library. Currently, it is called
+ * in application area, and this has to be fixed ASAP.
  */
 void unvmed_enable_sq(struct unvme_sq *usq);
 

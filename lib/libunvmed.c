@@ -1150,6 +1150,11 @@ void unvmed_enable_sq(struct unvme_sq *usq)
 	usq->enabled = true;
 }
 
+static void unvmed_disable_sq(struct unvme_sq *usq)
+{
+	usq->enabled = false;
+}
+
 static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 {
 	unvmed_cid_free(usq);
@@ -3199,6 +3204,9 @@ int unvmed_free_sq(struct unvme *u, uint16_t qid)
 		errno = ENODEV;
 		return -1;
 	}
+
+	unvmed_disable_sq(usq);
+	unvmed_cancel_sq(u, usq);
 
 	__unvmed_delete_sq(u, usq);
 	return 0;
