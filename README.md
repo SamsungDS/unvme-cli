@@ -100,9 +100,14 @@ configuration.
 bdf="0000:01:00.0"  # This can be shortend "1:0" or "0:1:0" or ...
 bdf_dot=$(echo $bdf | sed 's/:/./g')  # Convert ':' to '.' for fio
 
+# Start unvmed daemon process
 unvme start --with-fio=</path/to/fio>
 
+# Add $bdf device to `vfio-pci` PCI driver
 unvme add $bdf
+
+# Configure admin SQ/CQ and enable the controller by register
+unvme create-adminq $bdf
 unvme enable $bdf
 
 # Create a I/O SQ and CQ with qid=1
