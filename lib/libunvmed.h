@@ -147,7 +147,7 @@ struct name {			\
 	struct nvme_sq *q;	\
 	struct unvme_cq *ucq;	\
 	struct unvme_cmd *cmds; \
-	struct unvme_vcq *vcq;	\
+	struct unvme_vcq vcq;	\
 	struct unvme_bitmap cids;\
 	int nr_cmds;		\
 	pthread_spinlock_t lock;\

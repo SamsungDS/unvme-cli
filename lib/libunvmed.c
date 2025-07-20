@@ -1114,11 +1114,10 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	pthread_spin_init(&usq->lock, 0);
 	usq->q = &u->ctrl.sq[qid];
 	usq->ucq = ucq;
-	usq->vcq = malloc(sizeof(struct unvme_vcq *));
 	ucq->usq = usq;
 	usq->nr_cmds = 0;
 
-	if (unvmed_vcq_init(usq->vcq, qsize)) {
+	if (unvmed_vcq_init(&usq->vcq, qsize)) {
 		if (alloc)
 			free(usq);
 		return NULL;
@@ -1158,7 +1157,7 @@ static void unvmed_disable_sq(struct unvme_sq *usq)
 static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 {
 	unvmed_cid_free(usq);
-	unvmed_vcq_free(usq->vcq);
+	unvmed_vcq_free(&usq->vcq);
 	u->sqs[unvmed_sq_id(usq)] = NULL;
 	if (!unvmed_sq_id(usq))
 		u->asq = NULL;
@@ -1373,7 +1372,7 @@ static inline void unvmed_put_cqe(struct unvme *u, struct unvme_cq *ucq,
 	cqe.cid = cmd->cid;
 	cqe.sfp = cpu_to_le16((status << 1));
 
-	unvmed_vcq_push(u, cmd->usq->vcq, &cqe);
+	unvmed_vcq_push(u, &cmd->usq->vcq, &cqe);
 
 	unvmed_log_info("canceled command (sqid=%u, cid=%u)", cqe.sqid, cqe.cid);
 }
@@ -1564,7 +1563,7 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 
 		cmd = unvmed_get_cmd_from_cqe(u, cqe);
 		do {
-			ret = unvmed_vcq_push(u, cmd->usq->vcq, cqe);
+			ret = unvmed_vcq_push(u, &cmd->usq->vcq, cqe);
 		} while (ret == -EAGAIN);
 
 		nvme_cq_update_head(ucq->q);
@@ -2154,7 +2153,7 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 
 	if (cqe) {
 		cmd = unvmed_get_cmd_from_cqe(u, cqe);
-		unvmed_vcq_push(u, cmd->usq->vcq, cqe);
+		unvmed_vcq_push(u, &cmd->usq->vcq, cqe);
 	}
 
 	return NULL;
@@ -2163,7 +2162,7 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
 		      struct nvme_cqe *cqes, int nr_cqes, bool nowait)
 {
-	struct unvme_vcq *vcq = usq->vcq;
+	struct unvme_vcq *vcq = &usq->vcq;
 	struct nvme_cqe __cqe;
 	struct nvme_cqe *cqe = &__cqe;
 	int nr_cmds;
