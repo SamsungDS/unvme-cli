@@ -31,7 +31,9 @@ struct unvme {
 	 * of reset behavior.
 	 */
 	struct unvme_sq **sqs;
+	pthread_rwlock_t sqs_lock;
 	struct unvme_cq **cqs;
+	pthread_rwlock_t cqs_lock;
 
 	/*
 	 * Number of in-flight commands whose sq entries have already issued
