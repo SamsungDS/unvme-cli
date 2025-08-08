@@ -2675,6 +2675,8 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		__cidp = &__cid;
 	}
 
+	unvmed_sq_enter(usq);
+
 	/*
 	 * If --prp1 and --prp2 both are not given, libunvmed will take care of
 	 * the DMA buffers.
@@ -2771,7 +2773,12 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
