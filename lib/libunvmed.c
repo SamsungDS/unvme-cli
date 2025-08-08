@@ -2929,6 +2929,7 @@ int unvmed_ctx_init(struct unvme *u)
 		ctx->cq.vector = unvmed_cq_iv(ucq);
 
 		list_add_tail(&u->ctx_list, &ctx->list);
+		unvmed_cq_put(u, ucq);
 	}
 
 	for (qid = 0; qid < u->nr_sqs; qid++) {
