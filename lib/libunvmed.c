@@ -1389,7 +1389,7 @@ static inline struct nvme_cqe *unvmed_get_cqe(struct unvme_cq *ucq, uint32_t hea
 static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 {
 	cmd->cqe = *cqe;
-	cmd->state = UNVME_CMD_S_COMPLETED;
+	atomic_store_release(&cmd->state, UNVME_CMD_S_COMPLETED);
 	unvmed_log_cmd_cmpl(unvmed_bdf(cmd->u), cqe);
 }
 
@@ -2171,7 +2171,7 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	sqe->cid = cmd->cid;
 	nvme_sq_post(cmd->rq->sq, (union nvme_cmd *)sqe);
 
-	STORE(cmd->state, UNVME_CMD_S_SUBMITTED);
+	atomic_store_release(&cmd->state, UNVME_CMD_S_SUBMITTED);
 	unvmed_log_cmd_post(unvmed_bdf(cmd->u), cmd->rq->sq->id, sqe);
 
 	do {
