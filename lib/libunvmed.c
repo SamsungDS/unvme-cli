@@ -970,7 +970,7 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 
 	ret = unvmed_id_ctrl(cmd, &iov, 1);
 	if (ret) {
-		unvmed_log_err("failed to identify controller\n");
+		unvmed_log_err("failed to identify controller");
 		unvmed_cmd_free(cmd);
 		return -1;
 	}
@@ -1970,7 +1970,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	}
 
 	if (nvme_configure_sq(&u->ctrl, qid, qsize, ucq->q, 0)) {
-		unvmed_log_err("could not configure io submission queue\n");
+		unvmed_log_err("could not configure io submission queue");
 		return -1;
 	}
 
