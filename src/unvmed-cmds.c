@@ -2826,7 +2826,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, arg_intv(sqid));
+	usq = unvmed_sq_get(u, arg_intv(sqid));
 	if (!usq) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
@@ -2836,6 +2836,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 	unvmed_sq_enter(usq);
 	unvmed_sq_update_tail(u, usq);
 	unvmed_sq_exit(usq);
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
