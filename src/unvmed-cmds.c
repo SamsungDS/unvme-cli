@@ -2686,7 +2686,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
 			ret = errno;
-			goto out;
+			goto exit;
 		}
 
 		cmd = unvmed_alloc_cmd(u, usq, __cidp, buf, len);
@@ -2695,7 +2695,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 			pgunmap(buf, len);
 			ret = errno;
-			goto out;
+			goto exit;
 		}
 
 		if (_write) {
@@ -2706,7 +2706,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 				unvmed_cmd_put(cmd);
 				pgunmap(buf, len);
 				ret = ENOENT;
-				goto out;
+				goto exit;
 			}
 		}
 
@@ -2721,7 +2721,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_pr_err("failed to allocate a command instance\n");
 
 			ret = errno;
-			goto out;
+			goto exit;
 		}
 	}
 
@@ -2749,7 +2749,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		unvmed_cmd_put(cmd);
 		pgunmap(buf, len);
 		ret = 0;
-		goto out;
+		goto exit;
 	}
 
 	if (arg_boolv(nodb))
@@ -2793,6 +2793,8 @@ free:
 	unvmed_cmd_put(cmd);
 	if (buf && len)
 		pgunmap(buf, len);
+exit:
+	unvmed_sq_exit(usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
