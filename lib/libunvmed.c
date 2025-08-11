@@ -1663,6 +1663,7 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 	struct nvme_cqe *cqe;
 	int ret;
 
+	unvmed_cq_enter(ucq);
 	while (true) {
 		cqe = unvmed_get_completion(u, ucq);
 		if (!cqe)
@@ -1677,15 +1678,14 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 		 * thread context which races with the current context is
 		 * unvmed_cancel_sq where @ucq lock actually held.
 		 */
-		unvmed_cq_enter(ucq);
 		do {
 			ret = unvmed_vcq_push(u, &cmd->usq->vcq, cqe);
 		} while (ret == -EAGAIN);
-		unvmed_cq_exit(ucq);
 
 up:
 		nvme_cq_update_head(ucq->q);
 	}
+	unvmed_cq_exit(ucq);
 }
 
 static void *unvmed_reaper_run(void *opaque)
@@ -2252,9 +2252,7 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 	struct nvme_cq *cq = ucq->q;
 	struct nvme_cqe *cqe;
 
-	unvmed_cq_enter(ucq);
 	cqe = nvme_cq_get_cqe(cq);
-	unvmed_cq_exit(ucq);
 
 	return cqe;
 }
@@ -2279,7 +2277,9 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 		return cqe;
 	}
 
+	unvmed_cq_enter(ucq);
 	cqe = unvmed_get_completion(u, ucq);
+	unvmed_cq_exit(ucq);
 	if (cqe) {
 		cmd = unvmed_get_cmd(usq, cqe->cid);
 		if (!unvmed_cmd_cmpl(cmd, cqe))
