@@ -33,6 +33,8 @@ static void __unvmed_delete_cq_all(struct unvme *u);
 static void unvmed_delete_iosq_all(struct unvme *u);
 static void unvmed_delete_iocq_all(struct unvme *u);
 static int unvmed_get_downstream_port(struct unvme *u, char *bdf);
+static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
+					      struct unvme_cq *ucq);
 static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
 						 struct nvme_cqe *cqe);
 
@@ -1527,8 +1529,44 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 	unvmed_cq_exit(ucq);
 }
 
+static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
+{
+	struct nvme_cqe *cqe;
+	uint32_t head;
+	uint8_t phase;
+
+	if (unvmed_cq_irq_enabled(ucq)) {
+		struct unvme_cq_reaper *r = &u->reapers[unvmed_cq_iv(ucq)];
+
+		eventfd_write(r->efd, 1);  /* Wake up reaper thread */
+	}
+
+	/* Wait for reaper thread to reap the pending cq entries */
+	do {
+		phase = LOAD(ucq->q->phase);
+		head = LOAD(ucq->q->head);
+
+		cqe = unvmed_get_cqe(ucq, head);
+	} while ((le16_to_cpu(cqe->sfp) & 0x1) != phase);
+}
+
+static void unvmed_vcq_drain(struct unvme_vcq *vcq)
+{
+	/* Wait for @vcq to be empty (reaped by application) */
+	while (LOAD(vcq->head) != LOAD(vcq->tail))
+		;
+}
+
 static void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 {
+	/*
+	 * Ensure that @usq->ucq to be drained before starting the cancel
+	 * behavior which actually _manipulates_ the @vcq itself by pushing
+	 * fake cq entries with tail pointer being updated to avoid race.
+	 */
+	unvmed_cq_drain(u, usq->ucq);
+	unvmed_vcq_drain(&usq->vcq);
+
 	unvmed_cancel_sq(u, usq);
 
 	/*
@@ -1649,9 +1687,6 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 
 	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 }
-
-static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
-					      struct unvme_cq *ucq);
 
 /*
  * Called only if @ucq interrupt is enabled (@ucq->vector != -1)
