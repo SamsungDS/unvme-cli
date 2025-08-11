@@ -1122,8 +1122,8 @@ static int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize)
 
 static void unvmed_vcq_free(struct unvme_vcq *vcq)
 {
-	memset(vcq, 0, sizeof(struct unvme_vcq));
 	free(vcq->cqe);
+	memset(vcq, 0, sizeof(struct unvme_vcq));
 }
 
 static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
