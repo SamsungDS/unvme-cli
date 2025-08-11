@@ -1669,9 +1669,16 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 		if (unvmed_cmd_cmpl(cmd, cqe))
 			goto up;
 
+		/*
+		 * To protect @vcq, we lock @ucq instance here since the only
+		 * thread context which races with the current context is
+		 * unvmed_cancel_sq where @ucq lock actually held.
+		 */
+		unvmed_cq_enter(ucq);
 		do {
 			ret = unvmed_vcq_push(u, &cmd->usq->vcq, cqe);
 		} while (ret == -EAGAIN);
+		unvmed_cq_exit(ucq);
 
 up:
 		nvme_cq_update_head(ucq->q);
