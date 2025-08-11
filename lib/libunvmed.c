@@ -1538,6 +1538,12 @@ static void unvmed_reset_ctx(struct unvme *u)
 	unvmed_unquiesce_sq_all(u);
 
 	/*
+	 * In this step, we can ensure that no more CQ entries left to be
+	 * reaped, which means all the CQ-related codes are not running
+	 * anymore.
+	 */
+
+	/*
 	 * Free up all the namespace instances attached to the current
 	 * controller.
 	 */
@@ -2192,7 +2198,7 @@ struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe)
 	 * those behaviors will ensure that all the CQ reaping processes are
 	 * stopped(quiesced).
 	 */
-	usq = u->sqs[cqe->sqid];
+	usq = unvmed_sq_find(u, le16_to_cpu(cqe->sqid));
 	if (!usq)
 		return NULL;
 
@@ -2216,6 +2222,7 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
  * Called only if @ucq interrupt is disabled (@ucq->vector == -1)
  */
 static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
+						struct unvme_sq *usq,
 						struct unvme_vcq *vcq,
 						struct unvme_cq *ucq)
 {
@@ -2226,17 +2233,16 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 
 	ret = unvmed_vcq_pop(vcq, &__cqe);
 	if (ret != -ENOENT) {
-		cmd = unvmed_get_cmd_from_cqe(u, cqe);
+		cmd = unvmed_get_cmd(usq, cqe->cid);
 		__unvmed_cmd_cmpl(cmd, cqe);
 		return cqe;
 	}
 
 	cqe = unvmed_get_completion(u, ucq);
 	if (cqe) {
-		cmd = unvmed_get_cmd_from_cqe(u, cqe);
+		cmd = unvmed_get_cmd(usq, cqe->cid);
 		if (!unvmed_cmd_cmpl(cmd, cqe))
 			unvmed_vcq_push(u, &cmd->usq->vcq, cqe);
-
 		return NULL;
 	}
 
@@ -2263,10 +2269,10 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 			if (ret)
 				break;
 
-			cmd = unvmed_get_cmd_from_cqe(u, cqe);
+			cmd = unvmed_get_cmd(usq, cqe->cid);
 			__unvmed_cmd_cmpl(cmd, cqe);
 		} else {
-			cqe = __unvmed_get_completion(u, vcq, ucq);
+			cqe = __unvmed_get_completion(u, usq, vcq, ucq);
 
 			if (!cqe) {
 				if (nowait)
