@@ -396,12 +396,25 @@ static struct unvme_sq *__unvmed_find_and_get_sq(struct unvme *u,
 						   uint32_t qid, bool get)
 {
 	struct unvme_sq *usq = NULL;
+	int refcnt;
+
+	if (qid >= u->nr_sqs)
+		return NULL;
 
 	pthread_rwlock_rdlock(&u->sqs_lock);
-	if (qid < u->nr_sqs && u->sqs[qid]) {
+	if (u->sqs[qid]) {
 		usq = u->sqs[qid];
-		if (get)
-			atomic_inc(&usq->refcnt);
+
+		refcnt = usq->refcnt;
+		while (get && !atomic_cmpxchg(&usq->refcnt, refcnt, refcnt + 1)) {
+			refcnt = usq->refcnt;
+
+			/* Other context has already fred the @usq instance. */
+			if (!refcnt) {
+				usq = NULL;
+				break;
+			}
+		}
 	}
 	pthread_rwlock_unlock(&u->sqs_lock);
 
@@ -412,12 +425,25 @@ static struct unvme_cq *__unvmed_find_and_get_cq(struct unvme *u,
 						   uint32_t qid, bool get)
 {
 	struct unvme_cq *ucq = NULL;
+	int refcnt;
+
+	if (qid >= u->nr_cqs)
+		return NULL;
 
 	pthread_rwlock_rdlock(&u->cqs_lock);
-	if (qid < u->nr_cqs && u->cqs[qid]) {
+	if (u->cqs[qid]) {
 		ucq = u->cqs[qid];
-		if (get)
-			atomic_inc(&ucq->refcnt);
+
+		refcnt = ucq->refcnt;
+		while (get && !atomic_cmpxchg(&ucq->refcnt, refcnt, refcnt + 1)) {
+			refcnt = ucq->refcnt;
+
+			/* Other context has already fred the @ucq instance. */
+			if (!refcnt) {
+				ucq = NULL;
+				break;
+			}
+		}
 	}
 	pthread_rwlock_unlock(&u->cqs_lock);
 
@@ -1147,7 +1173,7 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		u->sqs[qid] = usq;
 		if (!qid)
 			u->asq = usq;
-		atomic_inc(&usq->refcnt);
+		usq->refcnt = 1;
 		pthread_rwlock_unlock(&u->sqs_lock);
 	}
 
@@ -1209,7 +1235,7 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 		if (!qid)
 			u->acq = ucq;
 
-		atomic_inc(&ucq->refcnt);
+		ucq->refcnt = 1;
 		pthread_rwlock_unlock(&u->cqs_lock);
 	}
 
