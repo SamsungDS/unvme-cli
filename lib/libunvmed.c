@@ -1516,7 +1516,10 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 	}
 
 	for (int i = 0; i < usq->q->qsize; i++) {
-		cmd = &usq->cmds[i];
+		cmd = unvmed_get_cmd(usq, i);
+		if (!cmd)
+			continue;
+
 		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED)
 			unvmed_put_cqe(u, ucq, cmd);
 	}
