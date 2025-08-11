@@ -33,6 +33,8 @@ static void __unvmed_delete_cq_all(struct unvme *u);
 static void unvmed_delete_iosq_all(struct unvme *u);
 static void unvmed_delete_iocq_all(struct unvme *u);
 static int unvmed_get_downstream_port(struct unvme *u, char *bdf);
+static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
+						 struct nvme_cqe *cqe);
 
 static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
 {
@@ -442,7 +444,7 @@ struct unvme_cq *unvmed_cq_get(struct unvme *u, uint32_t qid)
 	return __unvmed_find_and_get_cq(u, qid, true);
 }
 
-int __unvmed_sq_put(struct unvme *u, struct unvme_sq *usq)
+static int __unvmed_sq_put(struct unvme *u, struct unvme_sq *usq)
 {
 	int refcnt;
 
@@ -457,7 +459,7 @@ int __unvmed_sq_put(struct unvme *u, struct unvme_sq *usq)
 	return refcnt;
 }
 
-int __unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
+static int __unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
 {
 	int refcnt;
 
@@ -2188,7 +2190,8 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		nvme_sq_update_tail(cmd->rq->sq);
 }
 
-struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u, struct nvme_cqe *cqe)
+static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
+						 struct nvme_cqe *cqe)
 {
 	struct unvme_sq *usq;
 

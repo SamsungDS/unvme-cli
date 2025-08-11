@@ -1140,18 +1140,6 @@ static inline struct unvme_cmd *unvmed_get_cmd(struct unvme_sq *usq,
 }
 
 /**
- * unvmed_get_cmd_from_cqe - Convert &struct nvme_cqe to &struct unvme_cmd
- * @u: &struct unvme
- * @cqe: completion queue entry (&struct nvme_cqe)
- *
- * Convert a given @cqe to &struct unvme_cmd for uppser layer translation.
- *
- * Return: &struct unvme_cmd, otherwise ``NULL`` on error.
- */
-struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
-					  struct nvme_cqe *cqe);
-
-/**
  * __unvmed_cq_run_n - Reap CQ entries from a completion queue
  * @u: &struct unvme
  * @ucq: completion queue (&struct unvme_cq)
