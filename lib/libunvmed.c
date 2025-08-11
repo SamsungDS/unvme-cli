@@ -1251,7 +1251,7 @@ static void __unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
 {
 	pthread_rwlock_wrlock(&u->cqs_lock);
 	u->cqs[unvmed_cq_id(ucq)] = NULL;
-	pthread_rwlock_wrlock(&u->cqs_lock);
+	pthread_rwlock_unlock(&u->cqs_lock);
 	if (!unvmed_cq_id(ucq))
 		u->acq = NULL;
 	free(ucq);
