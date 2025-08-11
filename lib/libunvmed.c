@@ -1433,6 +1433,15 @@ static bool unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 	struct unvme *u = cmd->u;
 	int nr_cmds;
 
+	/*
+	 * Mark @cmd to be completed soon to prevent being cancelled by reset
+	 * thread context.  For irq case, @cmd will be pushed to @vcq and
+	 * during that time, reset thread may think @cmd is in SUBMITTED state
+	 * and should be cancelled, but cqe of @cmd has already arrived, so we
+	 * should mark here.
+	 */
+	atomic_store_release(&cmd->state, UNVME_CMD_S_TO_BE_COMPLETED);
+
 	if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE) {
 		__unvmed_cmd_cmpl(cmd, cqe);
 
