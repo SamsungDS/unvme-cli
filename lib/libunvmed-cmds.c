@@ -224,6 +224,7 @@ static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u,
 	cmd->u = u;
 	cmd->usq = usq;
 	cmd->rq = rq;
+	cmd->refcnt = 1;
 
 	rq->opaque = cmd;
 
@@ -242,9 +243,9 @@ static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
 	 * If caller gives NULL buf and non-zero len, it will allocate a user
 	 * data buffer and keep the pointer and the size allocated in
 	 * cmd->buf.va and cmd->buf.len.  They will be freed up in
-	 * unvmed_cmd_free().  But, if caller gives non-NULL buf and non-zero
+	 * unvmed_cmd_put().  But, if caller gives non-NULL buf and non-zero
 	 * len, caller *must* free up the user data buffer before or after
-	 * unvmed_cmd_free().
+	 * unvmed_cmd_put().
 	 */
 	if (!buf && len) {
 		__len = pgmap(&__buf, len);
@@ -292,20 +293,20 @@ static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, struct unvme_sq *usq
 		return NULL;
 
 	if (unvmed_buf_init(u, &cmd->buf, buf, len)) {
-		__unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return NULL;
 	}
 
 	if (unvmed_buf_init(u, &cmd->mbuf, mbuf, mlen)) {
 		unvmed_buf_free(u, &cmd->buf);
-		__unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return NULL;
 	}
 
 	return cmd;
 }
 
-void __unvmed_cmd_free(struct unvme_cmd *cmd)
+static void __unvmed_cmd_free(struct unvme_cmd *cmd)
 {
 	struct unvme_sq *usq = cmd->usq;
 	struct nvme_rq *rq = cmd->rq;
@@ -318,12 +319,37 @@ void __unvmed_cmd_free(struct unvme_cmd *cmd)
 	nvme_rq_release_atomic(rq);
 }
 
-void unvmed_cmd_free(struct unvme_cmd *cmd)
+static void unvmed_cmd_free(struct unvme_cmd *cmd)
 {
 	unvmed_buf_free(cmd->u, &cmd->buf);
 	unvmed_buf_free(cmd->u, &cmd->mbuf);
 
 	__unvmed_cmd_free(cmd);
+}
+
+struct unvme_cmd *unvmed_cmd_get(struct unvme_cmd *cmd)
+{
+	int old_refcnt;
+
+	/* Prevent getting a command that's being freed (refcnt == 0) */
+	do {
+		old_refcnt = cmd->refcnt;
+		if (old_refcnt == 0)
+			return NULL;  /* Command is being freed */
+	} while (!atomic_cmpxchg(&cmd->refcnt, old_refcnt, old_refcnt + 1));
+
+	return cmd;
+}
+
+int unvmed_cmd_put(struct unvme_cmd *cmd)
+{
+	int refcnt;
+
+	refcnt = atomic_dec_fetch(&cmd->refcnt);
+	if (refcnt == 0)
+		unvmed_cmd_free(cmd);
+
+	return refcnt;
 }
 
 struct unvme_cmd *unvmed_alloc_cmd(struct unvme *u, struct unvme_sq *usq,

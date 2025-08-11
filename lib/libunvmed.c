@@ -818,11 +818,11 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 	if (ret) {
 		unvmed_log_err("failed to identify namespace");
 
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return -1;
 	}
 
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	return 0;
 }
 
@@ -927,11 +927,11 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 	if (ret) {
 		unvmed_log_err("failed to identify namespace");
 
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return -1;
 	}
 
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	return 0;
 }
 
@@ -971,11 +971,11 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 	ret = unvmed_id_ctrl(cmd, &iov, 1);
 	if (ret) {
 		unvmed_log_err("failed to identify controller");
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return -1;
 	}
 
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	return 0;
 }
 
@@ -1501,7 +1501,7 @@ static void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 	/*
 	 * Wait for upper layer to complete canceled commands in their
 	 * CQ reapding routine.  @usq>nr_cmds indicates the number of
-	 * command which have not been freed by unvmed_cmd_free().
+	 * command which have not been freed by unvmed_cmd_put().
 	 */
 	while (atomic_load_acquire(&usq->nr_cmds) > 0)
 		;
@@ -1835,7 +1835,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 	if (!nvme_cqe_ok(&cmd->cqe)) {
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		errno = EINVAL;
 		return -1;
 	}
@@ -1846,7 +1846,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 				"discard cq instance from libvfn (qid=%d)",
 				qid);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return -1;
 	}
 
@@ -1855,7 +1855,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 	unvmed_enable_cq(ucq);
 
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	return 0;
 }
 
@@ -1941,7 +1941,7 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	if (ret == 0x10C)
 		errno = EILSEQ;
 
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	return ret;
 }
 
@@ -1998,7 +1998,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 	if (!nvme_cqe_ok(&cmd->cqe)) {
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		errno = EINVAL;
 		return -1;
 	}
@@ -2009,12 +2009,12 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 				"discard sq instance from libvfn (qid=%d)",
 				qid);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return -1;
 	}
 	unvmed_enable_sq(usq);
 
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	return 0;
 }
 
@@ -2122,7 +2122,7 @@ int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 
 	ret = unvmed_cqe_status(&cmd->cqe);
 
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	return ret;
 }
 

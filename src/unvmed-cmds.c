@@ -827,7 +827,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	unvmed_enable_cq(ucq);
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	if (ret)
 		unvmed_free_cq(u, arg_intv(qid));
 out:
@@ -913,7 +913,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1019,7 +1019,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	unvmed_enable_sq(targetq);
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	if (ret)
 		unvmed_free_sq(u, arg_intv(qid));
 out:
@@ -1114,7 +1114,7 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1239,7 +1239,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to identify namespace\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
@@ -1352,7 +1352,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to identify namespace\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
@@ -1469,7 +1469,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to identify active namespace list\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
@@ -1589,7 +1589,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		if (unvmed_init_meta_ns(u, arg_dblv(nsid), buf)) {
 			unvme_pr_err("failed to initialize meta info");
 
-			unvmed_cmd_free(cmd);
+			unvmed_cmd_put(cmd);
 			pgunmap(buf, len);
 			ret = errno;
 			goto out;
@@ -1599,7 +1599,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to NVM identify namespace\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
@@ -1725,7 +1725,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to set-features\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	if (buf && len)
 		pgunmap(buf, len);
 out:
@@ -1810,7 +1810,7 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to set-features-noq\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1899,7 +1899,7 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to set-features\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -2019,7 +2019,7 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to get-features\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	if (buf && len)
 		pgunmap(buf, len);
 out:
@@ -2256,7 +2256,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to read\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 unmap:
 	pgunmap(buf - arg_intv(prp1_offset), len);
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE)
@@ -2492,7 +2492,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to write\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 unmap:
 	pgunmap(buf - arg_intv(prp1_offset), len);
 
@@ -2703,7 +2703,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 			if (unvme_read_file(filepath, buf, arg_intv(data_len))) {
 				unvme_pr_err("failed to read file %s\n", filepath);
 
-				unvmed_cmd_free(cmd);
+				unvmed_cmd_put(cmd);
 				pgunmap(buf, len);
 				ret = ENOENT;
 				goto out;
@@ -2746,7 +2746,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (arg_boolv(dry_run)) {
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		pgunmap(buf, len);
 		ret = 0;
 		goto out;
@@ -2790,7 +2790,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to passthru\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	if (buf && len)
 		pgunmap(buf, len);
 out:
@@ -2909,7 +2909,7 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 			arg_intv(lbaf) = ns->format_idx;
 			unvmed_ns_put(u, ns);
 		} else {
-			unvmed_cmd_free(cmd);
+			unvmed_cmd_put(cmd);
 			unvme_pr_err("failed to get a namespace instance\n");
 			ret = -EINVAL;
 			goto out;
@@ -2950,7 +2950,7 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to format NVM\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -3374,7 +3374,7 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to submit virt-mgmt command\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -3470,7 +3470,7 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to identify primary controller capabilities\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
@@ -3567,7 +3567,7 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to identify secondary controller list\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
@@ -3883,7 +3883,7 @@ int unvme_create_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to create namespace\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
@@ -3956,7 +3956,7 @@ int unvme_delete_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to delete namespace\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -4050,7 +4050,7 @@ int unvme_attach_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to attach namespace\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
@@ -4145,7 +4145,7 @@ int unvme_detach_ns(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to deattach namespace\n");
 
 free:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);

@@ -68,7 +68,7 @@ static void unvmed_perf_complete(struct unvme_cmd *cmd)
 		stats.tmax = diff;
 
 	if (unlikely(draining)) {
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return;
 	}
 

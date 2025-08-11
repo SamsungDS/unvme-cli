@@ -232,6 +232,7 @@ struct unvme_buf {
 struct unvme_cmd {
 	struct unvme *u;
 
+	int refcnt;
 	enum unvme_cmd_state state;
 	unsigned long flags;
 
@@ -793,27 +794,32 @@ struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
 					void *mbuf, size_t mlen);
 
 /**
- * __unvmed_cmd_free - Destroy a NVMe command instance
+ * unvmed_cmd_get - Get a command instance with refcnt incremented
  * @cmd: command instance (&struct unvme_cmd)
  *
- * Destroy a given command instance.  @cmd->rq will be destroyed in libvfn and
- * @cmd itself will completely be zeroed.
+ * Get a command instance with its reference count incremented. This ensures
+ * the command instance remains valid until unvmed_cmd_put() is called.
  *
  * This API is thread-safe.
+ *
+ * Return: &struct unvme_cmd
  */
-void __unvmed_cmd_free(struct unvme_cmd *cmd);
+struct unvme_cmd *unvmed_cmd_get(struct unvme_cmd *cmd);
 
 /**
- * unvmed_cmd_free - Destroy a NVMe command instance with memory teardown
+ * unvmed_cmd_put - Put a command instance with refcnt decremented
  * @cmd: command instance (&struct unvme_cmd)
  *
- * Destroy a given command instance after releasing data buffer.  It checks
- * @cmd->buf.flags to determine whether to unmap or free the buffer or not.
- * After this, it destroys the given command instance by __unvmed_cmd_free().
+ * Put a command instance by decrementing its reference count. When the
+ * reference count reaches 0, the command is automatically freed including
+ * all associated buffers. The initial allocation sets refcnt=1, so the
+ * first put() will free the command if no additional references exist.
  *
  * This API is thread-safe.
+ *
+ * Return: reference count after decrement
  */
-void unvmed_cmd_free(struct unvme_cmd *cmd);
+int unvmed_cmd_put(struct unvme_cmd *cmd);
 
 /**
  * unvmed_reset_ctrl - Reset controller

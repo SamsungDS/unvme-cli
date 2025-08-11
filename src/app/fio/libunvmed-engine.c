@@ -1328,7 +1328,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 				list, &cmd->buf.iov, 1);
 
 	if (ret) {
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return -errno;
 	}
 
@@ -1388,7 +1388,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	range->slba = cpu_to_le64(slba);
 
 	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, &cmd->buf.iov, 1)) {
-		unvmed_cmd_free(cmd);
+		unvmed_cmd_put(cmd);
 		return -errno;
 	}
 
@@ -1693,9 +1693,16 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	struct libunvmed_options *o = td->eo;
 
 	struct nvme_cqe *cqe = &ld->cqes[event];
-	struct unvme_cmd *cmd = &ld->usq->cmds[cqe->cid];
 	struct unvme_ns *ns = ld->ns;
+	struct unvme_cmd *cmd;
 	struct io_u *io_u;
+
+	/*
+	 * It's safe to _find_ the @cmd instance rather than grabbing the
+	 * @cmd->refcnt since @cmd instance has been created in the current the
+	 * same thread context.
+	 */
+	cmd = unvmed_get_cmd(ld->usq, cqe->cid);
 
 	assert(le16_to_cpu(cqe->sqid) == unvmed_sq_id(ld->usq));
 	assert(cmd != NULL);
@@ -1721,7 +1728,7 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	}
 
 ret:
-	unvmed_cmd_free(cmd);
+	unvmed_cmd_put(cmd);
 
 	ld->nr_queued--;
 
