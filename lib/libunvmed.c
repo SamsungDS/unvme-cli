@@ -472,7 +472,7 @@ struct unvme_cq *unvmed_cq_get(struct unvme *u, uint32_t qid)
 	return __unvmed_find_and_get_cq(u, qid, true);
 }
 
-static int __unvmed_sq_put(struct unvme *u, struct unvme_sq *usq)
+int unvmed_sq_put(struct unvme *u, struct unvme_sq *usq)
 {
 	int refcnt;
 
@@ -487,7 +487,7 @@ static int __unvmed_sq_put(struct unvme *u, struct unvme_sq *usq)
 	return refcnt;
 }
 
-static int __unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
+int unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
 {
 	int refcnt;
 
@@ -498,24 +498,6 @@ static int __unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
 	refcnt = atomic_dec_fetch(&ucq->refcnt);
 	if (!refcnt)
 		__unvmed_free_ucq(u, ucq);
-
-	return refcnt;
-}
-
-int unvmed_sq_put(struct unvme *u, struct unvme_sq *usq)
-{
-	int refcnt;
-
-	refcnt = __unvmed_sq_put(u, usq);
-
-	return refcnt;
-}
-
-int unvmed_cq_put(struct unvme *u, struct unvme_cq *ucq)
-{
-	int refcnt;
-
-	refcnt = __unvmed_cq_put(u, ucq);
 
 	return refcnt;
 }
@@ -1982,10 +1964,10 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 
 		/*
 		 * @usq has been acquired in the current function, meaning that
-		 * if __unvmed_cq_put() returns 1, it means it's ready to be
+		 * if unvmed_cq_put() returns 1, it means it's ready to be
 		 * freed up since this was supposed to be freed.
 		 */
-		refcnt = __unvmed_cq_put(u, ucq);
+		refcnt = unvmed_cq_put(u, ucq);
 		assert(refcnt > 0);
 
 		if (refcnt == 1) {
@@ -2165,10 +2147,10 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 
 		/*
 		 * @usq has been acquired in the current function, meaning that
-		 * if __unvmed_sq_put() returns 1, it means it's ready to be
+		 * if unvmed_sq_put() returns 1, it means it's ready to be
 		 * freed up since this was supposed to be freed.
 		 */
-		refcnt = __unvmed_sq_put(u, usq);
+		refcnt = unvmed_sq_put(u, usq);
 		assert(refcnt > 0);
 
 		if (refcnt == 1) {
