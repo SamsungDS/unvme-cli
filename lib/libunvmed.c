@@ -1750,7 +1750,13 @@ static void *unvmed_reaper_run(void *opaque)
 		 */
 		for (qid = 0; qid < u->nr_cqs; qid++) {
 			ucq = u->cqs[qid];
-			if (ucq && unvmed_cq_iv(ucq) == r->vector)
+			/*
+			 * The reason why we should check unvmed_cq_size(ucq)
+			 * is that @ucq->q will never be NULL if @ucq instance
+			 * is still alive, but the contents of @ucq->q can be
+			 * all-zero.  So skip the removed queue.
+			 */
+			if (ucq && unvmed_cq_size(ucq) && unvmed_cq_iv(ucq) == r->vector)
 				__unvmed_reap_cqe(ucq);
 		}
 	}
@@ -1938,11 +1944,10 @@ static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 	bool irq = unvmed_cq_irq_enabled(ucq);
 
 	if (!unvmed_cq_put(u, ucq)) {
-		nvme_discard_cq(&u->ctrl, cq);
-
 		if (irq)
 			unvmed_free_irq(u, vector);
 	}
+	nvme_discard_cq(&u->ctrl, cq);
 }
 
 static void __unvmed_delete_cq_all(struct unvme *u)
@@ -1970,10 +1975,9 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 		refcnt = unvmed_cq_put(u, ucq);
 		assert(refcnt > 0);
 
-		if (refcnt == 1) {
+		if (refcnt == 1)
 			__unvmed_free_ucq(u, ucq);
-			nvme_discard_cq(&u->ctrl, cq);
-		}
+		nvme_discard_cq(&u->ctrl, cq);
 	}
 }
 
@@ -2094,8 +2098,8 @@ static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq)
 {
 	struct nvme_sq *sq = usq->q;
 
-	if (!unvmed_sq_put(u, usq))
-		nvme_discard_sq(&u->ctrl, sq);
+	unvmed_sq_put(u, usq);
+	nvme_discard_sq(&u->ctrl, sq);
 }
 
 static void unvmed_delete_iosq_all(struct unvme *u)
@@ -2153,10 +2157,9 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 		refcnt = unvmed_sq_put(u, usq);
 		assert(refcnt > 0);
 
-		if (refcnt == 1) {
+		if (refcnt == 1)
 			__unvmed_free_usq(u, usq);
-			nvme_discard_sq(&u->ctrl, sq);
-		}
+		nvme_discard_sq(&u->ctrl, sq);
 	}
 }
 
