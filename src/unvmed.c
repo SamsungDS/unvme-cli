@@ -217,6 +217,7 @@ static void unvme_stdio_reset(void)
 	setvbuf(stderr, NULL, _IOLBF, 0);
 }
 
+static int unvmed_set_sighandlers(void);
 static int __unvme_handler(struct unvme_msg *msg)
 {
 	struct command *cmd;
@@ -258,6 +259,12 @@ static int __unvme_handler(struct unvme_msg *msg)
 
 		if (cmd->ctype & UNVME_APP_CMD) {
 			unvme_stdio_reset();
+			/*
+			 * There is a possibility that application set signal
+			 * handlers.  So, we have to set the original handlers
+			 * again.
+			 */
+			unvmed_set_sighandlers();
 			pthread_mutex_unlock(&__app_mutex);
 		}
 	}
@@ -326,6 +333,30 @@ static void unvme_error(int signum)
 
 	unvme_callstack_dump();
 	unvme_release(signum);
+}
+
+static int unvmed_set_sighandlers(void)
+{
+	struct sigaction sa;
+
+	sa.sa_handler = unvme_release;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+
+	if (sigaction(SIGTERM, &sa, NULL) == -1)
+		return -1;
+
+	sa.sa_handler = unvme_error;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+
+	if (sigaction(SIGABRT, &sa, NULL) == -1)
+		return -1;
+
+	if (sigaction(SIGSEGV, &sa, NULL) == -1)
+		return -1;
+
+	return 0;
 }
 
 static inline int unvme_cmdline_strlen(void)
@@ -515,9 +546,8 @@ int unvmed(char *argv[], const char *fio)
 	unvmed_log_info("unvmed daemon process is sucessfully created "
 			"(pid=%d, ver='%s')", getpid(), UNVME_VERSION);
 
-	signal(SIGTERM, unvme_release);
-	signal(SIGSEGV, unvme_error);
-	signal(SIGABRT, unvme_error);
+	if (unvmed_set_sighandlers() == -1)
+		unvme_pr_return(-1, "ERROR: failed to set signal handlers\n");
 
 	unvme_set_pid();
 	if (unvme_set_ver())
