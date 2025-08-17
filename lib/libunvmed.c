@@ -407,9 +407,9 @@ static struct unvme_sq *__unvmed_find_and_get_sq(struct unvme *u,
 	if (u->sqs[qid]) {
 		usq = u->sqs[qid];
 
-		refcnt = usq->refcnt;
+		refcnt = atomic_load_acquire(&usq->refcnt);
 		while (get && !atomic_cmpxchg(&usq->refcnt, refcnt, refcnt + 1)) {
-			refcnt = usq->refcnt;
+			refcnt = atomic_load_acquire(&usq->refcnt);
 
 			/* Other context has already fred the @usq instance. */
 			if (!refcnt) {
@@ -436,9 +436,9 @@ static struct unvme_cq *__unvmed_find_and_get_cq(struct unvme *u,
 	if (u->cqs[qid]) {
 		ucq = u->cqs[qid];
 
-		refcnt = ucq->refcnt;
+		refcnt = atomic_load_acquire(&ucq->refcnt);
 		while (get && !atomic_cmpxchg(&ucq->refcnt, refcnt, refcnt + 1)) {
-			refcnt = ucq->refcnt;
+			refcnt = atomic_load_acquire(&ucq->refcnt);
 
 			/* Other context has already fred the @ucq instance. */
 			if (!refcnt) {
