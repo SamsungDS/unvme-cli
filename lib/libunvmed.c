@@ -1975,8 +1975,7 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 		refcnt = unvmed_cq_put(u, ucq);
 		assert(refcnt > 0);
 
-		if (refcnt == 1)
-			__unvmed_free_ucq(u, ucq);
+		unvmed_cq_put(u, ucq);
 		nvme_discard_cq(&u->ctrl, cq);
 	}
 }
@@ -2157,8 +2156,7 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 		refcnt = unvmed_sq_put(u, usq);
 		assert(refcnt > 0);
 
-		if (refcnt == 1)
-			__unvmed_free_usq(u, usq);
+		unvmed_sq_put(u, usq);
 		nvme_discard_sq(&u->ctrl, sq);
 	}
 }
