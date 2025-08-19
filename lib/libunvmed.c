@@ -1813,8 +1813,6 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	if (!usq)
 		goto free_ucq;
 
-	unvmed_enable_cq(ucq);
-	unvmed_enable_sq(usq);
 	return 0;
 
 free_ucq:
@@ -1858,6 +1856,14 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	}
 
 	u->mps = mps;
+
+	/*
+	 * After the device is enabled, we have to enable the adminq.
+	 */
+	if (u->acq)
+		unvmed_enable_cq(u->acq);
+	if (u->asq)
+		unvmed_enable_sq(u->asq);
 
 	unvmed_ctrl_set_state(u, UNVME_ENABLED);
 	return 0;
