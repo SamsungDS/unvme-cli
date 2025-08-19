@@ -2684,8 +2684,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		len = pgmap(&buf, arg_intv(data_len));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto exit;
+			goto put;
 		}
 
 		cmd = unvmed_alloc_cmd(u, usq, __cidp, buf, len);
@@ -2693,8 +2694,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_pr_err("failed to allocate a command instance\n");
 
 			pgunmap(buf, len);
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto exit;
+			goto put;
 		}
 
 		if (_write) {
@@ -2704,8 +2706,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 				unvmed_cmd_put(cmd);
 				pgunmap(buf, len);
+				unvmed_sq_exit(usq);
 				ret = ENOENT;
-				goto exit;
+				goto put;
 			}
 		}
 
@@ -2719,8 +2722,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto exit;
+			goto put;
 		}
 	}
 
@@ -2747,8 +2751,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(dry_run)) {
 		unvmed_cmd_put(cmd);
 		pgunmap(buf, len);
+		unvmed_sq_exit(usq);
 		ret = 0;
-		goto exit;
+		goto put;
 	}
 
 	if (arg_boolv(nodb))
@@ -2757,6 +2762,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvmed_cmd_prep(cmd, &sqe, &iov, arg_intv(data_len) > 0 ? 1 : 0) < 0) {
 		unvme_pr_err("failed to prepare a command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
 		goto free;
 	}
@@ -2792,8 +2798,6 @@ free:
 	unvmed_cmd_put(cmd);
 	if (buf && len)
 		pgunmap(buf, len);
-exit:
-	unvmed_sq_exit(usq);
 put:
 	unvmed_sq_put(u, usq);
 out:
