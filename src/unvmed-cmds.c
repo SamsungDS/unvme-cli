@@ -2622,7 +2622,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, arg_intv(sqid));
+	usq = unvmed_sq_get(u, arg_intv(sqid));
 	if (!usq || !unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
@@ -2641,7 +2641,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("If either --prp1= or --prp2= is given, --data-len= "
 				"should not be given\n");
 		ret = EINVAL;
-		goto out;
+		goto put;
 	}
 
 	_write = arg_boolv(write);
@@ -2794,6 +2794,8 @@ free:
 		pgunmap(buf, len);
 exit:
 	unvmed_sq_exit(usq);
+put:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
