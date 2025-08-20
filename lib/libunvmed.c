@@ -1238,6 +1238,7 @@ static void __unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
 	pthread_rwlock_unlock(&u->cqs_lock);
 	if (!unvmed_cq_id(ucq))
 		u->acq = NULL;
+
 	free(ucq);
 }
 
@@ -1756,7 +1757,7 @@ static void *unvmed_reaper_run(void *opaque)
 			 * is still alive, but the contents of @ucq->q can be
 			 * all-zero.  So skip the removed queue.
 			 */
-			if (ucq && unvmed_cq_size(ucq) && unvmed_cq_iv(ucq) == r->vector)
+			if (ucq && ucq->q && unvmed_cq_iv(ucq) == r->vector)
 				__unvmed_reap_cqe(ucq);
 		}
 	}
@@ -1766,6 +1767,20 @@ out:
 			unvmed_bdf(u), vector, gettid());
 
 	pthread_exit(NULL);
+}
+
+static void unvmed_discard_sq(struct unvme *u, uint32_t qid)
+{
+	nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+	if (u->sqs[qid])
+		u->sqs[qid]->q = NULL;
+}
+
+static void unvmed_discard_cq(struct unvme *u, uint32_t qid)
+{
+	nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+	if (u->cqs[qid])
+		u->cqs[qid]->q = NULL;
 }
 
 int unvmed_create_adminq(struct unvme *u, bool irq)
@@ -1929,7 +1944,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		unvmed_log_err("failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
 				qid);
-		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+		unvmed_discard_cq(u, qid);
 		unvmed_cmd_put(cmd);
 		return -1;
 	}
@@ -1945,7 +1960,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 {
-	struct nvme_cq *cq = ucq->q;
+	uint32_t qid = unvmed_cq_id(ucq);
 	int vector = unvmed_cq_iv(ucq);
 	bool irq = unvmed_cq_irq_enabled(ucq);
 
@@ -1953,13 +1968,12 @@ static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 		if (irq)
 			unvmed_free_irq(u, vector);
 	}
-	nvme_discard_cq(&u->ctrl, cq);
+	unvmed_discard_cq(u, qid);
 }
 
 static void __unvmed_delete_cq_all(struct unvme *u)
 {
 	struct unvme_cq *ucq;
-	struct nvme_cq *cq;
 	int refcnt;
 	int qid;
 
@@ -1969,7 +1983,6 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 		ucq = unvmed_cq_get(u, qid);
 		if (!ucq)
 			continue;
-		cq = ucq->q;
 
 		unvmed_log_info("Deleting ucq (qid=%d)", unvmed_cq_id(ucq));
 
@@ -1982,7 +1995,7 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 		assert(refcnt > 0);
 
 		unvmed_cq_put(u, ucq);
-		nvme_discard_cq(&u->ctrl, cq);
+		unvmed_discard_cq(u, qid);
 	}
 }
 
@@ -2089,7 +2102,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		unvmed_log_err("failed to initialize usq instance. "
 				"discard sq instance from libvfn (qid=%d)",
 				qid);
-		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+		unvmed_discard_sq(u, qid);
 		unvmed_cmd_put(cmd);
 		return -1;
 	}
@@ -2101,10 +2114,10 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq)
 {
-	struct nvme_sq *sq = usq->q;
+	uint32_t qid = unvmed_sq_id(usq);
 
 	unvmed_sq_put(u, usq);
-	nvme_discard_sq(&u->ctrl, sq);
+	unvmed_discard_sq(u, qid);
 }
 
 static void unvmed_delete_iosq_all(struct unvme *u)
@@ -2142,7 +2155,6 @@ static void unvmed_delete_iocq_all(struct unvme *u)
 static void __unvmed_delete_sq_all(struct unvme *u)
 {
 	struct unvme_sq *usq;
-	struct nvme_sq *sq;
 	int refcnt;
 	int qid;
 
@@ -2150,7 +2162,6 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 		usq = unvmed_sq_get(u, qid);
 		if (!usq)
 			continue;
-		sq = usq->q;
 
 		unvmed_log_info("Deleting usq (qid=%d)", unvmed_sq_id(usq));
 
@@ -2163,7 +2174,7 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 		assert(refcnt > 0);
 
 		unvmed_sq_put(u, usq);
-		nvme_discard_sq(&u->ctrl, sq);
+		unvmed_discard_sq(u, qid);
 	}
 }
 
@@ -3319,7 +3330,7 @@ struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		unvmed_log_err("failed to initialize usq instance. "
 				"discard sq instance from libvfn (qid=%d)",
 				qid);
-		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+		unvmed_discard_sq(u, qid);
 		return NULL;
 	}
 
@@ -3352,7 +3363,7 @@ struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		unvmed_log_err("failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
 				qid);
-		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+		unvmed_discard_cq(u, qid);
 		return NULL;
 	}
 
