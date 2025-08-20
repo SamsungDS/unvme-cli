@@ -2991,15 +2991,10 @@ int unvmed_ctx_init(struct unvme *u)
 		list_add_tail(&u->ctx_list, &ctx->list);
 	}
 
-	for (qid = 0; qid < u->nr_cqs; qid++) {
+	for (qid = 1; qid < u->nr_cqs; qid++) {
 		ucq = unvmed_cq_get(u, qid);
 		if (!ucq)
 		       continue;
-
-		if (!unvmed_cq_id(ucq)) {
-			unvmed_cq_put(u, ucq);
-			continue;
-		}
 
 		ctx = malloc(sizeof(struct unvme_ctx));
 
@@ -3012,15 +3007,10 @@ int unvmed_ctx_init(struct unvme *u)
 		unvmed_cq_put(u, ucq);
 	}
 
-	for (qid = 0; qid < u->nr_sqs; qid++) {
+	for (qid = 1; qid < u->nr_sqs; qid++) {
 		usq = unvmed_sq_get(u, qid);
 		if (!usq)
 			continue;
-
-		if (!unvmed_sq_id(usq)) {
-			unvmed_sq_put(u, usq);
-			continue;
-		}
 
 		ctx = malloc(sizeof(struct unvme_ctx));
 
