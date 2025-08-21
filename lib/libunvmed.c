@@ -588,15 +588,10 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 	return 0;
 }
 
-static inline int unvmed_pci_nr_irqs(struct unvme *u)
-{
-	return u->ctrl.pci.dev.device_info.num_irqs;
-}
-
 static int unvmed_init_irq(struct unvme *u, int vector)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
-	int nr_irqs = u->irq_info.count;
+	int nr_irqs = u->nr_irqs;
 
 	if (vector >= nr_irqs) {
 		unvmed_log_err("invalid vector %d", vector);
@@ -614,8 +609,12 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 	 * interrupt vector to support older kernel (< v6.5) which does not
 	 * support dynamic MSI-X interrupt assignment.
 	 */
-	if (vfio_disable_irq_all(&u->ctrl.pci.dev))
+	if (vfio_disable_irq(&u->ctrl.pci.dev, 0, u->nr_irqs)) {
+		unvmed_log_err("failed to disable all irq vectors");
+
+		unvmed_free_irq_reaper(r);
 		return -1;
+	}
 
 	if (vfio_set_irq(&u->ctrl.pci.dev, &u->efds[0], 0, nr_irqs)) {
 		unvmed_log_err("failed to set IRQ for vector %d", vector);
@@ -628,11 +627,55 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 	return 0;
 }
 
+static inline int unvmed_lower_pow2(int n)
+{
+	int power = 1;
+
+	if (n <= 1)
+		return 0;
+
+	if ((n & (n - 1)) == 0)
+		return n >> 1;
+
+	while (power < n)
+		power <<= 1;
+
+	return power >> 1;
+}
+
 static int unvmed_alloc_irqs(struct unvme *u)
 {
-	int nr_irqs = u->irq_info.count;
+	int nr_irqs;
 
-	u->efds = malloc(sizeof(int) * nr_irqs);
+	if (vfio_pci_get_irq_info(&u->ctrl.pci, &u->irq_info)) {
+		unvmed_log_err("failed to get &struct vfio_irq_info from libvfn");
+		return -1;
+	}
+
+	/*
+	 * Check whether the IOMMU hardware in the current system supports the
+	 * number of IRQs reported by the vfio-pci driver.  For example, AMD
+	 * IOMMU hardware actually supports interrupt remapping entry up to 512
+	 * entries and kernel returns error if the given number of IRQs are
+	 * greater than 512.  So, adjust the maximum number of IRQs which can
+	 * be used in the current system with warning.
+	 */
+	nr_irqs = u->irq_info.count;
+	while (nr_irqs > 0 && vfio_disable_irq(&u->ctrl.pci.dev, 0, nr_irqs))
+		nr_irqs = unvmed_lower_pow2(nr_irqs);  /* Retry with lower pow-of-2 */
+
+	if (!nr_irqs) {
+		unvmed_log_err("failed to adjust number of IRQs (supported=%d)",
+				u->irq_info.count);
+		return -1;
+	}
+
+	if (nr_irqs < u->irq_info.count)
+		unvmed_log_info("adjusted number of IRQ to be used in unvmed, %d -> %d",
+				u->irq_info.count, nr_irqs);
+
+	u->nr_irqs = nr_irqs;
+	u->efds = malloc(sizeof(int) * u->nr_irqs);
 	if (!u->efds)
 		return -1;
 
@@ -641,11 +684,13 @@ static int unvmed_alloc_irqs(struct unvme *u)
 	 * treats @efd -1 as de-assign or skipping a vector during enabling the
 	 * interrupt.
 	 */
-	for (int i = 0; i < nr_irqs; i++)
+	for (int i = 0; i < u->nr_irqs; i++)
 		u->efds[i] = -1;
 
-	u->nr_efds = nr_irqs;
+	u->nr_efds = u->nr_irqs;
 	u->reapers = calloc(u->nr_efds, sizeof(struct unvme_cq_reaper));
+	unvmed_log_info("%d IRQ vectors are allocated (supported=%d)",
+			u->nr_irqs, u->irq_info.count);
 	return 0;
 }
 
@@ -727,14 +772,6 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	opts.ncqr = max_nr_ioqs - 1;
 
 	if (nvme_ctrl_init(&u->ctrl, bdf, &opts)) {
-		free(u);
-		return NULL;
-	}
-
-	if (vfio_pci_get_irq_info(&u->ctrl.pci, &u->irq_info)) {
-		unvmed_log_err("failed to get &struct vfio_irq_info from libvfn");
-
-		nvme_close(&u->ctrl);
 		free(u);
 		return NULL;
 	}
@@ -1803,8 +1840,11 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 		goto out;
 	}
 
-	if (irq && unvmed_pci_nr_irqs(u) > 0 && unvmed_init_irq(u, 0))
+	if (irq && u->nr_irqs > 0 && unvmed_init_irq(u, 0)) {
+		unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=0, errno=%d \"%s\")",
+				u->nr_irqs, errno, strerror(errno));
 		return -1;
+	}
 
 	/*
 	 * XXX: unvme uses a few libvfn functions which are very helpful for
@@ -1824,7 +1864,7 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	/*
 	 * Override @q->vector of libvfn in case device has no irq to -1.
 	 */
-	if (!irq || unvmed_pci_nr_irqs(u) == 0)
+	if (!irq || u->nr_irqs == 0)
 		unvmed_cq_iv(ucq) = -1;
 
 	/*
@@ -1901,8 +1941,11 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	uint16_t qflags = NVME_Q_PC;
 	uint16_t iv = 0;
 
-	if (vector >= 0 && unvmed_init_irq(u, vector))
+	if (vector >= 0 && unvmed_init_irq(u, vector)) {
+		unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=%d, errno=%d \"%s\")",
+				u->nr_irqs, vector, errno, strerror(errno));
 		return -1;
+	}
 
 	if (!u->asq) {
 		errno = EPERM;
@@ -3352,7 +3395,8 @@ struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	struct unvme_cq *ucq;
 
 	if (vector >= 0 && unvmed_init_irq(u, vector)) {
-		unvmed_log_err("failed to initialize irq (vector=%d)", vector);
+		unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=%d, errno=%d \"%s\")",
+				u->nr_irqs, vector, errno, strerror(errno));
 		return NULL;
 	}
 

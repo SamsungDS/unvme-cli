@@ -12,6 +12,14 @@ struct unvme {
 	struct nvme_ctrl ctrl;
 	struct vfio_irq_info irq_info;
 
+	/*
+	 * Number of IRQs to be used.  This can be adjusted to the lower value
+	 * due to number of IOMMU interrupt remapping entries limit (e.g., AMD:
+	 * 512 entries).  Application should use this value instead of
+	 * @irq_info in the current struct.
+	 */
+	int nr_irqs;
+
 	enum unvme_state state;
 	pthread_spinlock_t lock;
 
