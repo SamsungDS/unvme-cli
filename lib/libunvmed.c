@@ -2533,7 +2533,7 @@ int unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
 	return ret + n;
 }
 
-int unvmed_sq_nr_pending_sqes(struct unvme_sq *usq)
+static int unvmed_sq_nr_pending_sqes(struct unvme_sq *usq)
 {
 	struct nvme_sq *sq = usq->q;
 	int nr_sqes;

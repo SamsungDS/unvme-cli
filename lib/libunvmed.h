@@ -1169,18 +1169,6 @@ int unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
 		    struct nvme_cqe *cqes, int min, int max);
 
 /**
- * unvmed_sq_nr_pending_sqes - Get the number of pending SQ entries
- * @usq: submission queue (&struct unvme_sq)
- *
- * This API is not thread-safe for the given @usq.  Caller should acquire lock
- * for the corresponding @usq.
- *
- * Return: The number of pending SQ entries which have been pushed without tail
- * doorbell updated.
- */
-int unvmed_sq_nr_pending_sqes(struct unvme_sq *usq);
-
-/**
  * unvmed_sq_update_tail - Update tail pointer of the given submission queue.
  * @u: &struct unvme
  * @usq: submission queue (&struct unvme_sq)
