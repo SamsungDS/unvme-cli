@@ -87,14 +87,15 @@ unvme fio --ioengine=libunvmed \
     --nsid=1 \
     --direct=1 \
     --thread=1 \
+    --numjobs=$NR_IOQS \
     --group_reporting \
     --time_based \
     --runtime=${RUNTIME}s \
-    --name=readwrite \
-    --bs=128k \
+    --name=randrw \
+    --bsrange=4k-128k \
     --iodepth=64 \
     --ignore_error=0x371,0x371 \
-    --rw=rw &
+    --rw=randrw &
 FIO_PID=$!
 
 # Wait a moment for fio to start up
