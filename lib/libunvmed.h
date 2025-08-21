@@ -134,6 +134,8 @@ struct name {			\
 
 /*
  * struct unvme_sq - Submission queue instance
+ * @id: submission queue identifier
+ * @qsize: submission queue size
  * @q: submission queue instance provided by libvfn
  * @ucq: unvme completion queue instance
  * @cmds: command instance array for @nr_cmds
@@ -144,6 +146,9 @@ struct name {			\
  */
 #define unvme_declare_sq(name)	\
 struct name {			\
+	int id;			\
+	int qsize;		\
+				\
 	struct nvme_sq *q;	\
 	struct unvme_cq *ucq;	\
 	struct unvme_cmd *cmds; \
@@ -157,6 +162,9 @@ struct name {			\
 
 /*
  * struct unvme_cq - Completion queue instance
+ * @id: completion queue identifier
+ * @qsize: completion queue size
+ * @vector: completion queue irq vector
  * @u: unvme controller instance
  * @q: completion queue instance provided by libvfn
  * @lock: spinlock to protect the current unvme CQ instance
@@ -165,6 +173,10 @@ struct name {			\
  */
 #define unvme_declare_cq(name)	\
 struct name {			\
+	int id;			\
+	int qsize;		\
+	int vector;		\
+				\
 	struct unvme *u;	\
 	struct nvme_cq *q;	\
 	struct unvme_sq *usq;	\
@@ -173,11 +185,11 @@ struct name {			\
 	int refcnt;		\
 }
 
-#define unvmed_cq_id(ucq)	((ucq)->q->id)
-#define unvmed_cq_size(ucq)	((ucq)->q->qsize)
-#define unvmed_cq_iv(ucq)	((ucq)->q->vector)
-#define unvmed_sq_id(usq)	((usq)->q->id)
-#define unvmed_sq_size(usq)	((usq)->q->qsize)
+#define unvmed_cq_id(ucq)	((ucq)->id)
+#define unvmed_cq_size(ucq)	((ucq)->qsize)
+#define unvmed_cq_iv(ucq)	((ucq)->vector)
+#define unvmed_sq_id(usq)	((usq)->id)
+#define unvmed_sq_size(usq)	((usq)->qsize)
 #define unvmed_sq_cqid(usq)	(unvmed_cq_id((usq)->ucq))
 
 unvme_declare_ns(unvme_ns);

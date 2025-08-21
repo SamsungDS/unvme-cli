@@ -1134,6 +1134,8 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	usq->ucq = ucq;
 	ucq->usq = usq;
 	usq->nr_cmds = 0;
+	usq->id = qid;
+	usq->qsize = usq->q->qsize;
 
 	if (unvmed_vcq_init(&usq->vcq, qsize)) {
 		if (alloc)
@@ -1212,6 +1214,9 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 	pthread_spin_init(&ucq->lock, 0);
 	ucq->u = u;
 	ucq->q = &u->ctrl.cq[qid];
+	ucq->id = qid;
+	ucq->qsize = ucq->q->qsize;
+	ucq->vector = ucq->q->vector;
 
 	if (alloc) {
 		pthread_rwlock_wrlock(&u->cqs_lock);
