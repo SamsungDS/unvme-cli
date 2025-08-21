@@ -388,8 +388,11 @@ int unvmed_cq_wait_irq(struct unvme *u, int vector)
 		ret = epoll_wait(u->reapers[vector].epoll_fd, evs, 1, -1);
 	} while (ret < 0 && errno == EINTR);
 
-	if (ret < 0)
+	if (ret < 0) {
+		unvmed_log_err("failed to epoll_wait() for vector=%d, errno=%d",
+				vector, errno);
 		return -1;
+	}
 
 	return eventfd_read(u->efds[vector], &irq);
 }
@@ -526,7 +529,7 @@ int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl)
 	return 0;
 }
 
-static void unvmed_init_irq_reaper(struct unvme *u, int vector)
+static int unvmed_init_irq_reaper(struct unvme *u, int vector)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
 	struct epoll_event e;
@@ -534,7 +537,23 @@ static void unvmed_init_irq_reaper(struct unvme *u, int vector)
 	r->u = u;
 	r->vector = vector;
 	r->efd = eventfd(0, EFD_CLOEXEC | EFD_SEMAPHORE);
+	if (r->efd < 0) {
+		unvmed_log_err("failed to create a eventfd (vector=%d, errno=%d \"%s\")",
+				vector, errno, strerror(errno));
+		return -1;
+	}
+
 	r->epoll_fd = epoll_create1(0);
+	if (r->epoll_fd < 0) {
+		unvmed_log_err("failed to create a epoll_fd (vector=%d, errno=%d \"%s\")",
+				vector, errno, strerror(errno));
+		if (errno == EMFILE)  /* Too many open files */
+			unvmed_log_err("check `ulimit -n` for open file limitation");
+
+		close(r->efd);
+		return -1;
+	}
+
 
 	e = (struct epoll_event) {
 		.events = EPOLLIN,
@@ -543,6 +562,7 @@ static void unvmed_init_irq_reaper(struct unvme *u, int vector)
 	epoll_ctl(r->epoll_fd, EPOLL_CTL_ADD, r->efd, &e);
 
 	u->efds[r->vector] = r->efd;
+	return 0;
 }
 
 static void unvmed_free_irq_reaper(struct unvme_cq_reaper *r)
@@ -602,7 +622,10 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 	if (atomic_inc_fetch(&r->refcnt) > 1)
 		return 0;
 
-	unvmed_init_irq_reaper(u, vector);
+	if (unvmed_init_irq_reaper(u, vector)) {
+		unvmed_log_err("failed to initialize IRQ reaper (vector=%d)", vector);
+		return -1;
+	}
 
 	/*
 	 * Note: disable all IRQ enabled first before enabling a specific
