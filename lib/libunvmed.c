@@ -1240,6 +1240,14 @@ static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 {
 	uint32_t qid = unvmed_sq_id(usq);
 
+	/*
+	 * Prevent accessing @u->sqs array after free(usq) by NULL-ing first.
+	 * Otherwise, in other thread context u->cqs[qid] might be corrupted.
+	 */
+	pthread_rwlock_wrlock(&u->sqs_lock);
+	u->sqs[qid] = NULL;
+	pthread_rwlock_unlock(&u->sqs_lock);
+
 	unvmed_cid_free(usq);
 	unvmed_vcq_free(&usq->vcq);
 
@@ -1248,10 +1256,6 @@ static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 
 	if (!qid)
 		u->asq = NULL;
-
-	pthread_rwlock_wrlock(&u->sqs_lock);
-	u->sqs[qid] = NULL;
-	pthread_rwlock_unlock(&u->sqs_lock);
 }
 
 static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
@@ -1301,14 +1305,19 @@ static void __unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
 {
 	uint32_t qid = unvmed_cq_id(ucq);
 
+	/*
+	 * Prevent accessing @u->cqs array after free(ucq) by NULL-ing first.
+	 * Otherwise, other thread context like cqe reaper, u->cqs[qid] might
+	 * be corrupted.
+	 */
+	pthread_rwlock_wrlock(&u->cqs_lock);
+	u->cqs[qid] = NULL;
+	pthread_rwlock_unlock(&u->cqs_lock);
+
 	free(ucq);
 
 	if (!qid)
 		u->acq = NULL;
-
-	pthread_rwlock_wrlock(&u->cqs_lock);
-	u->cqs[qid] = NULL;
-	pthread_rwlock_unlock(&u->cqs_lock);
 }
 
 static void unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
