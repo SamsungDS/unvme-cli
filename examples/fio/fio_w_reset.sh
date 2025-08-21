@@ -18,7 +18,7 @@ usage() {
     echo "  -t <runtime>   : Test duration in seconds (default: 10)"
     echo "  -q <nr_ioqs>   : Number of I/O queues to create (default: 1)"
     echo "  -d             : Enable debug log level"
-    echo "  -r <reset_type>: Reset type: ctrl, nssr, flr, link-disable, hot-reset (default: ctrl)"
+    echo "  -r <reset_type>: Reset type: ctrl, ctrl-graceful, nssr, flr, link-disable, hot-reset (default: ctrl)"
     exit 1
 }
 
@@ -107,6 +107,9 @@ reset_count=0
 while [ $SECONDS -lt $end_time ]; do
     case ${RESET_TYPE} in
         ctrl)
+            COMMAND="unvme reset $BDF --reinit"
+            ;;
+        "ctrl-graceful")
             COMMAND="unvme reset $BDF --reinit --graceful"
             ;;
         nssr)
