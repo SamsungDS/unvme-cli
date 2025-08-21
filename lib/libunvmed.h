@@ -902,20 +902,6 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector);
 
 /**
- * unvmed_delete_cq - Delete I/O Completion Queue
- * @u: &struct unvme
- * @qid: completion queue identifier to create
- *
- * Issue a Delete I/O Completion Queue admin command to @u.  If the given CQ
- * has interrupt enabled, it will also disable irq and free up @ucq instance.
- *
- * This API is thread-safe.
- *
- * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
- */
-int unvmed_delete_cq(struct unvme *u, uint32_t qid);
-
-/**
  * unvmed_create_sq - Create I/O Submission Queue
  * @u: &struct unvme
  * @qid: submission queue identifier to create
@@ -928,20 +914,6 @@ int unvmed_delete_cq(struct unvme *u, uint32_t qid);
  */
 int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		     uint32_t cqid);
-
-/**
- * unvmed_delete_sq - Delete I/O Submission Queue
- * @u: &struct unvme
- * @qid: completion queue identifier to create
- *
- * Issue a Delete I/O Submission Queue admin command to @u.  It will also free
- * up @usq instance.
- *
- * This API is thread-safe.
- *
- * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
- */
-int unvmed_delete_sq(struct unvme *u, uint32_t qid);
 
 /**
  * unvmed_cmd_prep_create_sq - Prepare Create I/O Submission Queue command instance

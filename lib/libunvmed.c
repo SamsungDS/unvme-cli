@@ -1720,6 +1720,9 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	unvmed_disable_cq_all(u);
 	unvmed_disable_ns_all(u);
 
+	/* Quiesce first to get the ownership for all SQs */
+	unvmed_quiesce_sq_all(u);
+
 	/*
 	 * Wait for all the in-flight commands to complete, meaning that upper
 	 * layer application consumed all the completion queue entries that
@@ -1730,6 +1733,15 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 		if (!usq)
 			continue;
 
+		/*
+		 * Update sq tail doorbell since application might have missed
+		 * to update tail doorbell after posting commad instances.
+		 * We've already quiesced all SQs here in this context, we
+		 * should update the missing doorbell update and wait for the
+		 * commands to complete gracefully.
+		 */
+		unvmed_sq_update_tail(u, usq);
+
 		while (atomic_load_acquire(&usq->nr_cmds) > 0)
 			;
 
@@ -1737,18 +1749,16 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	}
 
 	/*
-	 * Delete I/O queues created with re-enabling the adminq.
+	 * Unquiesce all SQs here since we already _disabled_ all the queues so
+	 * that application has already been stuck issuing commands.  It's
+	 * totally safe to unquiesce queues here after @usq->nr_cmds becomes 0.
 	 */
-	u->asq->enabled = true;
-	u->acq->enabled = true;
+	unvmed_unquiesce_sq_all(u);
 
 	unvmed_delete_iosq_all(u);
 	unvmed_delete_iocq_all(u);
 
 	__unvme_reset_ctrl(u);
-
-	u->asq->enabled = false;
-	u->acq->enabled = false;
 
 	unvmed_free_ns_all(u);
 
@@ -1851,16 +1861,34 @@ out:
 
 static void unvmed_discard_sq(struct unvme *u, uint32_t qid)
 {
-	nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
-	if (u->sqs[qid])
-		u->sqs[qid]->q = NULL;
+	struct unvme_sq *usq;
+
+	pthread_rwlock_rdlock(&u->sqs_lock);
+	usq = u->sqs[qid];
+	if (usq) {
+		unvmed_sq_enter(usq);
+		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+		if (u->sqs[qid])
+			u->sqs[qid]->q = NULL;
+		unvmed_sq_exit(usq);
+	}
+	pthread_rwlock_unlock(&u->sqs_lock);
 }
 
 static void unvmed_discard_cq(struct unvme *u, uint32_t qid)
 {
-	nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-	if (u->cqs[qid])
-		u->cqs[qid]->q = NULL;
+	struct unvme_cq *ucq;
+
+	pthread_rwlock_rdlock(&u->cqs_lock);
+	ucq = u->cqs[qid];
+	if (ucq) {
+		unvmed_cq_enter(ucq);  /* prevent use-after-free for ucq->q */
+		nvme_discard_cq(&u->ctrl, ucq->q);
+		if (u->cqs[qid])
+			ucq->q = NULL;
+		unvmed_cq_exit(ucq);
+	}
+	pthread_rwlock_unlock(&u->cqs_lock);
 }
 
 int unvmed_create_adminq(struct unvme *u, bool irq)
@@ -2085,13 +2113,14 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 	}
 }
 
-int unvmed_delete_cq(struct unvme *u, uint32_t qid)
+static int unvmed_delete_sq(struct unvme *u, uint32_t qid);
+static int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_delete_q *sqe;
 	int ret;
 
-	if (!u->asq || !unvmed_sq_enabled(u->asq))
+	if (!u->asq)
 		return -1;
 
 	cmd = unvmed_alloc_cmd_nodata(u, u->asq, NULL);
@@ -2264,13 +2293,13 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 	}
 }
 
-int unvmed_delete_sq(struct unvme *u, uint32_t qid)
+static int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_delete_q *sqe;
 	int ret;
 
-	if (!u->asq || !unvmed_sq_enabled(u->asq))
+	if (!u->asq)
 		return -1;
 
 	cmd = unvmed_alloc_cmd_nodata(u, u->asq, NULL);
