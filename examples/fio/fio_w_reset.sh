@@ -20,7 +20,7 @@ usage() {
     echo "  -q <nr_ioqs>   : Number of I/O queues to create (default: 1)"
     echo "  -d             : Enable debug log level"
     echo "  -a             : Enable admin command along with FIO (default: false)"
-    echo "  -r <reset_type>: Reset type: ctrl, ctrl-graceful, nssr, flr, link-disable, hot-reset (default: ctrl)"
+    echo "  -r <reset_type>: Reset type: ctrl, ctrl-graceful, nssr, flr, link-disable, hot-reset, random (default: ctrl)"
     exit 1
 }
 
@@ -150,6 +150,19 @@ while [ $SECONDS -lt $end_time ]; do
             ;;
         "hot-reset")
             COMMAND="unvme hot-reset $BDF --reinit"
+            ;;
+        random)
+            cmds=(
+                "reset $BDF --reinit"
+                "reset $BDF --reinit --graceful"
+                "subsystem-reset $BDF --reinit"
+                "flr $BDF --reinit"
+                "link-disable $BDF --reinit"
+                "hot-reset $BDF --reinit"
+                "flr $BDF --reinit"
+            )
+            idx=$(( RANDOM % ${#cmds[@]} ))
+            COMMAND="unvme ${cmds[$idx]}"
             ;;
         *)
             echo "Invalid reset type: ${RESET_TYPE}"
