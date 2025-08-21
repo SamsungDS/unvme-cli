@@ -1828,6 +1828,7 @@ static void *unvmed_reaper_run(void *opaque)
 		 * considers reaper thread properly, so will implement later.
 		 */
 		for (qid = 0; qid < u->nr_cqs; qid++) {
+			pthread_rwlock_rdlock(&u->cqs_lock);
 			ucq = u->cqs[qid];
 			/*
 			 * The reason why we should check unvmed_cq_size(ucq)
@@ -1837,6 +1838,7 @@ static void *unvmed_reaper_run(void *opaque)
 			 */
 			if (ucq && ucq->q && unvmed_cq_iv(ucq) == r->vector)
 				__unvmed_reap_cqe(ucq);
+			pthread_rwlock_unlock(&u->cqs_lock);
 		}
 	}
 
