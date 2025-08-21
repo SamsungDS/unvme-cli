@@ -2853,16 +2853,16 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	unvmed_sq_enter(usq);
 	if (!unvmed_sq_enabled(usq)) {
 		unvme_pr_err("failed to get enabled sq\n");
 		ret = ENOMEDIUM;
-		goto put;
+		goto exit;
 	}
 
-	unvmed_sq_enter(usq);
 	unvmed_sq_update_tail(u, usq);
+exit:
 	unvmed_sq_exit(usq);
-put:
 	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
