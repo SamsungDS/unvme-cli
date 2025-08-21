@@ -10,19 +10,21 @@ RUNTIME=10
 BDF=""
 NR_IOQS=1
 DEBUG=0
+ADMIN=0
 RESET_TYPE="ctrl"
 
 usage() {
-    echo "Usage: $0 -b <bdf> [-t <runtime>] [-q <nr_ioqs>] [-d] [-r <reset_type>]"
+    echo "Usage: $0 -b <bdf> [-t <runtime>] [-q <nr_ioqs>] [-d] [-a] [-r <reset_type>]"
     echo "  -b <bdf>       : PCI BDF of the NVMe device (e.g., 0000:01:00.0)"
     echo "  -t <runtime>   : Test duration in seconds (default: 10)"
     echo "  -q <nr_ioqs>   : Number of I/O queues to create (default: 1)"
     echo "  -d             : Enable debug log level"
+    echo "  -a             : Enable admin command along with FIO (default: false)"
     echo "  -r <reset_type>: Reset type: ctrl, ctrl-graceful, nssr, flr, link-disable, hot-reset (default: ctrl)"
     exit 1
 }
 
-while getopts "b:t:q:dr:" opt; do
+while getopts "b:t:q:dar:" opt; do
     case ${opt} in
         b)
             BDF=$OPTARG
@@ -35,6 +37,9 @@ while getopts "b:t:q:dr:" opt; do
             ;;
         d)
             DEBUG=1
+            ;;
+        a)
+            ADMIN=1
             ;;
         r)
             RESET_TYPE=$OPTARG
@@ -100,6 +105,27 @@ FIO_PID=$!
 
 # Wait a moment for fio to start up
 sleep 1
+
+run_admin() {
+    set +e
+    end=$((SECONDS + RUNTIME))
+    while [ $SECONDS -lt $end ]; do
+	(
+        unvme passthru $BDF -q 0 -o 6 -4 1 --nodb --data-len=4096 > /dev/null 2>&1 &
+        unvme update-sqdb $BDF -q 0 2> /dev/null
+	) &
+	wait
+        if [ $? -eq 0 ]; then
+            echo -n ","
+        fi
+    done
+    set -e
+}
+
+# Run admin command handlers
+if [ $ADMIN -eq 1 ]; then
+    run_admin &
+fi
 
 # Repeatedly reset the controller
 echo "Starting unvme reset loop for ${RUNTIME} seconds with reset type '${RESET_TYPE}'..."
