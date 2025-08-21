@@ -411,15 +411,14 @@ static struct unvme_sq *__unvmed_find_and_get_sq(struct unvme *u,
 		usq = u->sqs[qid];
 
 		refcnt = atomic_load_acquire(&usq->refcnt);
-		while (get && !atomic_cmpxchg(&usq->refcnt, refcnt, refcnt + 1)) {
+		while (get && refcnt > 0 &&
+				!atomic_cmpxchg(&usq->refcnt, refcnt, refcnt + 1)) {
 			refcnt = atomic_load_acquire(&usq->refcnt);
-
-			/* Other context has already fred the @usq instance. */
-			if (!refcnt) {
-				usq = NULL;
-				break;
-			}
 		}
+
+		/* Other context has already fred the @usq instance. */
+		if (!refcnt)
+			usq = NULL;
 	}
 	pthread_rwlock_unlock(&u->sqs_lock);
 
@@ -440,15 +439,14 @@ static struct unvme_cq *__unvmed_find_and_get_cq(struct unvme *u,
 		ucq = u->cqs[qid];
 
 		refcnt = atomic_load_acquire(&ucq->refcnt);
-		while (get && !atomic_cmpxchg(&ucq->refcnt, refcnt, refcnt + 1)) {
+		while (get && refcnt > 0 &&
+				!atomic_cmpxchg(&ucq->refcnt, refcnt, refcnt + 1)) {
 			refcnt = atomic_load_acquire(&ucq->refcnt);
-
-			/* Other context has already fred the @ucq instance. */
-			if (!refcnt) {
-				ucq = NULL;
-				break;
-			}
 		}
+
+		/* Other context has already fred the @ucq instance. */
+		if (!refcnt)
+			ucq = NULL;
 	}
 	pthread_rwlock_unlock(&u->cqs_lock);
 
