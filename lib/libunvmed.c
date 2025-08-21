@@ -1182,11 +1182,12 @@ static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 
 	unvmed_cid_free(usq);
 	unvmed_vcq_free(&usq->vcq);
-	if (!unvmed_sq_id(usq))
-		u->asq = NULL;
 
 	free(usq->cmds);
 	free(usq);
+
+	if (!qid)
+		u->asq = NULL;
 
 	pthread_rwlock_wrlock(&u->sqs_lock);
 	u->sqs[qid] = NULL;
@@ -1238,13 +1239,16 @@ void unvmed_enable_cq(struct unvme_cq *ucq)
 
 static void __unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
 {
-	pthread_rwlock_wrlock(&u->cqs_lock);
-	u->cqs[unvmed_cq_id(ucq)] = NULL;
-	pthread_rwlock_unlock(&u->cqs_lock);
-	if (!unvmed_cq_id(ucq))
-		u->acq = NULL;
+	uint32_t qid = unvmed_cq_id(ucq);
 
 	free(ucq);
+
+	if (!qid)
+		u->acq = NULL;
+
+	pthread_rwlock_wrlock(&u->cqs_lock);
+	u->cqs[qid] = NULL;
+	pthread_rwlock_unlock(&u->cqs_lock);
 }
 
 static void unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
