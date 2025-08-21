@@ -2623,7 +2623,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	usq = unvmed_sq_get(u, arg_intv(sqid));
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	if (!usq) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -2675,6 +2675,12 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvme_pr_err("failed to get enabled iosq\n");
+		ret = ENOMEDIUM;
+		unvmed_sq_exit(usq);
+		goto put;
+	}
 
 	/*
 	 * If --prp1 and --prp2 both are not given, libunvmed will take care of
