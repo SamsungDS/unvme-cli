@@ -3438,8 +3438,10 @@ int unvme_flr(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	ret = unvmed_flr(u);
-	if (ret)
+	if (ret) {
 		unvme_pr_err("failed to flr\n");
+		goto out;
+	}
 
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");
@@ -3482,8 +3484,10 @@ int unvme_hot_reset(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	ret = unvmed_hot_reset(u);
-	if (ret)
+	if (ret) {
 		unvme_pr_err("failed to hot reset\n");
+		goto out;
+	}
 
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");
@@ -3526,8 +3530,10 @@ int unvme_link_disable(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	ret = unvmed_link_disable(u);
-	if (ret)
+	if (ret) {
 		unvme_pr_err("failed to link disable\n");
+		goto out;
+	}
 
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");
