@@ -2037,7 +2037,6 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme_cmd *cmd;
 	struct unvme_sq *usq;
 	struct unvme *u;
-	struct nvme_cqe cqe = {0, };
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -2109,10 +2108,10 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
-		unvme_pr_cqe(&cqe);
+		unvme_pr_cqe(&cmd->cqe);
 
 	if (!ret)
-		unvme_pr("dw0: %#x\n", le32_to_cpu(cqe.dw0));
+		unvme_pr("dw0: %#x\n", le32_to_cpu(cmd->cqe.dw0));
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 
