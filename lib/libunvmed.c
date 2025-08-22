@@ -1832,6 +1832,11 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 	int ret;
 
 	unvmed_cq_enter(ucq);
+	if (!ucq->q) {
+		unvmed_cq_exit(ucq);
+		return;
+	}
+
 	while (true) {
 		cqe = unvmed_get_completion(u, ucq);
 		if (!cqe)
@@ -1899,7 +1904,7 @@ static void *unvmed_reaper_run(void *opaque)
 			 * is still alive, but the contents of @ucq->q can be
 			 * all-zero.  So skip the removed queue.
 			 */
-			if (ucq && ucq->q && unvmed_cq_iv(ucq) == r->vector)
+			if (ucq && unvmed_cq_iv(ucq) == r->vector)
 				__unvmed_reap_cqe(ucq);
 			pthread_rwlock_unlock(&u->cqs_lock);
 		}
