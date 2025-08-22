@@ -2167,11 +2167,11 @@ static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 	int vector = unvmed_cq_iv(ucq);
 	bool irq = unvmed_cq_irq_enabled(ucq);
 
+	unvmed_discard_cq(u, qid);
 	if (!unvmed_cq_put(u, ucq)) {
 		if (irq)
 			unvmed_free_irq(u, vector);
 	}
-	unvmed_discard_cq(u, qid);
 }
 
 static void __unvmed_delete_cq_all(struct unvme *u)
@@ -2197,8 +2197,8 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 		refcnt = unvmed_cq_put(u, ucq);
 		assert(refcnt > 0);
 
-		unvmed_cq_put(u, ucq);
 		unvmed_discard_cq(u, qid);
+		unvmed_cq_put(u, ucq);
 	}
 }
 
@@ -2353,8 +2353,8 @@ static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq)
 {
 	uint32_t qid = unvmed_sq_id(usq);
 
-	unvmed_sq_put(u, usq);
 	unvmed_discard_sq(u, qid);
+	unvmed_sq_put(u, usq);
 }
 
 static void unvmed_delete_iosq_all(struct unvme *u)
@@ -2410,8 +2410,8 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 		refcnt = unvmed_sq_put(u, usq);
 		assert(refcnt > 0);
 
-		unvmed_sq_put(u, usq);
 		unvmed_discard_sq(u, qid);
+		unvmed_sq_put(u, usq);
 	}
 }
 
