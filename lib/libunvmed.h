@@ -1305,17 +1305,6 @@ int unvmed_cmd_prep(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		    struct iovec *iov, int nr_iov);
 
 /**
- * unvmed_cmd_issue - Issue a given @cmd command
- * @cmd: command instance (&struct unvme_cmd)
- *
- * Issue a given @cmd to a specific submission queue.  @cmd->sqe should be
- * filled up before calling this API by `unvmed_cmd_prep(@cmd, &sqe, ...)`.
- *
- * This API is thread-safe.
- */
-void unvmed_cmd_issue(struct unvme_cmd *cmd);
-
-/**
  * unvmed_cmd_issue_and_wait - Issue a given @cmd command and wait to complete
  * @cmd: command instance (&struct unvme_cmd)
  *
@@ -1324,7 +1313,8 @@ void unvmed_cmd_issue(struct unvme_cmd *cmd);
  *
  * This API waits for the @cmd to complete after submitting it.
  *
- * This API is thread-safe.
+ * This API is *NOT* thread-safe.  Caller must grab @cmd->usq lock with
+ * unvmed_sq_get().
  *
  * Return: ``0`` on success, -1 on error, otherwise CQE status field.
  */

@@ -446,13 +446,11 @@ int unvmed_cmd_prep(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	return 0;
 }
 
-void unvmed_cmd_issue(struct unvme_cmd *cmd)
+static void unvmed_cmd_issue(struct unvme_cmd *cmd)
 {
 	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
 
-	unvmed_sq_enter(cmd->usq);
 	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
-	unvmed_sq_exit(cmd->usq);
 }
 
 int unvmed_cmd_issue_and_wait(struct unvme_cmd *cmd)

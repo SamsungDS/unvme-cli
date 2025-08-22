@@ -772,8 +772,8 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -785,50 +785,72 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvmed_cq_enabled(u, arg_intv(qid))) {
 		unvme_pr_err("failed to create cq (qid=%u) (exists)\n", arg_intv(qid));
 		ret = EEXIST;
-		goto out;
+		goto usq;
 	}
 
 	ucq = unvmed_init_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector));
 	if (!ucq) {
 		unvme_pr_err("failed to configure and initialize I/O CQ\n");
 		ret = errno;
-		goto out;
+		goto usq;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto ucq;
 	}
 
 	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
-		unvmed_free_cq(u, arg_intv(qid));
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto ucq;
 	}
 
 	if (unvmed_cmd_prep_create_cq(cmd, u, arg_intv(qid), arg_intv(qsize),
 				      arg_intv(vector)) < 0) {
 		unvme_pr_err("failed to prepare Create I/O Completion Queue command\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
+
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
 
 	if (ret || !nvme_cqe_ok(&cmd->cqe)) {
 		unvme_pr_err("failed to create iocq\n");
 		ret = EINVAL;
-		goto free;
+		goto cmd;
 	}
 
 	unvmed_enable_cq(ucq);
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+ucq:
 	if (ret)
 		unvmed_free_cq(u, arg_intv(qid));
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -854,6 +876,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	struct unvme_sq *usq;
+	struct unvme_cq *ucq;
 	struct unvme_cmd *cmd;
 	int ret = 0;
 
@@ -866,53 +889,77 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	if (!unvmed_cq_enabled(u, arg_intv(qid))) {
-		unvme_pr_err("failed to delete cq (qid=%u) (not exists)\n", arg_intv(qid));
+	ucq = unvmed_cq_get(u, arg_intv(qid));
+	if (!ucq) {
+		unvme_pr_err("failed to get target cq %d\n", arg_intv(qid));
+
 		ret = ENOMEDIUM;
-		goto out;
+		goto usq;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto ucq;
 	}
 
 	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto ucq;
 	}
 
 	if (unvmed_cmd_prep_delete_cq(cmd, arg_intv(qid)) < 0) {
 		unvme_pr_err("failed to prepare Delete I/O Completion Queue command\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
+
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
 
 	if (!nvme_cqe_ok(&cmd->cqe)) {
 		unvme_pr_err("failed to delete iocq\n");
 		ret = EINVAL;
-		goto free;
+	} else {
+		if (unvmed_free_cq(u, arg_intv(qid))) {
+			unvme_pr_err("failed to delete iocq in libunvmed\n");
+			ret = errno;
+		}
 	}
 
-	if (unvmed_free_cq(u, arg_intv(qid))) {
-		unvme_pr_err("failed to delete iocq in libunvmed\n");
-		ret = errno;
-		goto free;
-	}
-
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+ucq:
+	unvmed_cq_put(u, ucq);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -957,40 +1004,52 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	targetq = unvmed_sq_find(u, arg_intv(qid));
-	if (unvmed_sq_enabled(targetq)) {
+	targetq = unvmed_sq_get(u, arg_intv(qid));
+	if (targetq) {
 		unvme_pr_err("failed to create iosq (qid=%u) (exists)\n", arg_intv(qid));
+		unvmed_sq_put(u, targetq);
 		ret = EEXIST;
-		goto out;
+		goto usq;
 	}
 
-	ucq = unvmed_cq_find(u, arg_intv(cqid));
+	ucq = unvmed_cq_get(u, arg_intv(cqid));
 	if (!ucq) {
 		unvme_pr_err("failed to find cq (cqid=%u)\n", arg_intv(cqid));
 		ret = ENODEV;
-		goto out;
+		goto usq;
 	}
 
 	targetq = unvmed_init_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid));
 	if (!targetq) {
 		unvme_pr_err("failed to configure and initialize io submission queue\n");
 		ret = errno;
-		goto out;
+		goto ucq;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto ucq;
 	}
 
 	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
-		unvmed_free_sq(u, arg_intv(qid));
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto free;
 	}
 
 	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
@@ -998,29 +1057,42 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvmed_cmd_prep_create_sq(cmd, u, arg_intv(qid), arg_intv(qsize),
 				      arg_intv(cqid)) < 0) {
 		unvme_pr_err("failed to prepare Create I/O Submission Queue command\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
+
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
 
 	if (!nvme_cqe_ok(&cmd->cqe)) {
 		unvme_pr_err("failed to create iosq\n");
 		ret = EINVAL;
-		goto free;
+		goto cmd;
 	}
 
 	unvmed_enable_sq(targetq);
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+free:
 	if (ret)
 		unvmed_free_sq(u, arg_intv(qid));
+ucq:
+	unvmed_cq_put(u, ucq);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1060,25 +1132,37 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
-	targetq = unvmed_sq_find(u, arg_intv(qid));
-	if (!unvmed_sq_enabled(targetq)) {
+	targetq = unvmed_sq_get(u, arg_intv(qid));
+	if (!targetq) {
 		unvme_pr_err("failed to delete iosq (qid=%u) (not exists)\n", arg_intv(qid));
 		ret = ENOMEDIUM;
-		goto out;
+		goto usq;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
 	}
 
 	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto targetq;
 	}
 
 	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
@@ -1088,14 +1172,21 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (unvmed_cmd_prep_delete_sq(cmd, arg_intv(qid)) < 0) {
 		unvme_pr_err("failed to prepare Delete I/O Submission Queue command\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1103,17 +1194,19 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	if (!nvme_cqe_ok(&cmd->cqe)) {
 		unvme_pr_err("failed to delete iosq\n");
 		ret = EINVAL;
-		goto free;
+	} else {
+		if (unvmed_free_sq(u, arg_intv(qid))) {
+			unvme_pr_err("failed to delete iosq in libunvmed\n");
+			ret = errno;
+		}
 	}
 
-	if (unvmed_free_sq(u, arg_intv(qid))) {
-		unvme_pr_err("failed to delete iosq in libunvmed\n");
-		ret = errno;
-		goto free;
-	}
-
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+targetq:
+	unvmed_sq_put(u, targetq);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1172,13 +1265,6 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
 	if (arg_intv(prp1_offset) >= getpagesize()) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
@@ -1193,18 +1279,6 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
-	if (!cmd) {
-		unvme_pr_err("failed to allocate a command instance\n");
-
-		pgunmap(buf, len);
-		ret = errno;
-		goto out;
-	}
-
-	if (arg_boolv(nodb))
-		cmd->flags |= UNVMED_CMD_F_NODB;
-
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
@@ -1212,17 +1286,52 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
+		ret = errno;
+		goto usq;
+	}
+
+	if (arg_boolv(nodb))
+		cmd->flags |= UNVMED_CMD_F_NODB;
+
 	if (unvmed_cmd_prep_id_ns(cmd, arg_dblv(nsid), &iov, 1) < 0) {
 		unvme_pr_err("failed to prepare Identify Namespace command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1237,8 +1346,11 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to identify namespace\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
@@ -1289,13 +1401,6 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
 	if (arg_intv(prp1_offset) >= getpagesize()) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
@@ -1310,18 +1415,6 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
-	if (!cmd) {
-		unvme_pr_err("failed to allocate a command instance\n");
-
-		pgunmap(buf, len);
-		ret = errno;
-		goto out;
-	}
-
-	if (arg_boolv(nodb))
-		cmd->flags |= UNVMED_CMD_F_NODB;
-
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
@@ -1329,17 +1422,52 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
+		ret = errno;
+		goto usq;
+	}
+
+	if (arg_boolv(nodb))
+		cmd->flags |= UNVMED_CMD_F_NODB;
+
 	if (unvmed_cmd_prep_id_ctrl(cmd, &iov, 1) < 0) {
 		unvme_pr_err("failed to prepare Identify Controller command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1350,8 +1478,11 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to identify namespace\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
@@ -1411,13 +1542,6 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
 	if (arg_intv(prp1_offset) >= getpagesize()) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
@@ -1431,15 +1555,6 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
-	if (!cmd) {
-		unvme_pr_err("failed to allocate a command instance\n");
-
-		pgunmap(buf, len);
-		ret = errno;
-		goto out;
-	}
-
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
@@ -1447,17 +1562,49 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
+		ret = errno;
+		goto usq;
+	}
+
 	if (unvmed_cmd_prep_id_active_nslist(cmd, arg_dblv(nsid), &iov, 1) < 0) {
 		unvme_pr_err("failed to prepare Identify Active NS List command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1467,8 +1614,11 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to identify active namespace list\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
@@ -1527,19 +1677,6 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
-	if (!unvmed_ns_find(u, arg_dblv(nsid))) {
-		unvme_pr_err("failed to get namespace instance. Do `unvme id-ns` first\n");
-		ret = EINVAL;
-		goto out;
-	}
-
 	if (arg_intv(prp1_offset) >= getpagesize()) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
@@ -1553,15 +1690,6 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
-	if (!cmd) {
-		unvme_pr_err("failed to allocate a command instance\n");
-
-		pgunmap(buf, len);
-		ret = errno;
-		goto out;
-	}
-
 	buf += arg_intv(prp1_offset);
 
 	iov = (struct iovec) {
@@ -1569,36 +1697,68 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		.iov_len = size,
 	};
 
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
+	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
+		ret = errno;
+		goto usq;
+	}
+
 	if (unvmed_cmd_prep_nvm_id_ns(cmd, arg_dblv(nsid), &iov, 1) < 0) {
 		unvme_pr_err("failed to prepare NVM Identify Namespace command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
 
 	if (!ret) {
+		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_nvm_id_ns);
+
 		if (unvmed_init_meta_ns(u, arg_dblv(nsid), buf)) {
 			unvme_pr_err("failed to initialize meta info");
-
-			unvmed_cmd_put(cmd);
-			pgunmap(buf, len);
 			ret = errno;
-			goto out;
 		}
-		__unvme_cmd_pr(arg_strv(format), buf, size, unvme_pr_nvm_id_ns);
 	} else if (ret < 0)
 		unvme_pr_err("failed to NVM identify namespace\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf - arg_intv(prp1_offset), len);
 out:
 	unvme_free_args(argtable);
@@ -1646,25 +1806,37 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	if (arg_boolv(data)) {
 		if (!arg_boolv(data_size) || !arg_intv(data_size)) {
 			unvme_pr_err("invalid -z|--data-size\n");
+			unvmed_sq_exit(usq);
 			ret = EINVAL;
-			goto out;
+			goto usq;
 		}
 
 		len = pgmap(&buf, arg_intv(data_size));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto out;
+			goto usq;
 		}
 
 		filepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(data));
@@ -1672,18 +1844,19 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_pr_err("failed to read file %s\n", filepath);
 
 			pgunmap(buf, len);
+			unvmed_sq_exit(usq);
 			ret = ENOENT;
-			goto out;
+			goto usq;
 		}
 
 		cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
-			if (buf)
-				pgunmap(buf, len);
+			pgunmap(buf, len);
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto out;
+			goto usq;
 		}
 
 		iov = (struct iovec) {
@@ -1695,8 +1868,9 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto out;
+			goto usq;
 		}
 	}
 
@@ -1706,13 +1880,18 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to prepare Set Features command\n");
 
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1723,10 +1902,12 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
 	if (buf && len)
 		pgunmap(buf, len);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1770,18 +1951,30 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	cdw11 = arg_intv(ncqr) << 16 | arg_intv(nsqr);
@@ -1791,14 +1984,20 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 			0 /* nr_iov */) < 0) {
 		unvme_pr_err("failed to prepare Set Features command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -1808,8 +2007,10 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features-noq\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1861,18 +2062,30 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	if (unvmed_cmd_prep_set_features_hmb(cmd, arg_intv(hsize),
@@ -1880,14 +2093,20 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 				arg_boolv(mr), arg_boolv(enable)) < 0) {
 		unvme_pr_err("failed to prepare Set Features HMB command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cqe);
@@ -1897,8 +2116,10 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to set-features\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1947,29 +2168,41 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
 	}
 
 	if (arg_boolv(data_size)) {
 		len = pgmap(&buf, arg_intv(data_size));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
+
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto out;
+			goto usq;
 		}
 
 		cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
-			if (buf)
-				pgunmap(buf, len);
+			pgunmap(buf, len);
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto out;
+			goto usq;
 		}
 
 		iov = (struct iovec) {
@@ -1981,8 +2214,10 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 		cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
+
+			unvmed_sq_exit(usq);
 			ret = errno;
-			goto out;
+			goto usq;
 		}
 	}
 
@@ -1991,14 +2226,20 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 			arg_intv(data_size) > 0 ? 1 : 0) < 0) {
 		unvme_pr_err("failed to prepare Get Features command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -2017,10 +2258,12 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to get-features\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
 	if (buf && len)
 		pgunmap(buf, len);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -2129,8 +2372,8 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	usq = unvmed_sq_find(u, arg_intv(sqid));
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, arg_intv(sqid));
+	if (!usq) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -2139,7 +2382,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_intv(prp1_offset) >= getpagesize()) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
-		goto out;
+		goto usq;
 	}
 
 	/*
@@ -2151,7 +2394,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_intv(metadata_size) && !arg_boolv(metadata)) {
 		unvme_pr_err("-M <output> is needed for metadata\n");
 		ret = EINVAL;
-		goto out;
+		goto usq;
 	}
 
 	size = arg_intv(data_size);
@@ -2162,7 +2405,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE) {
@@ -2170,7 +2413,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		if (mlen < 0) {
 			unvme_pr_err("failed to allocate meta buffer\n");
 			ret = errno;
-			goto unmap;
+			goto buf;
 		}
 	}
 
@@ -2179,11 +2422,23 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_boolv(metadata))
 		mfilepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(metadata));
 
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto mbuf;
+	}
+
 	cmd = unvmed_alloc_cmd_meta(u, usq, NULL, buf, len, mbuf, mlen);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto unmap;
+		goto mbuf;
 	}
 
 	if (arg_boolv(sgl))
@@ -2207,14 +2462,20 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 			&iov, 1, mbuf, NULL) < 0) {
 		unvme_pr_err("failed to prepare Read Namespace command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -2254,12 +2515,15 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to read\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
-unmap:
-	pgunmap(buf - arg_intv(prp1_offset), len);
+mbuf:
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE)
 		pgunmap(mbuf - arg_intv(prp1_offset), mlen);
+buf:
+	pgunmap(buf - arg_intv(prp1_offset), len);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	if (ns)
 		unvmed_ns_put(u, ns);
@@ -2371,8 +2635,8 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
-	usq = unvmed_sq_find(u, arg_intv(sqid));
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, arg_intv(sqid));
+	if (!usq) {
 		unvme_pr_err("failed to get iosq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -2381,13 +2645,13 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_intv(prp1_offset) >= getpagesize()) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
-		goto out;
+		goto usq;
 	}
 
 	if (arg_intv(metadata_size) && !arg_boolv(metadata)) {
 		unvme_pr_err("-M <input> is needed for metadata\n");
 		ret = EINVAL;
-		goto out;
+		goto usq;
 	}
 
 	if (arg_boolv(data))
@@ -2403,7 +2667,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	__buf = buf + arg_intv(prp1_offset);
@@ -2413,7 +2677,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvme_read_file(filepath, wdata, arg_intv(data_size))) {
 		unvme_pr_err("failed to read file %s\n", filepath);
 		ret = ENOENT;
-		goto unmap;
+		goto buf;
 	}
 
 	if (!arg_intv(metadata_size))
@@ -2426,7 +2690,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		if (unvme_read_file(mfilepath, wmdata, arg_intv(metadata_size))) {
 			unvme_pr_err("failed to read file %s\n", mfilepath);
 			ret = ENOENT;
-			goto unmap;
+			goto buf;
 		}
 
 		if (ns->mset == NVME_FORMAT_MSET_SEPARATE) {
@@ -2435,7 +2699,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 			if (mlen < 0) {
 				unvme_pr_err("failed to allocate meta buffer\n");
 				ret = errno;
-				goto unmap;
+				goto buf;
 			}
 			__mbuf = mbuf + arg_intv(prp1_offset);
 			memcpy(__buf, wdata, arg_intv(data_size));
@@ -2452,11 +2716,23 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		}
 	}
 
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto mbuf;
+	}
+
 	cmd = unvmed_alloc_cmd_meta(u, usq, NULL, buf, len, mbuf, mlen);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto unmap;
+		goto mbuf;
 	}
 
 	if (arg_boolv(sgl))
@@ -2475,14 +2751,20 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 			&iov, 1, __mbuf, NULL) < 0) {
 		unvme_pr_err("failed to prepare Identify Namespace command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -2490,17 +2772,20 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (ret < 0)
 		unvme_pr_err("failed to write\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
-unmap:
-	pgunmap(buf - arg_intv(prp1_offset), len);
+mbuf:
 
 	if (arg_intv(metadata_size)) {
 		free(wmdata);
 		if (ns->mset == NVME_FORMAT_MSET_SEPARATE)
 			pgunmap(mbuf - arg_intv(prp1_offset), mlen);
 	}
+buf:
+	pgunmap(buf - arg_intv(prp1_offset), len);
 	free(wdata);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	if (ns)
 		unvmed_ns_put(u, ns);
@@ -2641,7 +2926,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("If either --prp1= or --prp2= is given, --data-len= "
 				"should not be given\n");
 		ret = EINVAL;
-		goto put;
+		goto usq;
 	}
 
 	_write = arg_boolv(write);
@@ -2676,10 +2961,12 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvmed_sq_enter(usq);
 	if (!unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get enabled iosq\n");
-		ret = ENOMEDIUM;
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
 		unvmed_sq_exit(usq);
-		goto put;
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
 	}
 
 	/*
@@ -2690,19 +2977,19 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 		len = pgmap(&buf, arg_intv(data_len));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
+
 			unvmed_sq_exit(usq);
 			ret = errno;
-			goto put;
+			goto usq;
 		}
 
 		cmd = unvmed_alloc_cmd(u, usq, __cidp, buf, len);
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
-			pgunmap(buf, len);
 			unvmed_sq_exit(usq);
 			ret = errno;
-			goto put;
+			goto buf;
 		}
 
 		if (_write) {
@@ -2710,11 +2997,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 			if (unvme_read_file(filepath, buf, arg_intv(data_len))) {
 				unvme_pr_err("failed to read file %s\n", filepath);
 
-				unvmed_cmd_put(cmd);
-				pgunmap(buf, len);
 				unvmed_sq_exit(usq);
 				ret = ENOENT;
-				goto put;
+				goto cmd;
 			}
 		}
 
@@ -2730,7 +3015,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 			unvmed_sq_exit(usq);
 			ret = errno;
-			goto put;
+			goto usq;
 		}
 	}
 
@@ -2755,11 +3040,9 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (arg_boolv(dry_run)) {
-		unvmed_cmd_put(cmd);
-		pgunmap(buf, len);
 		unvmed_sq_exit(usq);
 		ret = 0;
-		goto put;
+		goto cmd;
 	}
 
 	if (arg_boolv(nodb))
@@ -2770,7 +3053,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 
 		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	/*
@@ -2800,11 +3083,12 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to passthru\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+buf:
 	if (buf && len)
 		pgunmap(buf, len);
-put:
+usq:
 	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
@@ -2855,14 +3139,17 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvmed_sq_enter(usq);
 	if (!unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get enabled sq\n");
-		ret = ENOMEDIUM;
-		goto exit;
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
 	}
 
 	unvmed_sq_update_tail(u, usq);
-exit:
 	unvmed_sq_exit(usq);
+usq:
 	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
@@ -2908,32 +3195,42 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
-	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
-	if (!cmd) {
-		unvme_pr_err("failed to allocate a command instance\n");
-
-		ret = errno;
-		goto out;
-	}
-
 	if (!arg_boolv(lbaf)) {
 		struct unvme_ns *ns = unvmed_ns_get(u, arg_dblv(nsid));
 		if (ns) {
 			arg_intv(lbaf) = ns->format_idx;
 			unvmed_ns_put(u, ns);
 		} else {
-			unvmed_cmd_put(cmd);
 			unvme_pr_err("failed to get a namespace instance\n");
-			ret = -EINVAL;
+			ret = EINVAL;
 			goto out;
 		}
+	}
+
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto out;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
+	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
+	if (!cmd) {
+		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
+		ret = errno;
+		goto usq;
 	}
 
 	if (unvmed_cmd_prep_format(cmd, arg_dblv(nsid), arg_intv(lbaf),
@@ -2941,14 +3238,20 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 			arg_intv(mset)) < 0) {
 		unvme_pr_err("failed to prepare Format command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -2969,8 +3272,10 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to format NVM\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -3271,8 +3576,8 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
@@ -3281,23 +3586,31 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	if (unvmed_cmd_prep_virt_mgmt(cmd, arg_intv(cntlid), arg_intv(rt),
 			arg_intv(act), arg_intv(nr)) < 0 ) {
 		unvme_pr_err("failed to prepare Virtualization Mgmt. command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -3305,8 +3618,10 @@ int unvme_virt_mgmt(int argc, char *argv[], struct unvme_msg *msg)
 	if (ret < 0)
 		unvme_pr_err("failed to submit virt-mgmt command\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -3353,13 +3668,6 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
 	len = pgmap(&buf, size + getpagesize());
 	if (len < 0) {
 		unvme_pr_err("failed to allocate user data buffer\n");
@@ -3367,13 +3675,30 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
-		pgunmap(buf, len);
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	iov = (struct iovec) {
@@ -3385,13 +3710,18 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to prepare Identify Primary Controller command\n");
 
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -3401,8 +3731,11 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to identify primary controller capabilities\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
@@ -3450,13 +3783,6 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, sqid);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
 	len = pgmap(&buf, size + getpagesize());
 	if (len < 0) {
 		unvme_pr_err("failed to allocate user data buffer\n");
@@ -3464,13 +3790,30 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	usq = unvmed_sq_get(u, sqid);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
 
-		pgunmap(buf, len);
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	iov = (struct iovec) {
@@ -3481,14 +3824,20 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvmed_cmd_prep_id_secondary_ctrl_list(cmd, &iov, 1, arg_intv(cntlid)) < 0) {
 		unvme_pr_err("failed to prepare Identify Secondary Controller command\n");
 
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -3498,8 +3847,11 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	else if (ret < 0)
 		unvme_pr_err("failed to identify secondary controller list\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
@@ -3756,13 +4108,6 @@ int unvme_create_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
 	len = pgmap(&buf, size);
 	if (len < 0) {
 		unvme_pr_err("failed to allocate data buffer\n");
@@ -3770,12 +4115,30 @@ int unvme_create_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
-		pgunmap(buf, len);
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	iov = (struct iovec) {
@@ -3793,14 +4156,21 @@ int unvme_create_ns(int argc, char *argv[], struct unvme_msg *msg)
 				      arg_intv(csi), arg_dblv(lbstm),
 				      phndls->count, __phndls, &iov, 1) < 0) {
 		unvme_pr_err("failed to prepare Create Namespace command\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -3814,8 +4184,11 @@ int unvme_create_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to create namespace\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
@@ -3851,30 +4224,49 @@ int unvme_delete_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
 		unvme_pr_err("failed to get admin sq\n");
 		ret = ENOMEDIUM;
 		goto out;
 	}
 
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	cmd = unvmed_alloc_cmd_nodata(u, usq, NULL);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	if (unvmed_cmd_prep_delete_ns(cmd, arg_dblv(nsid)) < 0) {
 		unvme_pr_err("failed to prepare Delete Namespace command\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -3887,8 +4279,10 @@ int unvme_delete_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to delete namespace\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -3929,13 +4323,6 @@ int unvme_attach_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
 	len = pgmap(&buf, size);
 	if (len < 0) {
 		unvme_pr_err("failed to allocate data buffer\n");
@@ -3943,11 +4330,30 @@ int unvme_attach_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	iov = (struct iovec) {
@@ -3961,14 +4367,21 @@ int unvme_attach_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvmed_cmd_prep_attach_ns(cmd, arg_dblv(nsid), ctrlids->count,
 				__ctrlids, &iov, 1) < 0) {
 		unvme_pr_err("failed to prepare Attach Namespace command\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -3981,8 +4394,11 @@ int unvme_attach_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to attach namespace\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
@@ -4024,13 +4440,6 @@ int unvme_detach_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	usq = unvmed_sq_find(u, 0);
-	if (!usq || !unvmed_sq_enabled(usq)) {
-		unvme_pr_err("failed to get admin sq\n");
-		ret = ENOMEDIUM;
-		goto out;
-	}
-
 	len = pgmap(&buf, size);
 	if (len < 0) {
 		unvme_pr_err("failed to allocate data buffer\n");
@@ -4038,11 +4447,30 @@ int unvme_detach_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	usq = unvmed_sq_get(u, 0);
+	if (!usq) {
+		unvme_pr_err("failed to get admin sq\n");
+		ret = ENOMEDIUM;
+		goto buf;
+	}
+
+	unvmed_sq_enter(usq);
+	if (!unvmed_sq_enabled(usq)) {
+		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
+
+		unvmed_sq_exit(usq);
+		errno = EINVAL;
+		ret = errno;
+		goto usq;
+	}
+
 	cmd = unvmed_alloc_cmd(u, usq, NULL, buf, len);
 	if (!cmd) {
 		unvme_pr_err("failed to allocate a command instance\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto out;
+		goto usq;
 	}
 
 	iov = (struct iovec) {
@@ -4056,14 +4484,21 @@ int unvme_detach_ns(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvmed_cmd_prep_detach_ns(cmd, arg_dblv(nsid), ctrlids->count,
 				__ctrlids, &iov, 1) < 0) {
 		unvme_pr_err("failed to prepare Deattach Namespace command\n");
+
+		unvmed_sq_exit(usq);
 		ret = errno;
-		goto free;
+		goto cmd;
 	}
 
 	if (arg_boolv(verbose))
 		unvme_pr_sqe(&cmd->sqe);
 
-	ret = unvmed_cmd_issue_and_wait(cmd);
+	cmd->flags |= UNVMED_CMD_F_WAKEUP_ON_CQE;
+	unvmed_cmd_post(cmd, &cmd->sqe, cmd->flags);
+	unvmed_sq_exit(usq);
+
+	unvmed_cmd_wait(cmd);
+	ret = unvmed_cqe_status(&cmd->cqe);
 
 	if ((ret >= 0 && arg_boolv(verbose)) || ret > 0)
 		unvme_pr_cqe(&cmd->cqe);
@@ -4076,8 +4511,11 @@ int unvme_detach_ns(int argc, char *argv[], struct unvme_msg *msg)
 	} else if (ret < 0)
 		unvme_pr_err("failed to deattach namespace\n");
 
-free:
+cmd:
 	unvmed_cmd_put(cmd);
+usq:
+	unvmed_sq_put(u, usq);
+buf:
 	pgunmap(buf, len);
 out:
 	unvme_free_args(argtable);
