@@ -3141,7 +3141,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 		unvmed_log_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
-		errno = EINVAL;
+		errno = ENOMEDIUM;
 		ret = errno;
 		goto usq;
 	}
