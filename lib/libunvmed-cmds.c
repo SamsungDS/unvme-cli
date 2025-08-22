@@ -315,8 +315,8 @@ static void __unvmed_cmd_free(struct unvme_cmd *cmd)
 	memset(cmd, 0, sizeof(*cmd));
 	atomic_dec(&usq->nr_cmds);
 
-	unvmed_cid_free(usq, cid);
 	nvme_rq_release_atomic(rq);
+	unvmed_cid_free(usq, cid);
 }
 
 static void unvmed_cmd_free(struct unvme_cmd *cmd)
