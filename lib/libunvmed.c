@@ -1242,21 +1242,10 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		return NULL;
 	}
 
-	pthread_spin_init(&usq->lock, 0);
-	usq->q = &u->ctrl.sq[qid];
-	usq->ucq = ucq;
-	ucq->usq = usq;
-	usq->nr_cmds = 0;
-	usq->id = qid;
-	usq->qsize = usq->q->qsize;
-
-	if (unvmed_vcq_init(&usq->vcq, qsize)) {
-		if (alloc)
-			free(usq);
-		return NULL;
-	}
-
 	if (alloc) {
+		usq->id = qid;
+		pthread_spin_init(&usq->lock, 0);
+
 		usq->cmds = calloc(qsize, sizeof(struct unvme_cmd));
 
 		/*
@@ -1268,6 +1257,12 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 			return NULL;
 		}
 
+		if (unvmed_vcq_init(&usq->vcq, qsize)) {
+			if (alloc)
+				free(usq);
+			return NULL;
+		}
+
 		pthread_rwlock_wrlock(&u->sqs_lock);
 		u->sqs[qid] = usq;
 		if (!qid)
@@ -1275,6 +1270,19 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		usq->refcnt = 1;
 		pthread_rwlock_unlock(&u->sqs_lock);
 	}
+
+	/*
+	 * @qsize, @ucq are changable whenever @usq initialization.
+	 * @nr_cmds has to be set to 0.
+	 */
+	unvmed_sq_enter(usq);
+	usq->q = &u->ctrl.sq[qid];
+	usq->nr_cmds = 0;
+	usq->qsize = qsize;
+	usq->ucq = ucq;
+	ucq->usq = usq;
+
+	unvmed_sq_exit(usq);
 
 	return usq;
 }
@@ -1311,7 +1319,8 @@ static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 		u->asq = NULL;
 }
 
-static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
+static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid,
+					uint32_t qsize, int vector)
 {
 	struct unvme_cq *ucq;
 	bool alloc = false;
@@ -1329,14 +1338,11 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 		return NULL;
 	}
 
-	pthread_spin_init(&ucq->lock, 0);
-	ucq->u = u;
-	ucq->q = &u->ctrl.cq[qid];
-	ucq->id = qid;
-	ucq->qsize = ucq->q->qsize;
-	ucq->vector = ucq->q->vector;
-
 	if (alloc) {
+		ucq->u = u;
+		ucq->id = qid;
+		pthread_spin_init(&ucq->lock, 0);
+
 		pthread_rwlock_wrlock(&u->cqs_lock);
 		u->cqs[qid] = ucq;
 		if (!qid)
@@ -1345,6 +1351,15 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid)
 		ucq->refcnt = 1;
 		pthread_rwlock_unlock(&u->cqs_lock);
 	}
+
+	/*
+	 * @qsize and @vector are changable whenever @ucq initialization.
+	 */
+	unvmed_cq_enter(ucq);
+	ucq->q = &u->ctrl.cq[qid];
+	ucq->qsize = qsize;
+	ucq->vector = vector;
+	unvmed_cq_exit(ucq);
 
 	return ucq;
 }
@@ -1977,7 +1992,13 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	if (nvme_configure_adminq(&u->ctrl, qid))
 		goto out;
 
-	ucq = unvmed_init_ucq(u, qid);
+	/*
+	 * XXX: libvfn has fixed size of admin queue and it's not exported to
+	 * application layer yet.  Once it gets exported as a public, this
+	 * hard-coded value should be fixed ASAP.
+	 */
+#define NVME_AQ_QSIZE	32
+	ucq = unvmed_init_ucq(u, qid, NVME_AQ_QSIZE, 0);
 	if (!ucq)
 		goto free_sqcq;
 
@@ -1987,12 +2008,6 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	if (!irq || u->nr_irqs == 0)
 		unvmed_cq_iv(ucq) = -1;
 
-	/*
-	 * XXX: libvfn has fixed size of admin queue and it's not exported to
-	 * application layer yet.  Once it gets exported as a public, this
-	 * hard-coded value should be fixed ASAP.
-	 */
-#define NVME_AQ_QSIZE	32
 	usq = unvmed_init_usq(u, 0, NVME_AQ_QSIZE, ucq);
 	if (!usq)
 		goto free_ucq;
@@ -2124,7 +2139,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		return -1;
 	}
 
-	ucq = unvmed_init_ucq(u, qid);
+	ucq = unvmed_init_ucq(u, qid, qsize, vector);
 	if (!ucq) {
 		unvmed_log_err("failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
@@ -3591,7 +3606,7 @@ struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return NULL;
 	}
 
-	ucq = unvmed_init_ucq(u, qid);
+	ucq = unvmed_init_ucq(u, qid, qsize, vector);
 	if (!ucq) {
 		unvmed_log_err("failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
