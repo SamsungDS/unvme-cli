@@ -2132,9 +2132,9 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		unvmed_log_err("failed to create iosq with cqe.status=%#x",
 				unvmed_cqe_status(&cmd->cqe));
 
+		unvmed_cmd_put(cmd);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		unvmed_sq_put(u, asq);
-		unvmed_cmd_put(cmd);
 		errno = EINVAL;
 		return -1;
 	}
@@ -2145,9 +2145,9 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 				"discard cq instance from libvfn (qid=%d)",
 				qid);
 
+		unvmed_cmd_put(cmd);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
 		unvmed_sq_put(u, asq);
-		unvmed_cmd_put(cmd);
 		return -1;
 	}
 
@@ -2156,8 +2156,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 
 	unvmed_enable_cq(ucq);
 
-	unvmed_sq_put(u, asq);
 	unvmed_cmd_put(cmd);
+	unvmed_sq_put(u, asq);
 	return 0;
 }
 
@@ -2233,7 +2233,7 @@ static int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	sqe->qid = cpu_to_le16(qid);
 
 	unvmed_cmd_post(cmd, &cmd->sqe, 0);
-	unvmed_sq_exit(cmd->usq);
+	unvmed_sq_exit(asq);
 
 	unvmed_cmd_wait(cmd);
 
@@ -2322,10 +2322,10 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		unvmed_log_err("failed to create iosq with cqe.status=%#x",
 				unvmed_cqe_status(&cmd->cqe));
 
+		unvmed_cmd_put(cmd);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		unvmed_cq_put(u, ucq);
 		unvmed_sq_put(u, asq);
-		unvmed_cmd_put(cmd);
 		errno = EINVAL;
 		return -1;
 	}
@@ -2335,10 +2335,10 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		unvmed_log_err("failed to initialize usq instance. "
 				"discard sq instance from libvfn (qid=%d)",
 				qid);
+		unvmed_cmd_put(cmd);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		unvmed_cq_put(u, ucq);
 		unvmed_sq_put(u, asq);
-		unvmed_cmd_put(cmd);
 		return -1;
 	}
 	unvmed_enable_sq(usq);
