@@ -884,9 +884,18 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd(u, asq, NULL, id_ns, sizeof(*id_ns));
+	/*
+	 * Retry if @cmd is not allocated at the point since this function is
+	 * only called in reset context thread, and we can't simply ensure that
+	 * other admin application is running out there.
+	 */
+	do {
+		cmd = unvmed_alloc_cmd(u, asq, NULL, id_ns, sizeof(*id_ns));
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
-		unvmed_log_err("failed to allocate a command instance");
+		unvmed_log_err("failed to allocate a command instance "
+				"(errno=%d \"%s\")", errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		return -1;
@@ -1010,9 +1019,19 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd(u, asq, NULL, nvm_id_ns, sizeof(*nvm_id_ns));
+	/*
+	 * Retry if @cmd is not allocated at the point since this function is
+	 * only called in reset context thread, and we can't simply ensure that
+	 * other admin application is running out there.
+	 */
+	do {
+		cmd = unvmed_alloc_cmd(u, asq, NULL, nvm_id_ns,
+				sizeof(*nvm_id_ns));
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
-		unvmed_log_err("failed to allocate a command instance");
+		unvmed_log_err("failed to allocate a command instance "
+				"(errno=%d \"%s\")", errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -1074,9 +1093,18 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 		return -1;
 	}
 
-	cmd = unvmed_alloc_cmd(u, asq, NULL, id_ctrl, sizeof(*id_ctrl));
+	/*
+	 * Retry if @cmd is not allocated at the point since this function is
+	 * only called in reset context thread, and we can't simply ensure that
+	 * other admin application is running out there.
+	 */
+	do {
+		cmd = unvmed_alloc_cmd(u, asq, NULL, id_ctrl, sizeof(*id_ctrl));
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
-		unvmed_log_err("failed to allocate a command instance");
+		unvmed_log_err("failed to allocate a command instance "
+				"(errno=%d \"%s\")", errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -2098,9 +2126,19 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 	}
 
 	unvmed_sq_enter(asq);
-	cmd = unvmed_alloc_cmd_nodata(u, asq, NULL);
+
+	/*
+	 * Retry if @cmd is not allocated at the point since this function is
+	 * only called in reset context thread, and we can't simply ensure that
+	 * other admin application is running out there.
+	 */
+	do {
+		cmd = unvmed_alloc_cmd_nodata(u, asq, NULL);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
-		unvmed_log_err("failed to allocate command instance");
+		unvmed_log_err("failed to allocate command instance "
+				"(errno=%d \"%s\")", errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
@@ -2218,9 +2256,19 @@ static int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	}
 
 	unvmed_sq_enter(asq);
-	cmd = unvmed_alloc_cmd_nodata(u, asq, NULL);
+
+	/*
+	 * Retry if @cmd is not allocated at the point since this function is
+	 * only called in reset context thread, and we can't simply ensure that
+	 * other admin application is running out there.
+	 */
+	do {
+		cmd = unvmed_alloc_cmd_nodata(u, asq, NULL);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
-		unvmed_log_err("failed to allocate a command instance");
+		unvmed_log_err("failed to allocate a command instance "
+				"(errno=%d \"%s\")", errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		return -1;
@@ -2292,9 +2340,19 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	}
 
 	unvmed_sq_enter(asq);
-	cmd = unvmed_alloc_cmd_nodata(u, asq, NULL);
+
+	/*
+	 * Retry if @cmd is not allocated at the point since this function is
+	 * only called in reset context thread, and we can't simply ensure that
+	 * other admin application is running out there.
+	 */
+	do {
+		cmd = unvmed_alloc_cmd_nodata(u, asq, NULL);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
-		unvmed_log_err("failed to allocate command instance");
+		unvmed_log_err("failed to allocate command instance "
+				"(errno=%d \"%s\")", errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
@@ -2430,9 +2488,19 @@ static int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	}
 
 	unvmed_sq_enter(asq);
-	cmd = unvmed_alloc_cmd_nodata(u, asq, NULL);
+
+	/*
+	 * Retry if @cmd is not allocated at the point since this function is
+	 * only called in reset context thread, and we can't simply ensure that
+	 * other admin application is running out there.
+	 */
+	do {
+		cmd = unvmed_alloc_cmd_nodata(u, asq, NULL);
+	} while (!cmd && errno == EBUSY);
+
 	if (!cmd) {
-		unvmed_log_err("failed to allocate command instance");
+		unvmed_log_err("failed to allocate command instance "
+				"(errno=%d \"%s\")", errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
