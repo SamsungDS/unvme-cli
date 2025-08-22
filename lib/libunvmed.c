@@ -1640,7 +1640,7 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 			break;
 	}
 
-	for (int i = 0; i < usq->q->qsize; i++) {
+	for (int i = 0; i < usq->qsize; i++) {
 		cmd = unvmed_get_cmd(usq, i);
 		if (!cmd)
 			continue;
@@ -2291,7 +2291,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	sqe->prp1 = cpu_to_le64(u->ctrl.sq[qid].mem.iova);
 	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
 	sqe->qflags = cpu_to_le16(NVME_Q_PC);
-	sqe->cqid = cpu_to_le16((uint16_t)ucq->q->id);
+	sqe->cqid = cpu_to_le16((uint16_t)ucq->id);
 
 	unvmed_cmd_post(cmd, &cmd->sqe, 0);
 	unvmed_sq_exit(asq);
