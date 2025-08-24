@@ -327,20 +327,6 @@ static void unvmed_cmd_free(struct unvme_cmd *cmd)
 	__unvmed_cmd_free(cmd);
 }
 
-struct unvme_cmd *unvmed_cmd_get(struct unvme_cmd *cmd)
-{
-	int old_refcnt;
-
-	/* Prevent getting a command that's being freed (refcnt == 0) */
-	do {
-		old_refcnt = cmd->refcnt;
-		if (old_refcnt == 0)
-			return NULL;  /* Command is being freed */
-	} while (!atomic_cmpxchg(&cmd->refcnt, old_refcnt, old_refcnt + 1));
-
-	return cmd;
-}
-
 int unvmed_cmd_put(struct unvme_cmd *cmd)
 {
 	int refcnt;

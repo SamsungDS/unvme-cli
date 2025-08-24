@@ -806,19 +806,6 @@ struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
 					void *mbuf, size_t mlen);
 
 /**
- * unvmed_cmd_get - Get a command instance with refcnt incremented
- * @cmd: command instance (&struct unvme_cmd)
- *
- * Get a command instance with its reference count incremented. This ensures
- * the command instance remains valid until unvmed_cmd_put() is called.
- *
- * This API is thread-safe.
- *
- * Return: &struct unvme_cmd
- */
-struct unvme_cmd *unvmed_cmd_get(struct unvme_cmd *cmd);
-
-/**
  * unvmed_cmd_put - Put a command instance with refcnt decremented
  * @cmd: command instance (&struct unvme_cmd)
  *
