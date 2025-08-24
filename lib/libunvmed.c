@@ -316,7 +316,7 @@ int unvmed_ns_put(struct unvme *u, struct unvme_ns *ns)
 	return refcnt;
 }
 
-int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs)
+int unvmed_get_sqs(struct unvme *u, struct unvme_sq ***sqs)
 {
 	int nr_sqs = 0;
 	int qid;
@@ -326,7 +326,7 @@ int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs)
 		return -1;
 	}
 
-	*sqs = calloc(u->nr_sqs, sizeof(struct nvme_sq));
+	*sqs = calloc(u->nr_sqs, sizeof(struct unvme_sq *));
 	if (!*sqs)
 		return -1;
 
@@ -336,13 +336,13 @@ int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs)
 		if (!usq || (usq && !usq->enabled))
 			continue;
 
-		memcpy(&((*sqs)[nr_sqs++]), usq->q, sizeof(*(usq->q)));
+		(*sqs)[nr_sqs++] = usq;
 	}
 
 	return nr_sqs;
 }
 
-int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs)
+int unvmed_get_cqs(struct unvme *u, struct unvme_cq ***cqs)
 {
 	struct unvme_cq *ucq;
 	int nr_cqs = 0;
@@ -353,7 +353,7 @@ int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs)
 		return -1;
 	}
 
-	*cqs = calloc(u->nr_cqs, sizeof(struct nvme_cq));
+	*cqs = calloc(u->nr_cqs, sizeof(struct unvme_cq *));
 	if (!*cqs)
 		return -1;
 
@@ -362,7 +362,7 @@ int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs)
 		if (!ucq || (ucq && !ucq->enabled))
 			continue;
 
-		memcpy(&((*cqs)[nr_cqs++]), ucq->q, sizeof(*(ucq->q)));
+		(*cqs)[nr_cqs++] = ucq;
 	}
 
 	return nr_cqs;

@@ -635,26 +635,26 @@ int unvmed_nr_cmds(struct unvme *u);
  * @u: &struct unvme
  * @sqs: submission queue instance list
  *
- * It gives a list of submission queue instances (&struct nvme_sq) created to
+ * It gives a list of submission queue instances (&struct unvme_sq) created to
  * the given controller @u.  @sqs will be allocated in this API and caller
  * should free up the @sqs after using it.
  *
  * Return: Number of sq in the list, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_get_sqs(struct unvme *u, struct nvme_sq **sqs);
+int unvmed_get_sqs(struct unvme *u, struct unvme_sq ***sqs);
 
 /**
  * unvmed_get_cqs - Get created CQ list
  * @u: &struct unvme
  * @cqs: completion queue instance list
  *
- * It gives a list of completion queue instances (&struct nvme_cq) created to
+ * It gives a list of completion queue instances (&struct unvme_cq) created to
  * the given controller @u.  @cqs will be allocated in this API and caller
  * should free up the @cqs after using it.
  *
  * Return: Number of cq in the list, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs);
+int unvmed_get_cqs(struct unvme *u, struct unvme_cq ***cqs);
 
 /**
  * unvmed_sq_get - Get a submission queue instance with refcnt incremented

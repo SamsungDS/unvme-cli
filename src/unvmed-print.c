@@ -659,12 +659,12 @@ void unvme_pr_status(const char *format, struct unvme *u)
 	uint32_t cc = unvmed_read32(u, NVME_REG_CC);
 	uint32_t csts = unvmed_read32(u, NVME_REG_CSTS);
 	struct unvme_ns *nslist = NULL;
-	struct nvme_sq *sqs;
-	struct nvme_cq *cqs;
+	struct unvme_sq **usqs;
+	struct unvme_cq **ucqs;
 	int nr_ns, nr_sqs, nr_cqs;
 	struct unvme_ns *ns;
-	struct nvme_sq *sq;
-	struct nvme_cq *cq;
+	struct unvme_sq *usq;
+	struct unvme_cq *ucq;
 	struct unvme_hmb *hmb;
 
 	nr_ns = unvmed_get_nslist(u, &nslist);
@@ -673,17 +673,17 @@ void unvme_pr_status(const char *format, struct unvme *u)
 		return;
 	}
 
-	nr_sqs = unvmed_get_sqs(u, &sqs);
+	nr_sqs = unvmed_get_sqs(u, &usqs);
 	if (nr_sqs < 0) {
 		free(nslist);
 		unvme_pr_err("failed to get submission queues\n");
 		return;
 	}
 
-	nr_cqs = unvmed_get_cqs(u, &cqs);
+	nr_cqs = unvmed_get_cqs(u, &ucqs);
 	if (nr_cqs < 0) {
 		free(nslist);
-		free(sqs);
+		free(usqs);
 		unvme_pr_err("failed to get completion queues\n");
 		return;
 	}
@@ -715,27 +715,39 @@ void unvme_pr_status(const char *format, struct unvme *u)
 		unvme_pr("\n");
 
 		unvme_pr("Submission Queue\n");
-		unvme_pr("qid  vaddr              iova               cqid tail ptail qsize\n");
-		unvme_pr("---- ------------------ ------------------ ---- ---- ----- -----\n");
+		unvme_pr("qid  vaddr              iova               cqid tail ptail qsize nr_cmds refcnt\n");
+		unvme_pr("---- ------------------ ------------------ ---- ---- ----- ----- ------- ------\n");
 		for (int i = 0; i < nr_sqs; i++) {
-			sq = &sqs[i];
+			usq = usqs[i];
 
-			unvme_pr("%4d %18p %#18lx %4d %4d %5d %5d\n",
-				 sq->id, sq->mem.vaddr, sq->mem.iova,
-				 sq->cq->id, sq->tail, sq->ptail, sq->qsize);
+			unvme_pr("%4d %18p %#18lx %4d %4d %5d %5d %7d %6d\n",
+				 usq->id, usq->q->mem.vaddr, usq->q->mem.iova,
+				 usq->ucq->id, usq->q->tail, usq->q->ptail, usq->qsize, usq->nr_cmds, usq->refcnt);
 		}
 		unvme_pr("\n");
+
+		unvme_pr("Virtual Completion Queue\n");
+		unvme_pr("sqid head tail qsize\n");
+		unvme_pr("---- ---- ---- -----\n");
+		for (int i = 0; i < nr_sqs; i++) {
+			usq = usqs[i];
+
+			unvme_pr("%4d %4d %4d %5d\n",
+				 usq->id, usq->vcq.head, usq->vcq.tail, usq->vcq.qsize);
+		}
+		unvme_pr("\n");
+
 		unvme_pr("Completion Queue\n");
-		unvme_pr("qid  vaddr              iova               head qsize phase vec \n");
-		unvme_pr("---- ------------------ ------------------ ---- ----- ----- ----\n");
+		unvme_pr("qid  vaddr              iova               head qsize phase vec  refcnt\n");
+		unvme_pr("---- ------------------ ------------------ ---- ----- ----- ---- ------\n");
 		for (int i = 0; i < nr_cqs; i++) {
-			cq = &cqs[i];
-			if (!cq)
+			ucq = ucqs[i];
+			if (!ucq)
 				break;
 
-			unvme_pr("%4d %18p %#18lx %4d %5d %5d %4d\n",
-				 cq->id, cq->mem.vaddr, cq->mem.iova,
-				 cq->head, cq->qsize, cq->phase, cq->vector);
+			unvme_pr("%4d %18p %#18lx %4d %5d %5d %4d %6d\n",
+				 ucq->id, ucq->q->mem.vaddr, ucq->q->mem.iova,
+				 ucq->q->head, ucq->qsize, ucq->q->phase, ucq->vector, ucq->refcnt);
 		}
 		unvme_pr("\n");
 
@@ -775,32 +787,48 @@ void unvme_pr_status(const char *format, struct unvme *u)
 
 		struct json_object *sq_array = json_object_new_array();
 		for (int i = 0; i < nr_sqs; i++) {
-			sq = &sqs[i];
+			usq = usqs[i];
 			struct json_object *sq_obj = json_object_new_object();
-			json_object_object_add(sq_obj, "id", json_object_new_int(sq->id));
-			json_object_object_add(sq_obj, "vaddr", json_object_new_int64((uint64_t)sq->mem.vaddr));
-			json_object_object_add(sq_obj, "iova", json_object_new_int64(sq->mem.iova));
-			json_object_object_add(sq_obj, "cqid", json_object_new_int(sq->cq->id));
-			json_object_object_add(sq_obj, "tail", json_object_new_int(sq->tail));
-			json_object_object_add(sq_obj, "ptail", json_object_new_int(sq->ptail));
-			json_object_object_add(sq_obj, "qsize", json_object_new_int(sq->qsize));
+			json_object_object_add(sq_obj, "id", json_object_new_int(usq->id));
+			json_object_object_add(sq_obj, "vaddr", json_object_new_int64((uint64_t)usq->q->mem.vaddr));
+			json_object_object_add(sq_obj, "iova", json_object_new_int64(usq->q->mem.iova));
+			json_object_object_add(sq_obj, "cqid", json_object_new_int(usq->ucq->id));
+			json_object_object_add(sq_obj, "tail", json_object_new_int(usq->q->tail));
+			json_object_object_add(sq_obj, "ptail", json_object_new_int(usq->q->ptail));
+			json_object_object_add(sq_obj, "qsize", json_object_new_int(usq->qsize));
+			json_object_object_add(sq_obj, "nr_cmds", json_object_new_int(usq->nr_cmds));
+			
+			json_object_object_add(sq_obj, "refcnt", json_object_new_int(usq->refcnt));
 			json_object_array_add(sq_array, sq_obj);
 		}
 		json_object_object_add(root, "sq", sq_array);
 
+		struct json_object *vcq_array = json_object_new_array();
+		for (int i = 0; i < nr_sqs; i++) {
+			usq = usqs[i];
+			struct json_object *vcq_obj = json_object_new_object();
+			json_object_object_add(vcq_obj, "sqid", json_object_new_int(usq->id));
+			json_object_object_add(vcq_obj, "head", json_object_new_int(usq->vcq.head));
+			json_object_object_add(vcq_obj, "tail", json_object_new_int(usq->vcq.tail));
+			json_object_object_add(vcq_obj, "qsize", json_object_new_int(usq->vcq.qsize));
+			json_object_array_add(vcq_array, vcq_obj);
+		}
+		json_object_object_add(root, "vcq", vcq_array);
+
 		struct json_object *cq_array = json_object_new_array();
 		for (int i = 0; i < nr_cqs; i++) {
-			cq = &cqs[i];
-			if (!cq)
+			ucq = ucqs[i];
+			if (!ucq)
 				break;
 			struct json_object *cq_obj = json_object_new_object();
-			json_object_object_add(cq_obj, "id", json_object_new_int(cq->id));
-			json_object_object_add(cq_obj, "vaddr", json_object_new_int64((uint64_t)cq->mem.vaddr));
-			json_object_object_add(cq_obj, "iova", json_object_new_int64(cq->mem.iova));
-			json_object_object_add(cq_obj, "head", json_object_new_int(cq->head));
-			json_object_object_add(cq_obj, "qsize", json_object_new_int(cq->qsize));
-			json_object_object_add(cq_obj, "phase", json_object_new_int(cq->phase));
-			json_object_object_add(cq_obj, "iv", json_object_new_int(cq->vector));
+			json_object_object_add(cq_obj, "id", json_object_new_int(ucq->id));
+			json_object_object_add(cq_obj, "vaddr", json_object_new_int64((uint64_t)ucq->q->mem.vaddr));
+			json_object_object_add(cq_obj, "iova", json_object_new_int64(ucq->q->mem.iova));
+			json_object_object_add(cq_obj, "head", json_object_new_int(ucq->q->head));
+			json_object_object_add(cq_obj, "qsize", json_object_new_int(ucq->qsize));
+			json_object_object_add(cq_obj, "phase", json_object_new_int(ucq->q->phase));
+			json_object_object_add(cq_obj, "iv", json_object_new_int(ucq->vector));
+			json_object_object_add(cq_obj, "refcnt", json_object_new_int(ucq->refcnt));
 			json_object_array_add(cq_array, cq_obj);
 		}
 		json_object_object_add(root, "cq", cq_array);
@@ -825,8 +853,8 @@ void unvme_pr_status(const char *format, struct unvme *u)
 	}
 
 	free(nslist);
-	free(cqs);
-	free(sqs);
+	free(ucqs);
+	free(usqs);
 }
 
 void unvme_pr_buf(struct iommu_dmabuf *buf)
