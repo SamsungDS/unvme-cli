@@ -359,7 +359,7 @@ int unvmed_get_cqs(struct unvme *u, struct nvme_cq **cqs)
 
 	for (qid = 0; qid < u->nr_cqs; qid++) {
 		ucq = unvmed_cq_find(u, qid);
-		if (!ucq | (ucq && !ucq->enabled))
+		if (!ucq || (ucq && !ucq->enabled))
 			continue;
 
 		memcpy(&((*cqs)[nr_cqs++]), ucq->q, sizeof(*(ucq->q)));
