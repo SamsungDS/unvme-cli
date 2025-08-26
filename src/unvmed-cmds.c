@@ -1012,7 +1012,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	targetq = unvmed_sq_get(u, arg_intv(qid));
-	if (targetq) {
+	if (unvmed_sq_enabled(targetq)) {
 		unvme_pr_err("failed to create iosq (qid=%u) (exists)\n", arg_intv(qid));
 		unvmed_sq_put(u, targetq);
 		ret = EEXIST;
