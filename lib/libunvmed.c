@@ -37,6 +37,7 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 					      struct unvme_cq *ucq);
 static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
 						 struct nvme_cqe *cqe);
+static int unvmed_get_pcie_cap_offset(char *bdf);
 
 static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
 {
@@ -2873,7 +2874,6 @@ static void unvmed_quirk_dsp_sleep_after_reset(struct unvme *u)
 		usleep(100000);
 }
 
-static int unvmed_get_pcie_cap_offset(char *bdf);
 static int unvmed_pci_wait_reset(struct unvme *u)
 {
 	uint16_t pcie_offset;
@@ -2987,61 +2987,86 @@ int unvmed_subsystem_reset(struct unvme *u)
 int unvmed_flr(struct unvme *u)
 {
 	char *path = NULL;
-	char *reset = NULL;
-	char orig[32];
-	const char *flr = "flr";
-	const char *echo = "1";
+	char config[4096];
+	uint32_t cap;
+	uint16_t control;
 	int ret;
+	int fd;
 
-	ret = asprintf(&path, "/sys/bus/pci/devices/%s/reset_method", unvmed_bdf(u));
+	ret = asprintf(&path, "/sys/bus/pci/devices/%s/config", unvmed_bdf(u));
 	if (ret < 0)
 		return -1;
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		ret = fd;
+		goto free;
+	}
+
+
+	uint16_t pcie_offset = unvmed_get_pcie_cap_offset(unvmed_bdf(u));
+	if (pcie_offset == -1) {
+		unvmed_log_err("failed to get PCIe Cap. register offset (0xffff)");
+		ret = -1;
+		goto close;
+	}
+
+	if (unvmed_pci_get_config(unvmed_bdf(u), &cap, pcie_offset + 0x4, 4)) {
+		unvmed_log_err("failed to CfgRd (offset=%#x, size=%d)",
+				pcie_offset + 0x4, 4);
+		ret = -1;
+		goto close;
+	}
+
+	if (!(cap & (1 << 28))) {
+		unvmed_log_err("flr not supported");
+		ret = ENOTSUP;
+		goto close;
+	}
 
 	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
-		return -1;
+		goto close;
 	}
 
-	ret = readmax(path, orig, sizeof(orig));
+	ret = unvmed_pci_backup_state(u, config);
 	if (ret < 0) {
-		free(path);
-		return -1;
-	}
-	orig[ret] = '\0';
-
-	ret = writeall(path, flr, 3);
-	if (ret < 0) {
-		free(path);
-		errno = ENOTSUP;
-		return -1;
+		unvmed_log_err("failed to read pci config register");
+		goto close;
 	}
 
-	ret = asprintf(&reset, "/sys/bus/pci/devices/%s/reset", unvmed_bdf(u));
+	if (unvmed_pci_get_config(unvmed_bdf(u), &control, pcie_offset + 0x8, 2)) {
+		unvmed_log_err("failed to CfgRd (offset=%#x, size=%d)",
+				pcie_offset + 0x8, 2);
+		ret = -1;
+		goto close;
+	}
+
+	control |= 1 << 15;
+	ret = pwrite(fd, &control, 2, pcie_offset + 0x8);
 	if (ret < 0)
-		return -1;
+		goto close;
 
-	ret = writeall(reset, echo, 1);
-	if (ret < 0) {
-		free(reset);
-		free(path);
-		return -1;
+	/* Function must complete the FLR within 100ms (PCIe Base Spec. 6.0) */
+	usleep(100 * 1000);
+	if (unvmed_pci_wait_reset(u) < 0) {
+		unvmed_log_err("failed to wait for PCI to be reset");
+		goto close;
 	}
 
-	free(reset);
+	ret = unvmed_pci_restore_state(u, config);
+	if (ret < 0) {
+		unvmed_log_err("failed to write pci config register");
+		goto close;
+	}
 
 	unvmed_reset_ctx(u);
-
-	ret = writeall(path, orig, strlen(orig));
-	if (ret < 0) {
-		free(path);
-		errno = ENOTSUP;
-		return -1;
-	}
-
 	unvmed_ctrl_set_state(u, UNVME_DISABLED);
+close:
+	close(fd);
+free:
 	free(path);
-
-	return 0;
+	return ret;
 }
 
 static int unvmed_get_downstream_port(struct unvme *u, char *bdf)
