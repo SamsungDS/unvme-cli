@@ -646,10 +646,18 @@ static int libunvmed_init_data(struct thread_data *td)
 			return -EINVAL;
 		}
 
-		if (ddir != DDIR_TRIM && ns->ms && !libunvmed_ns_meta_is_dif(ns) &&
-		    (o->md_per_io_size < (td->o.max_bs[ddir] / lba_size) * ns->ms)) {
-			libunvmed_log("md_per_io_size must be >= %d\n", (uint32_t)((td->o.max_bs[ddir] / lba_size) * ns->ms));
-			return -EINVAL;
+		/*
+		 * If the given @md_per_io_size is smaller than minimum size
+		 * according to device LBA Format, we adjust it to the minimum.
+		 */
+		if (ddir != DDIR_TRIM && ns->ms && !libunvmed_ns_meta_is_dif(ns)) {
+			uint32_t size = (td->o.max_bs[ddir] / lba_size) * ns->ms;
+
+			if (o->md_per_io_size < size) {
+				libunvmed_log("md_per_io_size will be adjusted (%d -> %d)\n",
+						o->md_per_io_size, size);
+				o->md_per_io_size = size;
+			}
 		}
 	}
 
