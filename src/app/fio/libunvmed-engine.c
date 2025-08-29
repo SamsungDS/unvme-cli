@@ -79,10 +79,10 @@ enum uring_cmd_verify_mode {
 };
 
 enum libunvmed_error_injections {
-	UNVME_ERR_GUARD = 1,
-	UNVME_ERR_REFTAG,
-	UNVME_ERR_ILBRT,
-	UNVME_ERR_LBAT,
+	UNVME_ERR_GUARD		= 1 << 0,
+	UNVME_ERR_REFTAG	= 1 << 1,
+	UNVME_ERR_ILBRT		= 1 << 2,
+	UNVME_ERR_LBAT		= 1 << 3,
 };
 
 static int libunvmed_cb_meta_error_injection(void *data, const char *str)
