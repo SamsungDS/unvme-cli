@@ -381,9 +381,9 @@ struct libunvmed_data {
 	/*
 	 * metadata buffer and size
 	 */
-	void *mbuf;
-	size_t mlen;
-	uint64_t mbuf_iova;
+	void *meta_iomem;
+	size_t meta_iomem_size;
+	uint64_t meta_iomem_iova;
 
 	/*
 	 * for --rw=trim or randtrim (TRIM-only) workload and --rw=[r]w(write)
@@ -486,9 +486,9 @@ static inline uint64_t libunvmed_to_iova(struct thread_data *td, void *buf)
 static inline uint64_t libunvmed_to_meta_iova(struct thread_data *td, void *mbuf)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
-	uint64_t offset = (uint64_t)(mbuf - (void *)ld->mbuf);
+	uint64_t offset = (uint64_t)(mbuf - (void *)ld->meta_iomem);
 
-	return ld->mbuf_iova + (uint64_t)offset;
+	return ld->meta_iomem_iova + (uint64_t)offset;
 }
 
 static inline int libunvmed_pi_enabled(struct unvme_ns *ns)
@@ -667,15 +667,15 @@ static int libunvmed_init_data(struct thread_data *td)
 	 */
 	if (!libunvmed_ns_meta_is_dif(ns) && o->md_per_io_size) {
 		mlen = o->md_per_io_size * td->o.iodepth;
-		ld->mlen = pgmap(&ld->mbuf, mlen);
-		if (ld->mlen < 0) {
+		ld->meta_iomem_size = pgmap(&ld->meta_iomem, mlen);
+		if (ld->meta_iomem_size < 0) {
 			libunvmed_log("failed to mmap() for meta buffer");
 			return -ENOMEM;
 		}
 
-		if (unvmed_map_vaddr(u, ld->mbuf, ld->mlen, &ld->mbuf_iova, 0)) {
+		if (unvmed_map_vaddr(u, ld->meta_iomem, ld->meta_iomem_size, &ld->meta_iomem_iova, 0)) {
 			libunvmed_log("failed to map vaddr for metadata\n");
-			pgunmap(ld->mbuf, ld->mlen);
+			pgunmap(ld->meta_iomem, ld->meta_iomem_size);
 			return -EINVAL;
 		}
 	} else if (o->md_per_io_size)
@@ -792,9 +792,9 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 	refcnt = unvmed_ns_put(ld->u, ld->ns);
 	assert(refcnt >= 0);
 
-	if (ld->mbuf) {
-		unvmed_unmap_vaddr(ld->u, ld->mbuf);
-		pgunmap(ld->mbuf, ld->mlen);
+	if (ld->meta_iomem) {
+		unvmed_unmap_vaddr(ld->u, ld->meta_iomem);
+		pgunmap(ld->meta_iomem, ld->meta_iomem_size);
 	}
 
 	free(ld->cqes);
@@ -1047,7 +1047,7 @@ static int fio_libunvmed_io_u_init(struct thread_data *td, struct io_u *io_u)
 	}
 
 	if (!libunvmed_ns_meta_is_dif(ld->ns) && o->md_per_io_size) {
-		mo->mbuf = ld->mbuf + (o->md_per_io_size * io_u->index);
+		mo->mbuf = ld->meta_iomem + (o->md_per_io_size * io_u->index);
 		mo->mlen = o->md_per_io_size;
 	}
 
