@@ -3528,6 +3528,8 @@ free:
 
 int unvmed_hmb_free(struct unvme *u)
 {
+	const size_t page_size = unvmed_pow(2, u->mps + 12);
+	size_t size;
 	int i;
 
 	if (!u->hmb.descs) {
@@ -3537,8 +3539,10 @@ int unvmed_hmb_free(struct unvme *u)
 
 	for (i = 0; i < u->hmb.nr_descs; i++) {
 		if (u->hmb.descs[i].badd) {
+			size = le32_to_cpu(u->hmb.descs[i].bsize) * page_size;
+
 			unvmed_unmap_vaddr(u, (void *)u->hmb.descs_vaddr[i]);
-			pgunmap((void *)u->hmb.descs_vaddr[i], u->hmb.descs_size);
+			pgunmap((void *)u->hmb.descs_vaddr[i], size);
 			unvmed_log_info("HMB descriptor #%d freed", i);
 		}
 	}
