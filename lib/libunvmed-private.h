@@ -71,6 +71,15 @@ struct unvme {
 	struct list_head mem_list;
 	pthread_rwlock_t mem_list_lock;
 
+	/*
+	 * Shared memory for external application process usages.
+	 */
+	void *shmem_vaddr;
+	uint64_t shmem_iova;
+	size_t shmem_size;
+	int shmem_fd;
+	char shmem_name[64];
+
 	struct list_node list;
 };
 

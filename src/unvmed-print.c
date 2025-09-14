@@ -10,8 +10,10 @@
 #include <nvme/types.h>
 #include <nvme/util.h>
 #include <json-c/json.h>
+#include <ccan/list/list.h>
 
 #include "libunvmed.h"
+#include "libunvmed-private.h"
 #include "unvme.h"
 #include "unvmed.h"
 
@@ -761,6 +763,17 @@ void unvme_pr_status(const char *format, struct unvme *u)
 		for (int i = 0; i < hmb->nr_descs; i++)
 			unvme_pr("%5d %#18llx %6d\n", i, hmb->descs[i].badd, hmb->descs[i].bsize);
 
+		unvme_pr("\n");
+		unvme_pr("Shared Memory\n");
+		unvme_pr("-------------\n");
+		if (u->shmem_size > 0) {
+			unvme_pr("Size:              %zu bytes\n", u->shmem_size);
+			unvme_pr("IOVA:              0x%lx\n", u->shmem_iova);
+			unvme_pr("Name:              %s\n", u->shmem_name);
+		} else {
+			unvme_pr("No shared memory allocated\n");
+		}
+
 	} else if (streq(format, "json")) {
 		struct json_object *root = json_object_new_object();
 		json_object_object_add(root, "controller", json_object_new_string(unvmed_bdf(u)));
@@ -847,6 +860,15 @@ void unvme_pr_status(const char *format, struct unvme *u)
 			json_object_array_add(hmb_array, block_obj);
 		}
 		json_object_object_add(hmb_obj, "descs", hmb_array);
+
+		struct json_object *shmem_obj = json_object_new_object();
+		if (u->shmem_size > 0) {
+			json_object_object_add(shmem_obj, "size", json_object_new_int64((uint64_t)u->shmem_size));
+			json_object_object_add(shmem_obj, "vaddr", json_object_new_int64((uint64_t)u->shmem_vaddr));
+			json_object_object_add(shmem_obj, "iova", json_object_new_int64(u->shmem_iova));
+			json_object_object_add(shmem_obj, "name", json_object_new_string(u->shmem_name));
+		}
+		json_object_object_add(root, "shmem", shmem_obj);
 
 		unvme_pr("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY));
 		json_object_put(root);

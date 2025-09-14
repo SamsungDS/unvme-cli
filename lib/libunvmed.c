@@ -5,6 +5,8 @@
 #include <sys/time.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include <vfn/nvme.h>
 #include <vfn/support/atomic.h>
@@ -1446,6 +1448,17 @@ void unvmed_free_ctrl(struct unvme *u)
 
 	unvmed_free_irqs(u);
 	unvmed_hmb_free(u);
+
+	/* Clean up shared memory if allocated */
+	if (u->shmem_vaddr && u->shmem_size > 0) {
+		if (u->shmem_iova)
+			unvmed_unmap_vaddr(u, u->shmem_vaddr);
+		munmap(u->shmem_vaddr, u->shmem_size);
+		if (u->shmem_fd >= 0)
+			close(u->shmem_fd);
+		if (u->shmem_name[0])
+			shm_unlink(u->shmem_name);
+	}
 
 	for (qid = 0; qid < u->nr_sqs; qid++) {
 		if (!u->sqs[qid])

@@ -12,14 +12,20 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/sysinfo.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
 
 #include <ccan/str/str.h>
+#include <ccan/list/list.h>
 #include <nvme/types.h>
 #include <vfn/pci.h>
 #include <vfn/nvme.h>
 #include <vfn/pci/util.h>
 
 #include "libunvmed.h"
+#include "libunvmed-private.h"
 #include "unvme.h"
 #include "unvmed.h"
 
@@ -279,6 +285,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_rex *dev;
 	struct arg_int *nrioqs;
 	struct arg_str *vf_token;
+	struct arg_int *shmem_size;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -291,6 +298,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		nrioqs = arg_int0("q", "nr-ioqs", "<n>", "[O] Maximum number of "
 			"I/O queues to create (defaults: # of cpu)"),
 		vf_token = arg_str0("v", "vf-token", "<n>", "[O] VF token(UUID) to override"),
+		shmem_size = arg_int0(NULL, "shmem-size", "<bytes>", "[O] Shared memory size to allocate in bytes"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -335,6 +343,70 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to initialize unvme\n");
 		ret = errno;
 		goto out;
+	}
+
+	/* Allocate shared memory if --shmem_size is provided */
+	if (arg_intv(shmem_size) > 0) {
+		size_t size = (size_t)arg_intv(shmem_size);
+
+		snprintf(u->shmem_name, sizeof(u->shmem_name), "/unvmed-%s",
+				arg_strv(dev));
+		/*
+		 * Replace colons and dots with underscores for valid shared
+		 * memory name.
+		 */
+		for (int i = 0; u->shmem_name[i]; i++) {
+			if (u->shmem_name[i] == ':' || u->shmem_name[i] == '.')
+				u->shmem_name[i] = '_';
+		}
+
+		u->shmem_fd = shm_open(u->shmem_name, O_CREAT | O_RDWR, 0666);
+		if (u->shmem_fd == -1) {
+			unvme_pr_err("failed to create shared memory object: %s\n",
+					strerror(errno));
+			ret = errno;
+			goto out;
+		}
+
+		if (ftruncate(u->shmem_fd, size) == -1) {
+			unvme_pr_err("failed to resize shared memory object: %s\n",
+					strerror(errno));
+			ret = errno;
+			close(u->shmem_fd);
+			shm_unlink(u->shmem_name);
+			goto out;
+		}
+
+		/*
+		 * Anonymous pages cannot be shared among different processes,
+		 * so we prepared shmem object and map memory space to the
+		 * shmem object.
+		 */
+		u->shmem_vaddr = mmap(NULL, size, PROT_READ | PROT_WRITE,
+				MAP_SHARED, u->shmem_fd, 0);
+		if (u->shmem_vaddr == MAP_FAILED) {
+			unvme_pr_err("failed to map shared memory: %s\n",
+					strerror(errno));
+			ret = errno;
+			close(u->shmem_fd);
+			shm_unlink(u->shmem_name);
+			goto out;
+		}
+
+		u->shmem_size = size;
+
+		ret = unvmed_map_vaddr(u, u->shmem_vaddr, size, &u->shmem_iova, 0);
+		if (ret) {
+			unvme_pr_err("failed to map shared memory to IOMMU: %s\n",
+					strerror(-ret));
+			munmap(u->shmem_vaddr, size);
+			close(u->shmem_fd);
+			shm_unlink(u->shmem_name);
+			goto out;
+		}
+
+		unvme_pr("allocated shared memory: size=%zu bytes, iova=0x%lx\n",
+			 size, u->shmem_iova);
 	}
 
 	/*
