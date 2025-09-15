@@ -38,6 +38,7 @@ struct libunvmed_options {
 	uint64_t prp1_offset;
 	unsigned int enable_sgl;
 	unsigned int dtype;
+	unsigned int lr;
 	unsigned int dspec;
 	unsigned int dsm;
 	unsigned int cmb_data;
@@ -147,6 +148,16 @@ static struct fio_option options[] = {
 		.type = FIO_OPT_INT,
 		.off1 = offsetof(struct libunvmed_options, dtype),
 		.help = "Directive Type",
+		.def = "0",
+		.category = FIO_OPT_C_ENGINE,
+		.group = FIO_OPT_G_INVALID,
+	},
+	{
+		.name = "lr",
+		.lname = "Limited Retry in CDW12",
+		.type = FIO_OPT_BOOL,
+		.off1 = offsetof(struct libunvmed_options, lr),
+		.help = "Limited Retry",
 		.def = "0",
 		.category = FIO_OPT_C_ENGINE,
 		.group = FIO_OPT_G_INVALID,
@@ -746,6 +757,11 @@ static int fio_libunvmed_init(struct thread_data *td)
 		ld->cdw12_flags[DDIR_READ] |= NVME_IO_FUA << 16;
 	if (o->writefua)
 		ld->cdw12_flags[DDIR_WRITE] |= NVME_IO_FUA << 16;
+	if (o->lr) {
+		for_each_rw_ddir(ddir) {
+			ld->cdw12_flags[ddir] |= NVME_IO_LR << 16;
+		}
+	}
 
 	pthread_mutex_unlock(&g_serialize);
 	return 0;
