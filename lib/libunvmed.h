@@ -1144,7 +1144,11 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 static inline struct unvme_cmd *unvmed_get_cmd(struct unvme_sq *usq,
 					       uint16_t cid)
 {
-	return &usq->cmds[cid];
+	struct unvme_cmd *cmd = &usq->cmds[cid];
+
+	if (LOAD(cmd->state) == UNVME_CMD_S_INIT)
+		return NULL;
+	return cmd;
 }
 
 /**

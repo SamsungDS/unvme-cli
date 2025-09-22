@@ -1901,7 +1901,11 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 		cqe = unvmed_get_cqe(ucq, head);
 		if ((le16_to_cpu(cqe->sfp) & 0x1) != phase) {
 			cmd = unvmed_get_cmd_from_cqe(u, cqe);
-			assert(cmd != NULL);
+			if (!cmd) {
+				unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
+						le16_to_cpu(cqe->sqid), cqe->cid);
+				continue;
+			}
 
 			cmd->state = UNVME_CMD_S_TO_BE_COMPLETED;
 
@@ -2124,6 +2128,12 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 			break;
 
 		cmd = unvmed_get_cmd_from_cqe(u, cqe);
+		if (!cmd) {
+			unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
+					le16_to_cpu(cqe->sqid), cqe->cid);
+			continue;
+		}
+
 		if (unvmed_cmd_cmpl(cmd, cqe))
 			goto up;
 
@@ -2886,8 +2896,14 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 	ret = unvmed_vcq_pop(vcq, &__cqe);
 	if (ret != -ENOENT) {
 		cmd = unvmed_get_cmd(usq, cqe->cid);
-		__unvmed_cmd_cmpl(cmd, cqe);
-		return cqe;
+		if (cmd) {
+			__unvmed_cmd_cmpl(cmd, cqe);
+			return cqe;
+		} else {
+			unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
+					le16_to_cpu(cqe->sqid), cqe->cid);
+			return NULL;
+		}
 	}
 
 	unvmed_cq_enter(ucq);
@@ -2895,7 +2911,7 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 	unvmed_cq_exit(ucq);
 	if (cqe) {
 		cmd = unvmed_get_cmd(usq, cqe->cid);
-		if (!unvmed_cmd_cmpl(cmd, cqe))
+		if (cmd && !unvmed_cmd_cmpl(cmd, cqe))
 			unvmed_vcq_push(u, &cmd->usq->vcq, cqe);
 		return NULL;
 	}
@@ -2924,7 +2940,13 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 				break;
 
 			cmd = unvmed_get_cmd(usq, cqe->cid);
-			__unvmed_cmd_cmpl(cmd, cqe);
+			if (cmd)
+				__unvmed_cmd_cmpl(cmd, cqe);
+			else {
+				unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
+						le16_to_cpu(cqe->sqid), cqe->cid);
+				continue;
+			}
 		} else {
 			cqe = __unvmed_get_completion(u, usq, vcq, ucq);
 
