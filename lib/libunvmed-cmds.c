@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later OR MIT
 #define _GNU_SOURCE
 
+#include <time.h>
+
 #include <vfn/nvme.h>
 #include <nvme/types.h>
 #include <ccan/list/list.h>
@@ -1154,4 +1156,28 @@ int unvmed_cmd_prep_delete_cq(struct unvme_cmd *cmd, uint32_t qid)
 	sqe->cid = cmd->cid;
 
 	return 0;
+}
+
+bool unvmed_cmd_expired(struct unvme_cmd *cmd, struct timespec *start,
+			struct timespec *next)
+{
+	if (LOAD(cmd->state) != UNVME_CMD_S_SUBMITTED)
+		return false;
+
+	/*
+	 * If the given @cmd is expired, return without considering the next
+	 * expiration time @e->next.
+	 */
+	if (unvmed_timer_after(start, &cmd->timeout))
+		return true;
+
+	/*
+	 * Calculate the nearest next timer expiration time to update.
+	 */
+	if ((!next->tv_sec && !next->tv_nsec) ||
+			(unvmed_timer_after(next, &cmd->timeout))) {
+		*next = cmd->timeout;
+	}
+
+	return false;
 }

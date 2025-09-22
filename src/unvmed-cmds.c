@@ -678,6 +678,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *iocqes;
 	struct arg_int *mps;
 	struct arg_int *css;
+	struct arg_int *timeout;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -692,6 +693,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		iocqes = arg_int0("c", "iocqes", "<n>", "[O] I/O Completion Queue Entry Size (2^n) (default: 4)"),
 		mps = arg_int0("m", "mps", "<n>", "[O] Memory Page Size (2^(12+n)) (default: 0)"),
 		css = arg_int0("i", "css", "<n>", "[O] I/O Command Set Selected  (default: 0)"),
+		timeout = arg_int0("t", "timeout", "<n>", "[O] Command timeout in seconds (default: 0 - disabled)"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -702,6 +704,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	arg_intv(iocqes) = 4;
 	arg_intv(mps) = 0;
 	arg_intv(css) = 0;
+	arg_intv(timeout) = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -736,7 +739,9 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes), arg_intv(mps), arg_intv(css))) {
+	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes),
+				arg_intv(mps), arg_intv(css),
+				arg_intv(timeout))) {
 		unvme_pr_err("failed to enable controller\n");
 		ret = errno;
 		goto out;

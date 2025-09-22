@@ -25,6 +25,8 @@ struct unvme {
 
 	uint8_t mps;	/* Memory Page Size (2 ^ (12 + @mps)) */
 
+	int timeout;	/* Timeout in seconds for admin/io commands */
+
 	int nr_sqs;
 	int nr_cqs;
 
@@ -128,6 +130,7 @@ struct unvme_ctx {
 			uint8_t iosqes;
 			uint8_t iocqes;
 			uint8_t mps;
+			int timeout;
 			uint8_t css;
 			bool admin_irq;
 		} ctrl;
@@ -199,6 +202,23 @@ static inline int __unvmed_cmd_wait(struct unvme_cmd *cmd)
 	}
 
 	return 0;
+}
+
+bool unvmed_cmd_expired(struct unvme_cmd *cmd, struct timespec *start,
+			struct timespec *next);
+
+static inline bool unvmed_timer_before(struct timespec *a, struct timespec *b)
+{
+	if (a->tv_sec != b->tv_sec)
+		return a->tv_sec < b->tv_sec;
+	return a->tv_nsec < b->tv_nsec;
+}
+
+static inline bool unvmed_timer_after(struct timespec *a, struct timespec *b)
+{
+	if (a->tv_sec != b->tv_sec)
+		return a->tv_sec > b->tv_sec;
+	return a->tv_nsec > b->tv_nsec;
 }
 
 #endif

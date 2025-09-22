@@ -19,6 +19,12 @@
 struct unvme;
 struct unvme_cmd;
 
+struct unvme_timer {
+	timer_t t;
+	struct timespec expire;  /* absolute time of the next expiration */
+	bool active;
+};
+
 enum unvme_state {
 	/*
 	 * Controller disabled state which is the first state.
@@ -153,6 +159,7 @@ struct name {			\
 	struct nvme_sq *q;	\
 	struct unvme_cq *ucq;	\
 	struct unvme_cmd *cmds; \
+	struct unvme_timer timer;	\
 	struct unvme_vcq vcq;	\
 	struct unvme_bitmap cids;\
 	int nr_cmds;		\
@@ -219,6 +226,13 @@ enum unvmed_cmd_flags {
 	 * prevent rcq entry pushed in case irq is enabled.
 	 */
 	UNVMED_CMD_F_WAKEUP_ON_CQE = 1 << 2,
+	/* Command has been timed out */
+	UNVMED_CMD_F_TIMEDOUT	= 1 << 3,
+};
+
+enum unvmed_cmd_status {
+	NVME_SCT_UNVME	= 6,		/* libunvmed-specific SCT */
+	NVME_SC_UNVME_TIMED_OUT	= 1,
 };
 
 struct unvme_buf {
@@ -274,6 +288,9 @@ struct unvme_cmd {
 	 * is the one.  This field is only valid in UNVMED_CMD_F_REQ_CQE.
 	 */
 	bool completed;
+
+	/* Timer expiration time */
+	struct timespec timeout;
 
 	/*
 	 * Submission Queue Entry pushed for this command.
@@ -884,6 +901,7 @@ int unvmed_create_adminq(struct unvme *u, bool irq);
  * @iocqes: I/O Completion Queue Entry Size (specified as 2^n)
  * @mps: Memory Page Size (specified as (2 ^ (12 + n)))
  * @css: I/O Command Set Selected
+ * @timeout: timeout in seconds (0: disabled)
  *
  * Enable the given NVMe controller by asserting CC.EN to 1 along with the
  * given other values to Controller Configuration register.  This API makes
@@ -892,7 +910,7 @@ int unvmed_create_adminq(struct unvme *u, bool irq);
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
-		       uint8_t mps, uint8_t css);
+		       uint8_t mps, uint8_t css, int timeout);
 
 /**
  * unvmed_create_cq - Create I/O Completion Queue

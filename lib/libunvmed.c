@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later OR MIT
 #define _GNU_SOURCE
 
+#include <time.h>
+#include <signal.h>
+
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/epoll.h>
@@ -40,6 +43,7 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
 						 struct nvme_cqe *cqe);
 static int unvmed_get_pcie_cap_offset(char *bdf);
+static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 
 static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
 {
@@ -1254,6 +1258,211 @@ static void unvmed_vcq_free(struct unvme_vcq *vcq)
 	memset(vcq, 0, sizeof(struct unvme_vcq));
 }
 
+static int unvmed_timer_update(struct unvme_sq *usq, int sec)
+{
+	struct unvme_timer *timer = &usq->timer;
+	struct itimerspec delta = {
+		.it_value.tv_sec = sec,
+		.it_value.tv_nsec = 0,
+		.it_interval.tv_sec = 0,
+		.it_interval.tv_nsec = 0,
+	};
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	timer->expire.tv_sec = now.tv_sec + delta.it_value.tv_sec;
+
+	unvmed_log_debug("sq%d: timer expiration time updated to +%ld",
+			unvmed_sq_id(usq), delta.it_value.tv_sec);
+	if (timer_settime(timer->t, 0, &delta, NULL) < 0) {
+		unvmed_log_err("failed to update timer expiration time");
+		return -1;
+	}
+
+	return 0;
+}
+
+static void unvmed_cmd_timeout(struct unvme_cmd *cmd)
+{
+	const uint16_t status =
+		(NVME_SCT_UNVME << NVME_SCT_SHIFT) | NVME_SC_UNVME_TIMED_OUT;
+	struct nvme_cqe timeout_cqe = {0, };
+	struct unvme_sq *usq = cmd->usq;
+	uint16_t qid = unvmed_sq_id(usq);
+	struct unvme *u = cmd->u;
+	uint16_t cid = cmd->cid;
+	int nr_cmds;
+	int ret;
+
+	unvmed_log_err("%s: command timeout detected (sqid=%d, cid=%d)",
+			unvmed_bdf(u), qid, cid);
+
+	/*
+	 * Get @cmd instance here again to prevent double-free attemption for
+	 * the normal cq entry coming from the device lately after the timeout
+	 * fake cq entry being posted.
+	 *
+	 * The timedout @cmd instance will never be put(refcnt=0) unless
+	 * controller is reset or queue is deleted.
+	 */
+	cmd = unvmed_cmd_get(usq, cid);
+	assert(cmd != NULL);
+
+	STORE(cmd->flags, cmd->flags | UNVMED_CMD_F_TIMEDOUT);
+
+	/* Generate CQE with timeout error status for the specific command */
+	timeout_cqe.sqid = cpu_to_le16(qid);
+	timeout_cqe.cid = cid;
+	timeout_cqe.sfp = cpu_to_le16(status << 1);
+
+	/*
+	 * XXX: unvmed_cmd_cmpl has exactly the same code, will be
+	 * cleaned up.
+	 */
+	if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE) {
+		__unvmed_cmd_cmpl(cmd, &timeout_cqe);
+
+		atomic_store_release(&cmd->completed, 1);
+		unvmed_futex_wake(&cmd->completed, 1);
+
+		do {
+			nr_cmds = u->nr_cmds;
+		} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - 1));
+	} else {
+		do {
+			ret = unvmed_vcq_push(u, &usq->vcq, &timeout_cqe);
+		} while (ret == -EAGAIN);
+	}
+
+	unvmed_cmd_put(cmd);
+}
+
+static void unvmed_timer_handler(union sigval sv)
+{
+	struct unvme_sq *usq = (struct unvme_sq *)sv.sival_ptr;
+	struct unvme_cmd *cmd;
+	struct timespec now;
+	struct timespec next = {0, };
+	bool timedout;
+	int cid;
+
+	if (!atomic_load_acquire(&usq->timer.active))
+		return;
+
+	unvmed_log_debug("sq%d: timer expired", unvmed_sq_id(usq));
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+
+	/*
+	 * First, check if any command has been expired or not.  We don't
+	 * perform the timeout handler in this step since if we do this here,
+	 * all the SQs should be quiesced first, but we are not sure that if
+	 * any command has been expired or not, so check this out first and if
+	 * any, we go further.
+	 */
+	for (cid = 0; !timedout && cid < usq->qsize - 1; cid++) {
+		cmd = unvmed_cmd_get(usq, cid);
+		if (!cmd)
+			continue;
+
+		/*
+		 * If @cmd is expired and @next is not set within
+		 * unvmed_cmd_expired(), it's totally okay since timeout
+		 * handler will be terminated and freeze the corresponding
+		 * queue which means no more commands are coming in.
+		 */
+		if (unvmed_cmd_expired(cmd, &now, &next))
+			timedout = true;
+
+		unvmed_cmd_put(cmd);
+	}
+
+	/*
+	 * If any is expired, quiesce the corresponding @usq to handle timeout
+	 * just like the reset handler.
+	 */
+	if (timedout) {
+		timedout = false;
+		memset(&next, 0, sizeof(next));
+
+		unvmed_sq_enter(usq);
+		for (cid = 0; cid < usq->qsize - 1; cid++) {
+			cmd = unvmed_cmd_get(usq, cid);
+			if (!cmd)
+				continue;
+
+			if (unvmed_cmd_expired(cmd, &now, &next)) {
+				timedout = true;
+				unvmed_cmd_timeout(cmd);
+			}
+
+			unvmed_cmd_put(cmd);
+		}
+
+		/*
+		 * If any timedout, we don't unquiesce SQs for debuggability.
+		 */
+		if (timedout)
+			STORE(usq->flags, usq->flags | UNVMED_SQ_F_FROZEN);
+
+		unvmed_sq_exit(usq);
+		atomic_store_release(&usq->timer.active, false);
+
+		unvmed_log_debug("sq%d: command timedout detected, terminated.",
+				unvmed_sq_id(usq));
+		return;
+	}
+
+	/*
+	 * Simply check tv_sec only to check whether next expiration time is
+	 * set or not, otherwise we update this timer to the next +@u->timeout
+	 * seconds.
+	 */
+	if (!next.tv_sec)
+		unvmed_timer_update(usq, usq->ucq->u->timeout);
+	else
+		unvmed_timer_update(usq, next.tv_sec - now.tv_sec);
+}
+
+static int unvmed_timer_init(struct unvme_timer *timer, void *opaque)
+{
+	struct sigevent sev = {
+		.sigev_notify = SIGEV_THREAD,
+		.sigev_notify_function = unvmed_timer_handler,
+		.sigev_notify_attributes = NULL,
+		.sigev_value.sival_ptr = opaque,
+	};
+
+	if (timer_create(CLOCK_MONOTONIC, &sev, &timer->t) < 0) {
+		unvmed_log_err("failed to create timer");
+		return -1;
+	}
+
+	atomic_store_release(&timer->active, true);
+	return 0;
+}
+
+static int unvmed_timer_free(struct unvme_timer *timer)
+{
+	/*
+	 * Make sure that timerout handler not to proceed after timer_delete()
+	 * returns.
+	 */
+	atomic_store_release(&timer->active, false);
+	return timer_delete(timer->t);
+}
+
+bool unvmed_timer_running(struct unvme_timer *timer)
+{
+	struct itimerspec curr;
+
+	timer_gettime(timer->t, &curr);
+
+	if (curr.it_value.tv_sec > 0 || curr.it_value.tv_nsec > 0)
+		return true;
+	return false;
+}
+
 static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 					uint32_t qsize, struct unvme_cq *ucq)
 {
@@ -1291,6 +1500,19 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		if (unvmed_vcq_init(&usq->vcq, qsize)) {
 			if (alloc)
 				free(usq);
+			return NULL;
+		}
+
+		/*
+		 * @usq instance is safe to be passed to the timeout hander in
+		 * the future since @usq instance will never be freed without
+		 * terminating the pending timer.
+		 */
+		if (unvmed_timer_init(&usq->timer, usq)) {
+			unvmed_vcq_free(&usq->vcq);
+			unvmed_cid_free(usq);
+			free(usq->cmds);
+			free(usq);
 			return NULL;
 		}
 
@@ -1341,6 +1563,7 @@ static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 	u->sqs[qid] = NULL;
 	pthread_rwlock_unlock(&u->sqs_lock);
 
+	unvmed_timer_free(&usq->timer);
 	unvmed_cid_free(usq);
 	unvmed_vcq_free(&usq->vcq);
 
@@ -2067,7 +2290,7 @@ out:
 }
 
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
-		      uint8_t mps, uint8_t css)
+		      uint8_t mps, uint8_t css, int timeout)
 {
 	uint32_t cc;
 	uint32_t csts;
@@ -2098,6 +2321,7 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	}
 
 	u->mps = mps;
+	u->timeout = timeout;
 
 	/*
 	 * After the device is enabled, we have to enable the adminq.
@@ -2583,6 +2807,18 @@ int unvmed_unmap_vaddr(struct unvme *u, void *buf)
 	return iommu_unmap_vaddr(ctx, buf, NULL);
 }
 
+static void unvmed_cmd_add_timer(struct unvme_cmd *cmd)
+{
+	int timeout = cmd->u->timeout;
+
+	clock_gettime(CLOCK_MONOTONIC, &cmd->timeout);
+	cmd->timeout.tv_sec += timeout;
+
+	if (atomic_load_acquire(&cmd->usq->timer.active) &&
+			!unvmed_timer_running(&cmd->usq->timer))
+		unvmed_timer_update(cmd->usq, cmd->u->timeout);
+}
+
 void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		     unsigned long flags)
 {
@@ -2597,6 +2833,9 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	do {
 		nr_cmds = cmd->u->nr_cmds;
 	} while (!atomic_cmpxchg(&cmd->u->nr_cmds, nr_cmds, nr_cmds + 1));
+
+	if (cmd->u->timeout)
+		unvmed_cmd_add_timer(cmd);
 
 	if (!(flags & UNVMED_CMD_F_NODB))
 		nvme_sq_update_tail(cmd->rq->sq);
@@ -3342,6 +3581,7 @@ int unvmed_ctx_init(struct unvme *u)
 	ctx->ctrl.iocqes = NVME_CC_IOCQES(cc);
 	ctx->ctrl.mps = NVME_CC_MPS(cc);
 	ctx->ctrl.css = NVME_CC_CSS(cc);
+	ctx->ctrl.timeout = u->timeout;
 	if (u->asq)
 		ctx->ctrl.admin_irq = unvmed_cq_iv(u->acq) == 0;
 
@@ -3399,7 +3639,7 @@ static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 				return -1;
 			return unvmed_enable_ctrl(u, ctx->ctrl.iosqes,
 					ctx->ctrl.iocqes, ctx->ctrl.mps,
-					ctx->ctrl.css);
+					ctx->ctrl.css, ctx->ctrl.timeout);
 		case UNVME_CTX_T_NS:
 			int ret;
 			ret = unvmed_init_ns(u, ctx->ns.nsid, NULL);
