@@ -868,7 +868,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -977,7 +977,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -1084,7 +1084,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	targetq = unvmed_sq_get(u, arg_intv(qid));
-	if (unvmed_sq_enabled(targetq)) {
+	if (unvmed_sq_ready(targetq)) {
 		unvme_pr_err("failed to create iosq (qid=%u) (exists)\n", arg_intv(qid));
 		unvmed_sq_put(u, targetq);
 		ret = EEXIST;
@@ -1106,7 +1106,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -1219,7 +1219,7 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -1366,7 +1366,7 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -1502,7 +1502,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -1642,7 +1642,7 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -1777,7 +1777,7 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -1886,7 +1886,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -2031,7 +2031,7 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -2141,7 +2141,7 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -2247,7 +2247,7 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -2494,7 +2494,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		mfilepath = unvme_get_filepath(unvme_msg_pwd(msg), arg_filev(metadata));
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -2788,7 +2788,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -3031,7 +3031,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -3209,7 +3209,7 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -3286,7 +3286,7 @@ int unvme_format(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -3760,7 +3760,7 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -3875,7 +3875,7 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -4200,7 +4200,7 @@ int unvme_create_ns(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -4309,7 +4309,7 @@ int unvme_delete_ns(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -4415,7 +4415,7 @@ int unvme_attach_ns(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);
@@ -4532,7 +4532,7 @@ int unvme_detach_ns(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvmed_sq_enter(usq);
-	if (!unvmed_sq_enabled(usq)) {
+	if (!unvmed_sq_ready(usq)) {
 		unvme_pr_err("usq(qid=%d) is not enabled", unvmed_sq_id(usq));
 
 		unvmed_sq_exit(usq);

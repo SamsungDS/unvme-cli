@@ -148,6 +148,7 @@ struct name {			\
 struct name {			\
 	int id;			\
 	int qsize;		\
+	unsigned int flags;	\
 				\
 	struct nvme_sq *q;	\
 	struct unvme_cq *ucq;	\
@@ -195,6 +196,11 @@ struct name {			\
 unvme_declare_ns(unvme_ns);
 unvme_declare_cq(unvme_cq);
 unvme_declare_sq(unvme_sq);
+
+enum unvme_sq_flags {
+	/* SQ is frozen due to command timeout */
+	UNVMED_SQ_F_FROZEN	= 1 << 0,
+};
 
 enum unvme_cmd_state {
 	UNVME_CMD_S_INIT		= 0,
@@ -348,14 +354,16 @@ static inline void unvmed_cq_exit(struct unvme_cq *ucq)
 }
 
 /**
- * unvmed_sq_enabled - Check whether the submission queue is enabled (live)
+ * unvmed_sq_ready - Check whether the submission queue is ready to process
  * @usq: submission queue instance
  *
  * Return: true if the given queue is alive.
  */
-static inline bool unvmed_sq_enabled(struct unvme_sq *usq)
+static inline bool unvmed_sq_ready(struct unvme_sq *usq)
 {
-	if (!usq || (usq && !usq->enabled))
+	if (!usq)
+		return false;
+	if (!usq->enabled || usq->flags & UNVMED_SQ_F_FROZEN)
 		return false;
 	return true;
 }

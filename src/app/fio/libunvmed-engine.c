@@ -1446,7 +1446,7 @@ static enum fio_q_status fio_libunvmed_queue(struct thread_data *td,
 	if (unvmed_sq_try_enter(ld->usq))
 		return FIO_Q_BUSY;
 
-	if (!ld->usq->enabled) {
+	if (!unvmed_sq_ready(ld->usq)) {
 		unvmed_sq_exit(ld->usq);
 		return FIO_Q_BUSY;
 	}
@@ -1484,7 +1484,7 @@ static int fio_libunvmed_commit(struct thread_data *td)
 	if (unvmed_sq_try_enter(ld->usq))
 		return 0;
 
-	if (!ld->usq->enabled) {
+	if (!unvmed_sq_ready(ld->usq)) {
 		/*
 		 * If @usq driver context is still alive for the current fio
 		 * application, we can go update the tail doorbell, otherwise
