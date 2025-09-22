@@ -327,6 +327,22 @@ static void unvmed_cmd_free(struct unvme_cmd *cmd)
 	__unvmed_cmd_free(cmd);
 }
 
+struct unvme_cmd *unvmed_cmd_get(struct unvme_sq *usq, uint16_t cid)
+{
+	struct unvme_cmd *cmd = &usq->cmds[cid];
+	int refcnt;
+
+	refcnt = atomic_load_acquire(&cmd->refcnt);
+	while (refcnt > 0 &&
+			!atomic_cmpxchg(&cmd->refcnt, refcnt, refcnt + 1)) {
+		refcnt = atomic_load_acquire(&cmd->refcnt);
+	}
+
+	if (!refcnt)
+		return NULL;
+	return cmd;
+}
+
 int unvmed_cmd_put(struct unvme_cmd *cmd)
 {
 	int refcnt;

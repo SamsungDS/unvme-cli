@@ -814,6 +814,17 @@ struct unvme_cmd *unvmed_alloc_cmd_meta(struct unvme *u, struct unvme_sq *usq,
 					void *mbuf, size_t mlen);
 
 /**
+ * unvmed_cmd_get - Get a command instance with refcnt incremented
+ * @usq: submission queue instance (&struct unvme_sq)
+ * @cid: command identifier
+ *
+ * This API is thread-safe.
+ *
+ * Return: &struct unvme_cmd instance with refcnt incremented
+ */
+struct unvme_cmd *unvmed_cmd_get(struct unvme_sq *usq, uint16_t cid);
+
+/**
  * unvmed_cmd_put - Put a command instance with refcnt decremented
  * @cmd: command instance (&struct unvme_cmd)
  *
