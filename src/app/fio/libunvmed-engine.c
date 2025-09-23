@@ -1728,7 +1728,7 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	if (nvme_cqe_ok(cqe))
 		io_u->error = 0;
 	else {
-		io_u->error = le16_to_cpu(cqe->sfp) >> 1;
+		io_u->error = unvmed_cqe_status(cqe);
 		goto ret;
 	}
 

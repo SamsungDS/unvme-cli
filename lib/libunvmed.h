@@ -2028,7 +2028,18 @@ int unvmed_mem_free(struct unvme *u, uint64_t iova);
  */
 #define unvmed_bdf(u)		(__unvmed_ctrl(u)->pci.bdf)
 #define unvmed_reg(u)		(__unvmed_ctrl(u)->regs)
-#define unvmed_cqe_status(cqe)	(le16_to_cpu((cqe)->sfp) >> 1)
+
+static inline int unvmed_cqe_status(struct nvme_cqe *cqe)
+{
+	uint16_t status = le16_to_cpu((cqe)->sfp) >> 1;
+	uint8_t sct = status >> 8;
+	uint8_t sc = status & 0xff;
+
+	if (sct == NVME_SCT_UNVME && sc == NVME_SC_UNVME_TIMED_OUT)
+		return -ETIMEDOUT;
+
+	return status;
+}
 
 /*
  * PCI MMIO access helpers
