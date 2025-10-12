@@ -12,19 +12,21 @@ NR_IOQS=1
 DEBUG=0
 ADMIN=0
 RESET_TYPE="ctrl"
+CMD_TIMEOUT=""
 
 usage() {
-    echo "Usage: $0 -b <bdf> [-t <runtime>] [-q <nr_ioqs>] [-d] [-a] [-r <reset_type>]"
+    echo "Usage: $0 -b <bdf> [-t <runtime>] [-q <nr_ioqs>] [-T <timeout>] [-d] [-a] [-r <reset_type>]"
     echo "  -b <bdf>       : PCI BDF of the NVMe device (e.g., 0000:01:00.0)"
     echo "  -t <runtime>   : Test duration in seconds (default: 10)"
     echo "  -q <nr_ioqs>   : Number of I/O queues to create (default: 1)"
+    echo "  -T <timeout>   : Command timeout in seconds (optional)"
     echo "  -d             : Enable debug log level"
     echo "  -a             : Enable admin command along with FIO (default: false)"
     echo "  -r <reset_type>: Reset type: ctrl, ctrl-graceful, nssr, flr, link-disable, hot-reset, random (default: ctrl)"
     exit 1
 }
 
-while getopts "b:t:q:dar:" opt; do
+while getopts "b:t:q:T:dar:" opt; do
     case ${opt} in
         b)
             BDF=$OPTARG
@@ -34,6 +36,9 @@ while getopts "b:t:q:dar:" opt; do
             ;;
         q)
             NR_IOQS=$OPTARG
+            ;;
+        T)
+            CMD_TIMEOUT=$OPTARG
             ;;
         d)
             DEBUG=1
@@ -71,7 +76,11 @@ trap "unvme stop -a" EXIT
     fi
     unvme add $BDF --nr-ioqs=$NR_IOQS
     unvme create-adminq $BDF
-    unvme enable $BDF
+    if [ -z "$CMD_TIMEOUT" ]; then
+        unvme enable $BDF
+    else
+        unvme enable $BDF -t $CMD_TIMEOUT
+    fi
     unvme id-ns $BDF -n 1
 )
 

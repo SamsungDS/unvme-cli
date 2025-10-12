@@ -10,12 +10,14 @@ RUNTIME=60
 BDF=""
 NR_QUEUES=$(nproc)
 DEBUG=0
+CMD_TIMEOUT=""
 
 usage() {
-	echo "Usage: $0 -b <bdf> [-t <runtime>] [-q <nr_queues>] [-d]"
+	echo "Usage: $0 -b <bdf> [-t <runtime>] [-q <nr_queues>] [-T <timeout>] [-d]"
 	echo "  -b <bdf>        : PCI BDF of the NVMe device (e.g., 0000:01:00.0)"
 	echo "  -t <runtime>    : Test duration in seconds (default: 60)"
 	echo "  -q <nr_queues>  : Number of I/O queues to use (default: $(nproc))"
+	echo "  -T <timeout>    : Command timeout in seconds (optional)"
 	echo "  -d              : Enable debug log level"
 	echo ""
 	echo "This test performs the following:"
@@ -25,7 +27,7 @@ usage() {
 	exit 1
 }
 
-while getopts "b:t:q:d" opt; do
+while getopts "b:t:q:T:d" opt; do
 	case ${opt} in
 		b)
 			BDF=$OPTARG
@@ -35,6 +37,9 @@ while getopts "b:t:q:d" opt; do
 			;;
 		q)
 			NR_QUEUES=$OPTARG
+			;;
+		T)
+			CMD_TIMEOUT=$OPTARG
 			;;
 		d)
 			DEBUG=1
@@ -66,7 +71,11 @@ trap "unvme stop -a" EXIT
 	fi
 	unvme add $BDF --nr-ioqs=$NR_QUEUES
 	unvme create-adminq $BDF
-	unvme enable $BDF
+	if [ -z "$CMD_TIMEOUT" ]; then
+		unvme enable $BDF
+	else
+		unvme enable $BDF -t $CMD_TIMEOUT
+	fi
 	unvme id-ns $BDF -n 1 > /dev/null
 )
 
