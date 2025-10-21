@@ -1343,7 +1343,7 @@ static void unvmed_timer_handler(union sigval sv)
 	struct unvme_cmd *cmd;
 	struct timespec now;
 	struct timespec next = {0, };
-	bool timedout;
+	bool timedout = false;
 	int cid;
 
 	if (!atomic_load_acquire(&usq->timer.active))
