@@ -1095,6 +1095,8 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		ret = EEXIST;
 		goto usq;
 	}
+	if (targetq)
+		unvmed_sq_put(u, targetq);
 
 	ucq = unvmed_cq_get(u, arg_intv(cqid));
 	if (!ucq) {
