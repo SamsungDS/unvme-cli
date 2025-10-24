@@ -50,8 +50,7 @@ LDFLAGS="-shared" ./configure --extra-cflags='-fPIC' \
 	--disable-libzbc \
 	--disable-tcmalloc \
 	--dynamic-libengines \
-	--disable-dfs \
-	--disable-tls
+	--disable-dfs
 make -j`nproc`
 ```
 
