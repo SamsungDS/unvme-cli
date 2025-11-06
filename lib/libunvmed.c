@@ -3295,12 +3295,14 @@ int unvmed_flr(struct unvme *u)
 
 	if (!(cap & (1 << 28))) {
 		unvmed_log_err("flr not supported");
-		ret = ENOTSUP;
+		errno = ENOTSUP;
+		ret = -1;
 		goto close;
 	}
 
 	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
+		ret = -1;
 		goto close;
 	}
 
@@ -3326,6 +3328,7 @@ int unvmed_flr(struct unvme *u)
 	usleep(100 * 1000);
 	if (unvmed_pci_wait_reset(u) < 0) {
 		unvmed_log_err("failed to wait for PCI to be reset");
+		ret = -1;
 		goto close;
 	}
 
