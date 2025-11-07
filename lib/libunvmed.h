@@ -7,9 +7,12 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <errno.h>
 #include <pthread.h>
 #include <sys/uio.h>
 #include <sys/time.h>
+
+#include <vfn/nvme.h>
 
 #include "libunvmed-logs.h"
 
