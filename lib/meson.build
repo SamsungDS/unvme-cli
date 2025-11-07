@@ -6,6 +6,7 @@ libunvmed_src = [
 ]
 libunvmed_hdr = [
   'libunvmed.h',
+  'libunvmed-logs.h',
 ]
 
 ver = '0.0.1'
