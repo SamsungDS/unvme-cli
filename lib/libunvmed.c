@@ -762,6 +762,11 @@ void unvmed_cmb_free(struct unvme *u)
 	nvme_discard_cmb(&u->ctrl);
 }
 
+struct unvme_cmb *unvmed_cmb(struct unvme *u)
+{
+	return (struct unvme_cmb *)&u->ctrl.cmb;
+}
+
 ssize_t unvmed_cmb_get_region(struct unvme *u, void **vaddr)
 {
 	/*

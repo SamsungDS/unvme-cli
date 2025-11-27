@@ -668,6 +668,7 @@ void unvme_pr_status(const char *format, struct unvme *u)
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	struct unvme_hmb *hmb;
+	struct unvme_cmb *cmb;
 
 	nr_ns = unvmed_get_nslist(u, &nslist);
 	if (nr_ns < 0) {
@@ -691,6 +692,7 @@ void unvme_pr_status(const char *format, struct unvme *u)
 	}
 
 	hmb = unvmed_hmb(u);
+	cmb = unvmed_cmb(u);
 
 	if (streq(format, "normal")) {
 		unvme_pr("Controller				: %s\n", unvmed_bdf(u));
@@ -762,6 +764,13 @@ void unvme_pr_status(const char *format, struct unvme *u)
 		unvme_pr("----- ------------------ ------\n");
 		for (int i = 0; i < hmb->nr_descs; i++)
 			unvme_pr("%5d %#18llx %6d\n", i, hmb->descs[i].badd, hmb->descs[i].bsize);
+
+		unvme_pr("\n");
+		unvme_pr("Controller Memory Buffer\n");
+		unvme_pr("------------------------\n");
+		unvme_pr("BIR:     %d\n", cmb->bar);
+		unvme_pr("Size:    %zu bytes\n", cmb->size);
+		unvme_pr("IOVA:    %#lx\n", cmb->iova);
 
 		unvme_pr("\n");
 		unvme_pr("Shared Memory\n");
@@ -860,6 +869,12 @@ void unvme_pr_status(const char *format, struct unvme *u)
 			json_object_array_add(hmb_array, block_obj);
 		}
 		json_object_object_add(hmb_obj, "descs", hmb_array);
+
+		struct json_object *cmb_obj = json_object_new_object();
+		json_object_object_add(cmb_obj, "bir", json_object_new_int(cmb->bar));
+		json_object_object_add(cmb_obj, "size", json_object_new_int((size_t)cmb->size));
+		json_object_object_add(cmb_obj, "iova", json_object_new_int64((uint64_t)cmb->iova));
+		json_object_object_add(root, "cmb", cmb_obj);
 
 		struct json_object *shmem_obj = json_object_new_object();
 		if (u->shmem_size > 0) {

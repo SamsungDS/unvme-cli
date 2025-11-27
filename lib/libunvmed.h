@@ -321,6 +321,13 @@ struct unvme_hmb {
 	uint32_t hsize;
 };
 
+struct unvme_cmb {
+       int bar;
+       void *vaddr;
+       uint64_t iova;
+       size_t size;
+};
+
 struct unvme_sq *unvmed_sq_find(struct unvme *u, uint32_t qid);
 struct unvme_cq *unvmed_cq_find(struct unvme *u, uint32_t qid);
 
@@ -525,6 +532,14 @@ int unvmed_cmb_init(struct unvme *u);
  * @u: &struct unvme
  */
 void unvmed_cmb_free(struct unvme *u);
+
+/**
+ * unvmed_cmb - Get &struct unvme_cmb instance for the given controller.
+ * @u: &struct unvme
+ *
+ * Return: &struct unvme_cmb pointer
+ */
+struct unvme_cmb *unvmed_cmb(struct unvme *u);
 
 /**
  * unvmed_cmb_get_region - Get CMB region address and size
