@@ -1001,6 +1001,24 @@ int unvmed_cmd_prep_delete_cq(struct unvme_cmd *cmd, uint32_t qid);
 struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 				uint32_t cqid);
 
+
+/**
+ * unvmed_init_sq_iova - Configure and initialize submission queue
+ * @u: unvme controller instance
+ * @qid: submission queue identifier
+ * @qsize: queue size
+ * @cqid: completion queue identifier
+ * @iova: I/O virtual address of pre-allocated buffer
+ *
+ * Configures the SQ via nvme_configure_sq_mem() and initializes
+ * the usq using the provided IOVA buffer. This separates libvfn operations
+ * from command prep. The buffer must be pre-mapped.
+ *
+ * Return: initialized usq instance on success, NULL on error with ``errno`` set.
+ */
+struct unvme_sq *unvmed_init_sq_iova(struct unvme *u, uint32_t qid, uint32_t qsize,
+				     uint32_t cqid, uint64_t iova);
+
 /**
  * unvmed_enable_sq - Enable the corresponding @usq finally
  * @usq: submission queue (&struct unvme_sq)
@@ -1027,6 +1045,23 @@ void unvmed_enable_sq(struct unvme_sq *usq);
  */
 struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 				int vector);
+
+/**
+ * unvmed_init_cq_iova - Configure and initialize completion queue
+ * @u: unvme controller instance
+ * @qid: completion queue identifier
+ * @qsize: queue size
+ * @vector: interrupt vector
+ * @iova: I/O virtual address of pre-allocated buffer
+ *
+ * Configures the CQ via nvme_configure_cq_mem() and initializes
+ * the ucq using the provided IOVA buffer. This separates libvfn operations
+ * from command prep. The buffer must be pre-mapped.
+ *
+ * Return: initialized ucq instance on success, NULL on error with ``errno`` set.
+ */
+struct unvme_cq *unvmed_init_cq_iova(struct unvme *u, uint32_t qid, uint32_t qsize,
+				     int vector, uint64_t iova);
 
 /**
  * unvmed_enable_cq - Enable the corresponding @ucq finally

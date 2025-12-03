@@ -777,6 +777,20 @@ ssize_t unvmed_cmb_get_region(struct unvme *u, void **vaddr)
 	return (ssize_t)u->ctrl.cmb.size;
 }
 
+static bool unvmed_iova_in_cmb(struct unvme *u, uint64_t iova, size_t size)
+{
+       if (!u->ctrl.cmb.vaddr)
+               return false;
+
+       uint64_t cmb_start = u->ctrl.cmb.iova;
+       uint64_t cmb_end = u->ctrl.cmb.iova + u->ctrl.cmb.size;
+
+       if (iova >= cmb_start && (iova + size) < cmb_end)
+               return true;
+
+       return false;
+}
+
 /*
  * Initialize NVMe controller instance in libvfn.  If exists, return the
  * existing one, otherwise it will create new one.  NULL if failure happens.
@@ -3933,8 +3947,8 @@ int unvmed_mem_free(struct unvme *u, uint64_t iova)
 	return __unvmed_mem_free(u, buf);
 }
 
-struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
-				uint32_t cqid)
+static struct unvme_sq *__unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
+					 uint32_t cqid, struct iommu_dmabuf *mem)
 {
 	struct unvme_cq *ucq;
 	struct unvme_sq *usq;
@@ -3947,9 +3961,12 @@ struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return NULL;
 	}
 
-	if (nvme_configure_sq(&u->ctrl, qid, qsize, ucq->q, 0) < 0) {
-		unvmed_log_err("failed to configure I/O SQ in libvfn");
-		return NULL;
+	if (mem) {
+		if (nvme_configure_sq_mem(&u->ctrl, qid, qsize, ucq->q, 0, mem))
+			goto err;
+	} else {
+		if (nvme_configure_sq(&u->ctrl, qid, qsize, ucq->q, 0) < 0)
+			goto err;
 	}
 
 	usq = unvmed_init_usq(u, qid, qsize, ucq);
@@ -3962,10 +3979,56 @@ struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	}
 
 	return usq;
+err:
+	unvmed_log_err("failed to configure I/O SQ in libvfn");
+	return NULL;
 }
 
-struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
-				int vector)
+static int unvmed_map_iova_to_mem(struct unvme *u, uint64_t iova, size_t size,
+				  struct iommu_dmabuf *mem)
+{
+	void *vaddr;
+
+	if (unvmed_iova_in_cmb(u, iova, size)) {
+		mem->ctx = __iommu_ctx(&u->ctrl);
+		mem->iova = iova;
+		mem->vaddr = u->ctrl.cmb.vaddr + (iova - u->ctrl.cmb.iova);
+		mem->len = size;
+		return 0;
+	}
+
+	if (unvmed_to_vaddr(u, iova, &vaddr) > 0) {
+		mem->ctx = __iommu_ctx(&u->ctrl);
+		mem->iova = iova;
+		mem->vaddr = vaddr;
+		mem->len = size;
+		return 0;
+	}
+
+	unvmed_log_err("failed to map iova 0x%lx to vaddr", iova);
+	errno = EINVAL;
+	return -1;
+}
+
+struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t cqid)
+{
+	return __unvmed_init_sq(u, qid, qsize, cqid, NULL);
+}
+
+struct unvme_sq *unvmed_init_sq_iova(struct unvme *u, uint32_t qid, uint32_t qsize,
+				     uint32_t cqid, uint64_t iova)
+{
+	struct iommu_dmabuf mem;
+	size_t size = ALIGN_UP(qsize << NVME_SQES, __VFN_PAGESIZE);
+
+	if (unvmed_map_iova_to_mem(u, iova, size, &mem))
+		return NULL;
+
+	return __unvmed_init_sq(u, qid, qsize, cqid, &mem);
+}
+
+static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
+					 int vector, struct iommu_dmabuf *mem)
 {
 	struct unvme_cq *ucq;
 
@@ -3981,9 +4044,12 @@ struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return NULL;
 	}
 
-	if (nvme_configure_cq(&u->ctrl, qid, qsize, vector)) {
-		unvmed_log_err("failed to configure I/O CQ in libvfn");
-		return NULL;
+	if (mem) {
+		if (nvme_configure_cq_mem(&u->ctrl, qid, qsize, vector, mem) < 0)
+			goto err;
+	} else {
+		if (nvme_configure_cq(&u->ctrl, qid, qsize, vector) < 0)
+			goto err;
 	}
 
 	ucq = unvmed_init_ucq(u, qid, qsize, vector);
@@ -4002,6 +4068,26 @@ struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		unvmed_cq_iv(ucq) = -1;
 
 	return ucq;
+err:
+	unvmed_log_err("failed to configure I/O CQ in libvfn");
+	return NULL;
+}
+
+struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
+{
+	return __unvmed_init_cq(u, qid, qsize, vector, NULL);
+}
+
+struct unvme_cq *unvmed_init_cq_iova(struct unvme *u, uint32_t qid, uint32_t qsize,
+				     int vector, uint64_t iova)
+{
+	struct iommu_dmabuf mem;
+	size_t size = ALIGN_UP(qsize << NVME_CQES, __VFN_PAGESIZE);
+
+	if (unvmed_map_iova_to_mem(u, iova, size, &mem))
+		return NULL;
+
+	return __unvmed_init_cq(u, qid, qsize, vector, &mem);
 }
 
 int unvmed_free_sq(struct unvme *u, uint16_t qid)
