@@ -815,6 +815,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *qsize;
 	struct arg_int *vector;
 	struct arg_dbl *qaddr;
+	struct arg_int *pc;
 	struct arg_lit *verbose;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -830,6 +831,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		qsize = arg_int1("z", "qsize", "<n>", "[M] Queue size (1-based)"),
 		vector = arg_int0("v", "vector", "<n>", "[O] Interrupt vector (defaults: -1)"),
 		qaddr = arg_dbl0("a", "qaddr", "<iova>", "[O] pre-mapped I/O virtual address of Completion queue"),
+		pc = arg_int0("p", "pc", "<n>", "[O] Physically contiguous (defaults: 1)"),
 		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -842,6 +844,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	/* Set default argument values prior to parsing */
 	arg_intv(vector) = -1;
 	arg_dblv(qaddr) = 0;
+	arg_intv(pc) = 1;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -899,7 +902,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (unvmed_cmd_prep_create_cq(cmd, u, arg_intv(qid), arg_intv(qsize),
-				      arg_intv(vector)) < 0) {
+				      arg_intv(vector), arg_intv(pc)) < 0) {
 		unvme_pr_err("failed to prepare Create I/O Completion Queue command\n");
 
 		unvmed_sq_exit(usq);
