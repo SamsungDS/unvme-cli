@@ -1057,6 +1057,9 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *qsize;
 	struct arg_int *cqid;
 	struct arg_dbl *qaddr;
+	struct arg_int *qprio;
+	struct arg_int *pc;
+	struct arg_int *nvmsetid;
 	struct arg_lit *verbose;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -1072,6 +1075,9 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		qsize = arg_int1("z", "qsize", "<n>", "[M] Queue size (1-based)"),
 		cqid = arg_int1("c", "cqid", "<n>", "[M] Completion Queue ID"),
 		qaddr = arg_dbl0("a", "qaddr", "<iova>", "[O] pre-mapped I/O virtual address of Submission queue"),
+		qprio = arg_int0("Q", "qprio", "<n>", "[O] Queue priority (defaults: 0)"),
+		pc = arg_int0("p", "pc", "<n>", "[O] Physically contiguous (defaults: 1)"),
+		nvmsetid = arg_int0("n", "nvmsetid", "<n>", "[O] NVM set identifier (defaults: 0"),
 		verbose = arg_lit0("v", "verbose", "[O] Print command instance verbosely in stderr after completion"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -1082,6 +1088,9 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	int ret = 0;
 
 	arg_dblv(qaddr) = 0;
+	arg_intv(qprio) = 0;
+	arg_intv(pc) = 1;
+	arg_intv(nvmsetid) = 0;
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
@@ -1147,7 +1156,8 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
 
 	if (unvmed_cmd_prep_create_sq(cmd, u, arg_intv(qid), arg_intv(qsize),
-				      arg_intv(cqid)) < 0) {
+				      arg_intv(cqid), arg_intv(qprio),
+				      arg_intv(pc), arg_intv(nvmsetid)) < 0) {
 		unvme_pr_err("failed to prepare Create I/O Submission Queue command\n");
 
 		unvmed_sq_exit(usq);

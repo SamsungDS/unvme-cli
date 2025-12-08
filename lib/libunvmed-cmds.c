@@ -1098,15 +1098,20 @@ int unvmed_cmd_wait(struct unvme_cmd *cmd)
 }
 
 int unvmed_cmd_prep_create_sq(struct unvme_cmd *cmd, struct unvme *u, uint32_t qid, uint32_t qsize,
-			      uint32_t cqid)
+			      uint32_t cqid, uint32_t qprio, uint32_t pc, uint32_t nvmsetid)
 {
 	struct nvme_cmd_create_sq *sqe = (struct nvme_cmd_create_sq *)&cmd->sqe;
+	uint16_t qflags = (qprio & 0x3) << 1;
+	if (pc)
+		qflags |= NVME_Q_PC;
+
 
 	sqe->opcode = nvme_admin_create_sq;
 	sqe->qid = cpu_to_le16(qid);
 	sqe->prp1 = cpu_to_le64(u->ctrl.sq[qid].mem.iova);
 	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
-	sqe->qflags = cpu_to_le16(NVME_Q_PC);
+	sqe->qflags = cpu_to_le16(qflags);
+	sqe->rsvd12[0] = cpu_to_le32(nvmsetid);
 	sqe->cqid = cpu_to_le16((uint16_t)cqid);
 	sqe->cid = cmd->cid;
 

@@ -964,11 +964,15 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
  * @qid: submission queue identifier
  * @qsize: submission queue size
  * @cqid: completion queue identifier
+ * @qprio: submission queue priority
+ * @pc: physically contiguous
+ * @nvmsetid: NVM set identifier
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_cmd_prep_create_sq(struct unvme_cmd *cmd, struct unvme *u,
-			      uint32_t qid, uint32_t qsize, uint32_t cqid);
+			      uint32_t qid, uint32_t qsize, uint32_t cqid,
+			      uint32_t qprio, uint32_t pc, uint32_t nvmsetid);
 
 /**
  * unvmed_cmd_prep_delete_sq - Prepare Delete I/O Submission Queue command instance
