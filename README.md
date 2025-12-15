@@ -119,7 +119,7 @@ unvme id-ns $bdf --nsid=1
 # Run random read workloads on the specific queue
 unvme fio --ioengine=libunvmed --thread \
 	--filename=$bdf_dot --nsid=1 --sqid=1 \
-	--name=job --rw=randread --bs=4k --iodepth=256 --norandommap
+	--name=job --rw=randread --bs=4k --iodepth=255 --norandommap
 ```
 
 ## License
