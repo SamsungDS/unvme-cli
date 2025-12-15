@@ -157,6 +157,9 @@ struct name {			\
 struct name {			\
 	int id;			\
 	int qsize;		\
+	int qprio;		\
+	int pc;			\
+	int nvmsetid;		\
 	unsigned int flags;	\
 				\
 	struct nvme_sq *q;	\
@@ -187,6 +190,7 @@ struct name {			\
 	int id;			\
 	int qsize;		\
 	int vector;		\
+	int pc;			\
 				\
 	struct unvme *u;	\
 	struct nvme_cq *q;	\
@@ -936,12 +940,14 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
  * @qid: completion queue identifier to create
  * @qsize: number of queue entries
  * @vector: interrupt vector.  -1 to disable interrupt
+ * @pc: physically contiguous
  *
  * This API is thread-safe.
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector);
+int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
+		     uint32_t pc);
 
 /**
  * unvmed_create_sq - Create I/O Submission Queue
@@ -949,13 +955,16 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector);
  * @qid: submission queue identifier to create
  * @qsize: number of queue entries
  * @cqid: corresponding completion queue identifier
+ * @qprio: queue priority
+ * @pc: physically contiguous
+ * @nvmsetid: nvm set identifier
  *
  * This API is thread-safe.
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
-		     uint32_t cqid);
+		     uint32_t cqid, uint32_t qprio, uint32_t pc, uint32_t nvmsetid);
 
 /**
  * unvmed_cmd_prep_create_sq - Prepare Create I/O Submission Queue command instance
@@ -1012,6 +1021,9 @@ int unvmed_cmd_prep_delete_cq(struct unvme_cmd *cmd, uint32_t qid);
  * @qid: submission queue identifier
  * @qsize: queue size
  * @cqid: completion queue identifier
+ * @qprio: queue priority
+ * @pc: physically configuous
+ * @nvmsetid : nvm set identifier
  *
  * This function performs both nvme_configure_sq() and usq initialization
  * before SQE preparation. This separates libvfn operations from command prep.
@@ -1019,7 +1031,7 @@ int unvmed_cmd_prep_delete_cq(struct unvme_cmd *cmd, uint32_t qid);
  * Return: initialized usq instance on success, NULL on error with ``errno`` set.
  */
 struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
-				uint32_t cqid);
+				uint32_t cqid, int qprio, int pc, int nvmsetid);
 
 
 /**
@@ -1028,6 +1040,9 @@ struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
  * @qid: submission queue identifier
  * @qsize: queue size
  * @cqid: completion queue identifier
+ * @qprio: queue priority
+ * @pc: physically configuous
+ * @nvmsetid : nvm set identifier
  * @iova: I/O virtual address of pre-allocated buffer
  *
  * Configures the SQ via nvme_configure_sq_mem() and initializes
@@ -1037,7 +1052,8 @@ struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
  * Return: initialized usq instance on success, NULL on error with ``errno`` set.
  */
 struct unvme_sq *unvmed_init_sq_iova(struct unvme *u, uint32_t qid, uint32_t qsize,
-				     uint32_t cqid, uint64_t iova);
+				     uint32_t cqid, int qprio, int pc, int nvmsetid,
+				     uint64_t iova);
 
 /**
  * unvmed_enable_sq - Enable the corresponding @usq finally
@@ -1064,7 +1080,7 @@ void unvmed_enable_sq(struct unvme_sq *usq);
  * Return: initialized ucq instance on success, NULL on error with ``errno`` set.
  */
 struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
-				int vector);
+				int vector, int pc);
 
 /**
  * unvmed_init_cq_iova - Configure and initialize completion queue
@@ -1081,7 +1097,7 @@ struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
  * Return: initialized ucq instance on success, NULL on error with ``errno`` set.
  */
 struct unvme_cq *unvmed_init_cq_iova(struct unvme *u, uint32_t qid, uint32_t qsize,
-				     int vector, uint64_t iova);
+				     int vector, int pc, uint64_t iova);
 
 /**
  * unvmed_enable_cq - Enable the corresponding @ucq finally

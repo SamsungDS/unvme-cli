@@ -1483,7 +1483,9 @@ bool unvmed_timer_running(struct unvme_timer *timer)
 }
 
 static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
-					uint32_t qsize, struct unvme_cq *ucq)
+					uint32_t qsize, struct unvme_cq *ucq,
+					uint32_t qprio, uint32_t pc,
+					uint32_t nvmsetid)
 {
 	struct unvme_sq *usq;
 	bool alloc = false;
@@ -1551,6 +1553,9 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	usq->q = &u->ctrl.sq[qid];
 	usq->nr_cmds = 0;
 	usq->qsize = qsize;
+	usq->qprio = qprio;
+	usq->pc = pc;
+	usq->nvmsetid = nvmsetid;
 	usq->ucq = ucq;
 	ucq->usq = usq;
 	usq->flags = 0;
@@ -1594,7 +1599,7 @@ static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 }
 
 static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid,
-					uint32_t qsize, int vector)
+					uint32_t qsize, int vector, int pc)
 {
 	struct unvme_cq *ucq;
 	bool alloc = false;
@@ -1633,6 +1638,7 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid,
 	ucq->q = &u->ctrl.cq[qid];
 	ucq->qsize = qsize;
 	ucq->vector = vector;
+	ucq->pc = pc;
 	unvmed_cq_exit(ucq);
 
 	return ucq;
@@ -2293,7 +2299,7 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	 * hard-coded value should be fixed ASAP.
 	 */
 #define NVME_AQ_QSIZE	32
-	ucq = unvmed_init_ucq(u, qid, NVME_AQ_QSIZE, 0);
+	ucq = unvmed_init_ucq(u, qid, NVME_AQ_QSIZE, 0, 1);
 	if (!ucq)
 		goto free_sqcq;
 
@@ -2303,7 +2309,7 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	if (!irq || u->nr_irqs == 0)
 		unvmed_cq_iv(ucq) = -1;
 
-	usq = unvmed_init_usq(u, 0, NVME_AQ_QSIZE, ucq);
+	usq = unvmed_init_usq(u, 0, NVME_AQ_QSIZE, ucq, 0, 1, 0);
 	if (!usq)
 		goto free_ucq;
 
@@ -2364,13 +2370,14 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	return 0;
 }
 
-int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
+int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
+		     uint32_t pc)
 {
 	struct unvme_cq *ucq;
 	struct unvme_cmd *cmd;
 	struct unvme_sq *asq;
 	struct nvme_cmd_create_cq *sqe;
-	uint16_t qflags = NVME_Q_PC;
+	uint16_t qflags = 0;
 	uint16_t iv = 0;
 
 	if (vector >= 0 && unvmed_init_irq(u, vector)) {
@@ -2421,6 +2428,9 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		iv = (uint16_t)vector;
 	}
 
+	if (pc)
+		qflags |= NVME_Q_PC;
+
 	sqe = (struct nvme_cmd_create_cq *)&cmd->sqe;
 	sqe->opcode = nvme_admin_create_cq;
 	sqe->qid = cpu_to_le16(qid);
@@ -2445,7 +2455,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
 		return -1;
 	}
 
-	ucq = unvmed_init_ucq(u, qid, qsize, vector);
+	ucq = unvmed_init_ucq(u, qid, qsize, vector, pc);
 	if (!ucq) {
 		unvmed_log_err("failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
@@ -2570,13 +2580,14 @@ static int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 }
 
 int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
-		    uint32_t cqid)
+		    uint32_t cqid, uint32_t qprio, uint32_t pc, uint32_t nvmsetid)
 {
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	struct unvme_cmd *cmd;
 	struct unvme_sq *asq;
 	struct nvme_cmd_create_sq *sqe;
+	uint16_t qflags = 0;
 
 	if (!unvmed_ctrl_enabled(u)) {
 		errno = EPERM;
@@ -2631,12 +2642,17 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
 
+	qflags = (qprio & 0x3) << 1;
+	if (pc)
+		qflags |= NVME_Q_PC;
+
 	sqe = (struct nvme_cmd_create_sq *)&cmd->sqe;
 	sqe->opcode = nvme_admin_create_sq;
 	sqe->qid = cpu_to_le16(qid);
 	sqe->prp1 = cpu_to_le64(u->ctrl.sq[qid].mem.iova);
 	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
 	sqe->qflags = cpu_to_le16(NVME_Q_PC);
+	sqe->rsvd12[0] = cpu_to_le32(nvmsetid);
 	sqe->cqid = cpu_to_le16((uint16_t)ucq->id);
 
 	unvmed_cmd_post(cmd, &cmd->sqe, 0);
@@ -2656,7 +2672,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		return -1;
 	}
 
-	usq = unvmed_init_usq(u, qid, qsize, ucq);
+	usq = unvmed_init_usq(u, qid, qsize, ucq, qprio, pc, nvmsetid);
 	if (!usq) {
 		unvmed_log_err("failed to initialize usq instance. "
 				"discard sq instance from libvfn (qid=%d)",
@@ -3655,6 +3671,7 @@ int unvmed_ctx_init(struct unvme *u)
 		ctx->cq.qid = unvmed_cq_id(ucq);
 		ctx->cq.qsize = unvmed_cq_size(ucq);
 		ctx->cq.vector = unvmed_cq_iv(ucq);
+		ctx->cq.pc = ucq->pc;
 
 		list_add_tail(&u->ctx_list, &ctx->list);
 		unvmed_cq_put(u, ucq);
@@ -3671,6 +3688,9 @@ int unvmed_ctx_init(struct unvme *u)
 		ctx->sq.qid = unvmed_sq_id(usq);
 		ctx->sq.qsize = unvmed_sq_size(usq);
 		ctx->sq.cqid = unvmed_sq_cqid(usq);
+		ctx->sq.qprio = usq->qprio;
+		ctx->sq.pc = usq->pc;
+		ctx->sq.nvmsetid = usq->nvmsetid;
 
 		list_add_tail(&u->ctx_list, &ctx->list);
 		unvmed_sq_put(u, usq);
@@ -3696,10 +3716,11 @@ static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 			return unvmed_init_meta_ns(u, ctx->ns.nsid, NULL);
 		case UNVME_CTX_T_CQ:
 			return unvmed_create_cq(u, ctx->cq.qid, ctx->cq.qsize,
-					ctx->cq.vector);
+					ctx->cq.vector, ctx->cq.pc);
 		case UNVME_CTX_T_SQ:
 			return unvmed_create_sq(u, ctx->sq.qid, ctx->sq.qsize,
-					ctx->sq.cqid);
+					ctx->sq.cqid, ctx->sq.qprio, ctx->sq.pc,
+					ctx->sq.nvmsetid);
 		default:
 			return -1;
 	}
@@ -3953,7 +3974,8 @@ int unvmed_mem_free(struct unvme *u, uint64_t iova)
 }
 
 static struct unvme_sq *__unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
-					 uint32_t cqid, struct iommu_dmabuf *mem)
+					 uint32_t cqid, int qprio, int pc, int nvmsetid,
+					 struct iommu_dmabuf *mem)
 {
 	struct unvme_cq *ucq;
 	struct unvme_sq *usq;
@@ -3974,7 +3996,7 @@ static struct unvme_sq *__unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t
 			goto err;
 	}
 
-	usq = unvmed_init_usq(u, qid, qsize, ucq);
+	usq = unvmed_init_usq(u, qid, qsize, ucq, qprio, pc, nvmsetid);
 	if (!usq) {
 		unvmed_log_err("failed to initialize usq instance. "
 				"discard sq instance from libvfn (qid=%d)",
@@ -4015,13 +4037,15 @@ static int unvmed_map_iova_to_mem(struct unvme *u, uint64_t iova, size_t size,
 	return -1;
 }
 
-struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t cqid)
+struct unvme_sq *unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize, uint32_t cqid,
+				int qprio, int pc, int nvmsetid)
 {
-	return __unvmed_init_sq(u, qid, qsize, cqid, NULL);
+	return __unvmed_init_sq(u, qid, qsize, cqid, qprio, pc, nvmsetid, NULL);
 }
 
 struct unvme_sq *unvmed_init_sq_iova(struct unvme *u, uint32_t qid, uint32_t qsize,
-				     uint32_t cqid, uint64_t iova)
+				     uint32_t cqid, int qprio, int pc, int nvmsetid,
+				     uint64_t iova)
 {
 	struct iommu_dmabuf mem;
 	size_t size = ALIGN_UP(qsize << NVME_SQES, __VFN_PAGESIZE);
@@ -4029,11 +4053,11 @@ struct unvme_sq *unvmed_init_sq_iova(struct unvme *u, uint32_t qid, uint32_t qsi
 	if (unvmed_map_iova_to_mem(u, iova, size, &mem))
 		return NULL;
 
-	return __unvmed_init_sq(u, qid, qsize, cqid, &mem);
+	return __unvmed_init_sq(u, qid, qsize, cqid, qprio, pc, nvmsetid, &mem);
 }
 
 static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize,
-					 int vector, struct iommu_dmabuf *mem)
+					 int vector, int pc, struct iommu_dmabuf *mem)
 {
 	struct unvme_cq *ucq;
 
@@ -4057,7 +4081,7 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 			goto err;
 	}
 
-	ucq = unvmed_init_ucq(u, qid, qsize, vector);
+	ucq = unvmed_init_ucq(u, qid, qsize, vector, pc);
 	if (!ucq) {
 		unvmed_log_err("failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
@@ -4078,13 +4102,13 @@ err:
 	return NULL;
 }
 
-struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector)
+struct unvme_cq *unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector, int pc)
 {
-	return __unvmed_init_cq(u, qid, qsize, vector, NULL);
+	return __unvmed_init_cq(u, qid, qsize, vector, pc, NULL);
 }
 
 struct unvme_cq *unvmed_init_cq_iova(struct unvme *u, uint32_t qid, uint32_t qsize,
-				     int vector, uint64_t iova)
+				     int vector, int pc, uint64_t iova)
 {
 	struct iommu_dmabuf mem;
 	size_t size = ALIGN_UP(qsize << NVME_CQES, __VFN_PAGESIZE);
@@ -4092,7 +4116,7 @@ struct unvme_cq *unvmed_init_cq_iova(struct unvme *u, uint32_t qid, uint32_t qsi
 	if (unvmed_map_iova_to_mem(u, iova, size, &mem))
 		return NULL;
 
-	return __unvmed_init_cq(u, qid, qsize, vector, &mem);
+	return __unvmed_init_cq(u, qid, qsize, vector, pc, &mem);
 }
 
 int unvmed_free_sq(struct unvme *u, uint16_t qid)

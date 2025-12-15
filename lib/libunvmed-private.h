@@ -139,12 +139,16 @@ struct unvme_ctx {
 			uint32_t qid;
 			uint32_t qsize;
 			uint32_t cqid;
+			uint32_t qprio;
+			uint32_t pc;
+			uint32_t nvmsetid;
 		} sq;
 
 		struct {
 			uint32_t qid;
 			uint32_t qsize;
 			int vector;
+			uint32_t pc;
 		} cq;
 
 		struct {

@@ -872,9 +872,9 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (arg_boolv(qaddr))
-		ucq = unvmed_init_cq_iova(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector), arg_dblv(qaddr));
+		ucq = unvmed_init_cq_iova(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector), arg_intv(pc), arg_dblv(qaddr));
 	else
-		ucq = unvmed_init_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector));
+		ucq = unvmed_init_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector), arg_intv(pc));
 
 	if (!ucq) {
 		unvme_pr_err("failed to configure and initialize I/O CQ\n");
@@ -1127,9 +1127,13 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		goto usq;
 	}
 	if (arg_boolv(qaddr))
-		targetq = unvmed_init_sq_iova(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid), arg_dblv(qaddr));
+		targetq = unvmed_init_sq_iova(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid),
+					      arg_intv(qprio), arg_intv(pc),
+					      arg_intv(nvmsetid), arg_dblv(qaddr));
 	else
-		targetq = unvmed_init_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid));
+		targetq = unvmed_init_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid),
+					 arg_intv(qprio), arg_intv(pc),
+					 arg_intv(nvmsetid));
 
 	if (!targetq) {
 		unvme_pr_err("failed to configure and initialize io submission queue\n");
