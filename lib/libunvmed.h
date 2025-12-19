@@ -142,6 +142,12 @@ struct name {			\
 }
 
 /*
+ * This range is used for counting commands per queue. The range has to be same
+ * with the range of opcode.
+ */
+#define CMD_COUNT_RANGE	255
+
+/*
  * struct unvme_sq - Submission queue instance
  * @id: submission queue identifier
  * @qsize: submission queue size
@@ -149,6 +155,7 @@ struct name {			\
  * @ucq: unvme completion queue instance
  * @cmds: command instance array for @nr_cmds
  * @nr_cmds: number of command instances in the array @cmds
+ * @cmd_count: command count per opcode
  * @lock: spinlock to protect the current unvme SQ instance
  * @enabled: ``true`` if the queue is enabled
  * @refcnt: reference count
@@ -169,6 +176,7 @@ struct name {			\
 	struct unvme_vcq vcq;	\
 	struct unvme_bitmap cids;\
 	int nr_cmds;		\
+	uint64_t cmd_count[CMD_COUNT_RANGE];	\
 	pthread_spinlock_t lock;\
 	bool enabled;		\
 	int refcnt;		\

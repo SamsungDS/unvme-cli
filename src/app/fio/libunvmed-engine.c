@@ -1339,6 +1339,8 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 		.iov_len = io_u->xfer_buflen,
 	};
 
+	cmd->sqe = (union nvme_cmd)sqe;
+
 	if (o->cmb_list)
 		list = ld->prp_list_iomem + (io_u->index * getpagesize());
 

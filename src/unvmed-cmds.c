@@ -535,6 +535,7 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme *u;
 	struct arg_rex *dev;
 	struct arg_str *format;
+	struct arg_lit *stats;
 	struct arg_lit *help;
 	struct arg_end *end;
 
@@ -545,6 +546,7 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		format = arg_str0("o", "output-format", "[normal|json]", "[O] Output format: [normal|json] (defaults: normal)"),
+		stats = arg_lit0("s", "stats", "[O] Show command statistics"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
@@ -568,6 +570,9 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	unvme_pr_status(arg_strv(format), u);
+
+	if (arg_boolv(stats))
+		unvme_pr_statistics(arg_strv(format), u);
 out:
 	unvme_free_args(argtable);
 	return ret;

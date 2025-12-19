@@ -903,6 +903,56 @@ void unvme_pr_status(const char *format, struct unvme *u)
 	free(usqs);
 }
 
+void unvme_pr_statistics(const char *format, struct unvme *u)
+{
+	struct unvme_sq *usq;
+
+	if (streq(format, "normal")) {
+		unvme_pr("\nCommand Statistics\n");
+		unvme_pr("sqid opcode count       \n");
+		unvme_pr("---- ------ ------------\n");
+		for (int i = 0; i < u->nr_sqs; i++) {
+			usq = u->sqs[i];
+			if (!usq)
+				continue;
+
+			for (int j = 0; j < CMD_COUNT_RANGE; j++) {
+				if (usq->cmd_count[j])
+					unvme_pr("%4d %#6x %12ld\n", usq->id, j, usq->cmd_count[j]);
+			}
+		}
+	} else {
+		struct json_object *root = json_object_new_object();
+		struct json_object *sq_array = json_object_new_array();
+
+		for (int i = 0; i < u->nr_sqs; i++) {
+			usq = u->sqs[i];
+			if (!usq)
+				continue;
+
+			struct json_object *sq_obj = json_object_new_object();
+
+			json_object_object_add(sq_obj, "id", json_object_new_int(usq->id));
+			struct json_object *opc_array = json_object_new_array();
+			for (int opc = 0; opc < CMD_COUNT_RANGE; opc++) {
+				if (!usq->cmd_count[opc])
+					continue;
+
+				struct json_object *opc_obj = json_object_new_object();
+				json_object_object_add(opc_obj, "opcode", json_object_new_int(opc));
+				json_object_object_add(opc_obj, "count", json_object_new_uint64(usq->cmd_count[opc]));
+				json_object_array_add(opc_array, opc_obj);
+			}
+			json_object_object_add(sq_obj, "counts", opc_array);
+			json_object_array_add(sq_array, sq_obj);
+		}
+
+		json_object_object_add(root, "sq", sq_array);
+		unvme_pr("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY));
+		json_object_put(root);
+	}
+}
+
 void unvme_pr_buf(struct iommu_dmabuf *buf)
 {
 	struct json_object *root = json_object_new_object();
