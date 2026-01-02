@@ -303,6 +303,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	int ret = 0;
+	__unvme_free char *path;
 
 	/* Set default argument values prior to parsing */
 	arg_intv(nrioqs) = get_nprocs();
@@ -359,6 +360,19 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 			if (u->shmem_name[i] == ':' || u->shmem_name[i] == '.')
 				u->shmem_name[i] = '_';
 		}
+
+		/*
+		 * Check if the same file exists, we have to delete it and
+		 * re-create one to ensure the memory will be zero-filled.
+		 */
+		if (asprintf(&path, "/dev/shm/%s", u->shmem_name) < 0) {
+			unvme_pr_err("failed to asprintf: %s\n", strerror(errno));
+			ret = errno;
+			goto out;
+		}
+
+		if (access(path, F_OK) == 0)
+			remove(path);
 
 		u->shmem_fd = shm_open(u->shmem_name, O_CREAT | O_RDWR, 0666);
 		if (u->shmem_fd == -1) {
