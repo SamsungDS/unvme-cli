@@ -303,7 +303,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
 	int ret = 0;
-	__unvme_free char *path;
+	__unvme_free char *path = NULL;
 
 	/* Set default argument values prior to parsing */
 	arg_intv(nrioqs) = get_nprocs();
