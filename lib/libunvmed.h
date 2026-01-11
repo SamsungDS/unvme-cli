@@ -12,7 +12,46 @@
 #include <sys/uio.h>
 #include <sys/time.h>
 
-#include <vfn/nvme.h>
+/*
+ * Open-coded include headers for libvfn instead of having a single
+ * <vfn/nvme.h> to avoid conflicts among pre-defined symbols, especially from:
+ *	vfn/support/log.h, vf/support/mmio.h
+ */
+#include <assert.h>
+#include <byteswap.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <sys/mman.h>
+
+#include <linux/vfio.h>
+
+#include <vfn/support/align.h>
+#include <vfn/support/atomic.h>
+#include <vfn/support/autoptr.h>
+#include <vfn/support/barrier.h>
+#include <vfn/support/compiler.h>
+#include <vfn/support/endian.h>
+#include <vfn/support/io.h>
+#include <vfn/support/mem.h>
+#include <vfn/support/mutex.h>
+#include <vfn/support/rwlock.h>
+#include <vfn/support/timer.h>
+#include <vfn/support/ticks.h>
+
+#include <vfn/trace.h>
+#include <vfn/trace/events.h>
+#include <vfn/iommu.h>
+#include <vfn/iommu/dmabuf.h>
+#include <vfn/vfio.h>
+#include <vfn/nvme/types.h>
+#include <vfn/nvme/queue.h>
+#include <vfn/nvme/ctrl.h>
+#include <vfn/nvme/util.h>
+#include <vfn/nvme/rq.h>
 
 #include "libunvmed-logs.h"
 
