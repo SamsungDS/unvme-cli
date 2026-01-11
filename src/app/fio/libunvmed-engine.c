@@ -844,19 +844,6 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		return -1;
 	}
 
-	/*
-	 * unvmed daemon itself has grabbed the first usq instance and the
-	 * very first fio job should grab the second refcnt, and the following
-	 * attempts should be rejected until libunvmed supports multi-jobs for
-	 * a single queue.
-	 */
-	if (atomic_load_acquire(&ld->usq->refcnt) > 2) {
-		libunvmed_log("submission queue (--sqid=%d) already in use\n", o->sqid);
-		unvmed_sq_put(u, ld->usq);
-		pthread_mutex_unlock(&g_serialize);
-		return -1;
-	}
-
 	ld->ucq = unvmed_cq_get(u, unvmed_sq_cqid(ld->usq));
 	if (!ld->ucq) {
 		libunvmed_log("completion queue (--cqid=%d) not found\n",
