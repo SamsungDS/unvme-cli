@@ -2020,6 +2020,9 @@ static void unvmed_vcq_drain(struct unvme_vcq *vcq)
 
 static void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 {
+	if (!usq->q)
+		return;
+
 	/*
 	 * Ensure that @usq->ucq to be drained before starting the cancel
 	 * behavior which actually _manipulates_ the @vcq itself by pushing
@@ -2266,7 +2269,7 @@ static void unvmed_discard_sq(struct unvme *u, uint32_t qid)
 
 	pthread_rwlock_rdlock(&u->sqs_lock);
 	usq = u->sqs[qid];
-	if (usq) {
+	if (usq && usq->q) {
 		unvmed_sq_enter(usq);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		if (u->sqs[qid])
@@ -2282,7 +2285,7 @@ static void unvmed_discard_cq(struct unvme *u, uint32_t qid)
 
 	pthread_rwlock_rdlock(&u->cqs_lock);
 	ucq = u->cqs[qid];
-	if (ucq) {
+	if (ucq && ucq->q) {
 		unvmed_cq_enter(ucq);  /* prevent use-after-free for ucq->q */
 		nvme_discard_cq(&u->ctrl, ucq->q);
 		if (u->cqs[qid])
