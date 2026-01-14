@@ -307,6 +307,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 
 	/* Set default argument values prior to parsing */
 	arg_intv(nrioqs) = get_nprocs();
+	arg_intv(shmem_size) = 0;
 	arg_strv(vf_token) = UNVME_DEFAULT_UUID;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
