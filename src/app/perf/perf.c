@@ -96,7 +96,7 @@ static int unvmed_perf_reap(struct unvme *u, struct unvme_sq *usq, struct unvme_
 	int ret;
 
 	do {
-		ret = __unvmed_cq_run_n(u, usq, ucq, cqe, 1, true);
+		ret = __unvmed_cq_run_n(u, usq, ucq, NULL, cqe, 1, true);
 		if (!ret)
 			break;
 		reaped++;

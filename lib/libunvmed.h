@@ -323,6 +323,17 @@ struct unvme_cmd {
 	unsigned long flags;
 
 	struct unvme_sq *usq;
+	/*
+	 * If != NULL, CQ entry will be pushed to the @vcq for this command by
+	 * one of the following:
+	 *   - irq enabled
+	 *     (1) rcq thread
+	 *
+	 *   - irq disabled
+	 *     (1) owner thread
+	 *     (2) another thread (if reaped @ucq before owner thread)
+	 */
+	struct unvme_vcq *vcq;
 	uint16_t cid;
 
 	/*
@@ -505,6 +516,51 @@ static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 {
 	return unvmed_cq_iv(ucq) >= 0;
 }
+
+/**
+ * unvmed_cmd_get_vcq - Get @vcq instance of the given @cmd
+ * @cmd: command instance
+ *
+ * If application sets @cmd->vcq for their own @vcq usage, it will return the
+ * @cmd->vcq, otherwise @cmd->usq->vcq.
+ *
+ * Return: @vcq instance
+ */
+static inline struct unvme_vcq *unvmed_cmd_get_vcq(struct unvme_cmd *cmd)
+{
+	if (cmd->vcq)
+		return cmd->vcq;
+
+	return &cmd->usq->vcq;
+}
+
+/**
+ * unvmed_vcq_init - Initialize virtual CQ for a specific application
+ * @vcq: virtual completion queue instance
+ * @qsize: size of queue to initialize (usually same as @ucq->qsize)
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize);
+
+/**
+ * unvmed_vcq_free - Free virtual CQ
+ * @vcq: virtual completion queue instance
+ */
+void unvmed_vcq_free(struct unvme_vcq *vcq);
+
+/**
+ * unvmed_vcq_run_n - Run the given @vcq for [min, max]
+ * @u: &struct unvme
+ * @vcq: virtual completion queue instance to reap
+ * @cqes: output completion queue entry list array
+ * @min: minimum number of to fetch (mandatory)
+ * @max: maximum number of to fetch (best effort)
+ *
+ * Return: Number of cq entries fetched
+ */
+int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
+		     struct nvme_cqe *cqes, int min, int max);
 
 /**
  * unvmed_init - Initialize libunvmed library
@@ -1324,7 +1380,8 @@ static inline struct unvme_cmd *unvmed_get_cmd(struct unvme_sq *usq,
  * Return: Number of cq entries fetched.
  */
 int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
-		      struct nvme_cqe *cqes, int nr_cqes, bool nowait);
+		      struct unvme_vcq *vcq, struct nvme_cqe *cqes, int nr_cqes,
+		      bool nowait);
 
 /**
  * unvmed_cq_run - Reap all CQ entries from a completion queue
@@ -1352,7 +1409,7 @@ int unvmed_cq_run(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq, s
  * Return: Number of cq entries fetched.
  */
 int unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
-		    struct nvme_cqe *cqes, int min, int max);
+		    struct unvme_vcq *vcq, struct nvme_cqe *cqes, int min, int max);
 
 /**
  * unvmed_sq_update_tail - Update tail pointer of the given submission queue.
