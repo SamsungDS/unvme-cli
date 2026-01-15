@@ -678,6 +678,17 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns);
 int unvmed_nr_cmds(struct unvme *u);
 
 /**
+ * unvmed_nr_irqs - Get maximum number of interrupt vectors
+ * @u: &struct unvme
+ *
+ * It gives the maximum number of IRQs reported by the vfio-pci for the corresponding
+ * controller @u.
+ *
+ * Return: Max Number of IRQs reported by the vfio-pci
+ */
+int unvmed_nr_irqs(struct unvme *u);
+
+/**
  * unvmed_get_sqs - Get created SQ list
  * @u: &struct unvme
  * @sqs: submission queue instance list

@@ -702,6 +702,9 @@ void unvme_pr_status(const char *format, struct unvme *u)
 		unvme_pr("Number of inflight commands		: %d\n", unvmed_nr_cmds(u));
 		unvme_pr("\n");
 
+		unvme_pr("Maximum of IRQs reported by the vfio-pci: %d\n", unvmed_nr_irqs(u));
+		unvme_pr("\n");
+
 		unvme_pr("Namespaces\n");
 		unvme_pr("nsid       block size(B) meta size(B) size(blocks) meta(b)\n");
 		unvme_pr("---------- ------------- ------------ ------------ -----------------\n");
@@ -790,6 +793,7 @@ void unvme_pr_status(const char *format, struct unvme *u)
 		json_object_object_add(root, "cc", json_object_new_int(cc));
 		json_object_object_add(root, "csts", json_object_new_int(csts));
 		json_object_object_add(root, "nr_inflight_cmds", json_object_new_int(unvmed_nr_cmds(u)));
+		json_object_object_add(root, "nr_irqs", json_object_new_int(unvmed_nr_irqs(u)));
 
 		struct json_object *ns_array = json_object_new_array();
 		for (int i = 0; i < nr_ns; i++) {

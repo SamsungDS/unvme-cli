@@ -245,6 +245,11 @@ int unvmed_nr_cmds(struct unvme *u)
 	return u->nr_cmds;
 }
 
+int unvmed_nr_irqs(struct unvme *u)
+{
+	return u->nr_irqs;
+}
+
 int unvmed_get_nslist(struct unvme *u, struct unvme_ns **nslist)
 {
 	struct __unvme_ns *ns;
