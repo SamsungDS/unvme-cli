@@ -501,15 +501,7 @@ static inline int libunvmed_ns_meta_is_dif(struct unvme_ns *ns)
 	return ns->mset;
 }
 
-static inline uint64_t libunvmed_get_slba(struct io_u *io_u, struct unvme_ns *ns)
-{
-	if (libunvmed_ns_meta_is_dif(ns))
-		return io_u->offset / (ns->lba_size + ns->ms);
-	else
-		return io_u->offset >> ilog2(ns->lba_size);
-}
-
-static inline uint64_t libunvmed_get_slba_trim(struct unvme_ns *ns, uint64_t offset)
+static inline uint64_t libunvmed_get_slba(struct unvme_ns *ns, uint64_t offset)
 {
 	if (libunvmed_ns_meta_is_dif(ns))
 		return offset / (ns->lba_size + ns->ms);
@@ -517,15 +509,7 @@ static inline uint64_t libunvmed_get_slba_trim(struct unvme_ns *ns, uint64_t off
 		return offset >> ilog2(ns->lba_size);
 }
 
-static inline uint32_t libunvmed_get_nlba(struct io_u *io_u, struct unvme_ns *ns)
-{
-	if (libunvmed_ns_meta_is_dif(ns))
-		return (io_u->xfer_buflen / (ns->lba_size + ns->ms)) - 1;  /* zero-based */
-	else
-		return (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
-}
-
-static inline uint32_t libunvmed_get_nlb_trim(struct unvme_ns *ns, uint32_t len)
+static inline uint32_t libunvmed_get_nlba(struct unvme_ns *ns, uint32_t len)
 {
 	if (libunvmed_ns_meta_is_dif(ns))
 		return (len / (ns->lba_size + ns->ms)) - 1;
@@ -1100,8 +1084,8 @@ static void libunvmed_fill_pi_16b_guard(struct thread_data *td, struct io_u *io_
 	void *buf = io_u->xfer_buf;
 	void *mbuf = mo->mbuf;
 	uint32_t lba_idx = 0;
-	uint64_t slba = libunvmed_get_slba(io_u, ns);
-	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
+	uint32_t nlb = libunvmed_get_nlba(ns, io_u->xfer_buflen);
 	uint16_t guard;
 
 	if (ns->dps & NVME_NS_DPS_PI_FIRST) {
@@ -1166,8 +1150,8 @@ static void libunvmed_fill_pi_64b_guard(struct thread_data *td, struct io_u *io_
 	void *buf = io_u->xfer_buf;
 	void *mbuf = mo->mbuf;
 	uint32_t lba_idx = 0;
-	uint64_t slba = libunvmed_get_slba(io_u, ns);
-	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
+	uint32_t nlb = libunvmed_get_nlba(ns, io_u->xfer_buflen);
 	uint64_t guard;
 
 	if (ns->dps & NVME_NS_DPS_PI_FIRST) {
@@ -1226,7 +1210,7 @@ static void libunvmed_fill_pi(struct thread_data *td, struct io_u *io_u,
 	struct libunvmed_options *o = td->eo;
 	struct unvme_ns *ns = ld->ns;
 
-	uint64_t slba = libunvmed_get_slba(io_u, ns);
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
 
 	/*
 	 * Fill the metadata to buffer (or meta buffer). The metadata includes
@@ -1294,8 +1278,8 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	struct unvme_cmd *cmd;
 	struct nvme_cmd_rw sqe = {0, };
 
-	uint64_t slba = libunvmed_get_slba(io_u, ns);
-	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
+	uint32_t nlb = libunvmed_get_nlba(ns, io_u->xfer_buflen);
 	uint8_t read_opcode = nvme_cmd_read;
 
 	void *buf = io_u->xfer_buf;
@@ -1399,8 +1383,8 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 
 	const size_t dsm_range_size = 4096;
 	struct nvme_dsm_range *range;
-	uint64_t slba = libunvmed_get_slba(io_u, ns);
-	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
+	uint32_t nlb = libunvmed_get_nlba(ns, io_u->xfer_buflen);
 
 	void *buf = io_u->xfer_buf;
 	struct trim_range *r;
@@ -1436,8 +1420,8 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 		memcpy(r , buf, sizeof(struct trim_range) * io_u->number_trim);
 		for (int i = 0; i < io_u->number_trim; i++) {
 			range[i].cattr = 0;
-			range[i].nlb = cpu_to_le32(libunvmed_get_nlb_trim(ns, r[i].len) + 1);
-			range[i].slba = cpu_to_le64(libunvmed_get_slba_trim(ns, r[i].start));
+			range[i].nlb = cpu_to_le32(libunvmed_get_nlba(ns, r[i].len) + 1);
+			range[i].slba = cpu_to_le64(libunvmed_get_slba(ns, r[i].start));
 		}
 	}
 
@@ -1551,8 +1535,8 @@ static int libunvmed_verify_pi_16b_guard(struct thread_data *td, struct io_u *io
 	void *buf = io_u->xfer_buf;
 	void *mbuf = mo->mbuf;
 	uint32_t lba_idx = 0;
-	uint64_t slba = libunvmed_get_slba(io_u, ns);
-	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
+	uint32_t nlb = libunvmed_get_nlba(ns, io_u->xfer_buflen);
 
 	while (lba_idx <= nlb) {
 		if (libunvmed_ns_meta_is_dif(ns))
@@ -1643,8 +1627,8 @@ static int libunvmed_verify_pi_64b_guard(struct thread_data *td, struct io_u *io
 	void *buf = io_u->xfer_buf;
 	void *mbuf = mo->mbuf;
 	uint32_t lba_idx = 0;
-	uint64_t slba = libunvmed_get_slba(io_u, ns);
-	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
+	uint32_t nlb = libunvmed_get_nlba(ns, io_u->xfer_buflen);
 
 	while (lba_idx <= nlb) {
 		if (libunvmed_ns_meta_is_dif(ns))
