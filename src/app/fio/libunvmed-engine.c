@@ -509,12 +509,28 @@ static inline uint64_t libunvmed_get_slba(struct io_u *io_u, struct unvme_ns *ns
 		return io_u->offset >> ilog2(ns->lba_size);
 }
 
+static inline uint64_t libunvmed_get_slba_trim(struct unvme_ns *ns, uint64_t offset)
+{
+	if (libunvmed_ns_meta_is_dif(ns))
+		return offset / (ns->lba_size + ns->ms);
+	else
+		return offset >> ilog2(ns->lba_size);
+}
+
 static inline uint32_t libunvmed_get_nlba(struct io_u *io_u, struct unvme_ns *ns)
 {
 	if (libunvmed_ns_meta_is_dif(ns))
 		return (io_u->xfer_buflen / (ns->lba_size + ns->ms)) - 1;  /* zero-based */
 	else
 		return (io_u->xfer_buflen >> ilog2(ns->lba_size)) - 1;  /* zero-based */
+}
+
+static inline uint32_t libunvmed_get_nlb_trim(struct unvme_ns *ns, uint32_t len)
+{
+	if (libunvmed_ns_meta_is_dif(ns))
+		return (len / (ns->lba_size + ns->ms)) - 1;
+	else
+		return (len >> ilog2(ns->lba_size)) - 1;
 }
 
 static inline void libunvmed_inject_err_to_meta(uint8_t *data)
@@ -1387,6 +1403,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	uint32_t nlb = libunvmed_get_nlba(io_u, ns);
 
 	void *buf = io_u->xfer_buf;
+	struct trim_range *r;
 
 	/*
 	 * Case for --trim_backlog=N is given for verify TRIM-ed logical
@@ -1400,16 +1417,29 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	if (!cmd)
 		return FIO_Q_BUSY;
 
-	range = cmd->buf.va;
-
 	sqe.opcode = nvme_cmd_dsm;
 	sqe.nsid = cpu_to_le32(ns->nsid);
-	sqe.cdw10 = 0;  /* XXX: Currently single-region of DSM is supported */
 	sqe.cdw11 = NVME_DSMGMT_AD;
 
-	range->cattr = 0;
-	range->nlb = cpu_to_le32(nlb + 1);
-	range->slba = cpu_to_le64(slba);
+	range = cmd->buf.va;
+
+	if (td->o.num_range == 1) {
+		sqe.cdw10 = 0;
+
+		range->cattr = 0;
+		range->nlb = cpu_to_le32(nlb + 1);
+		range->slba = cpu_to_le64(slba);
+	} else {
+		sqe.cdw10 = io_u->number_trim - 1;
+
+		r = malloc(sizeof(struct trim_range) * io_u->number_trim);
+		memcpy(r , buf, sizeof(struct trim_range) * io_u->number_trim);
+		for (int i = 0; i < io_u->number_trim; i++) {
+			range[i].cattr = 0;
+			range[i].nlb = cpu_to_le32(libunvmed_get_nlb_trim(ns, r[i].len) + 1);
+			range[i].slba = cpu_to_le64(libunvmed_get_slba_trim(ns, r[i].start));
+		}
+	}
 
 	if (__unvmed_mapv_prp(cmd, (union nvme_cmd *)&sqe, &cmd->buf.iov, 1)) {
 		unvmed_cmd_put(cmd);
@@ -1842,7 +1872,7 @@ static struct ioengine_ops ioengine_libunvmed_cmd = {
 	.options = options,
 	.option_struct_size = sizeof(struct libunvmed_options),
 	.flags = FIO_DISKLESSIO | FIO_NODISKUTIL | FIO_NOEXTEND |
-			FIO_MEMALIGN | FIO_RAWIO,
+			FIO_MEMALIGN | FIO_RAWIO | FIO_MULTI_RANGE_TRIM,
 
 	.init = fio_libunvmed_init,
 	.cleanup = fio_libunvmed_cleanup,
