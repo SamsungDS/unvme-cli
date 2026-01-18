@@ -833,6 +833,8 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	ret = pthread_mutex_lock(&g_serialize);
 	if (ret) {
 		libunvmed_log("failed to grab mutex lock\n");
+		td_vmsg(td, errno, "failed to grab mutex lock",
+				"fio_libunvmed_open_file");
 		return ret;
 	}
 
@@ -843,6 +845,8 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	if (!ld->usq) {
 		libunvmed_log("submission queue (--sqid=%d) not found\n", o->sqid);
 		pthread_mutex_unlock(&g_serialize);
+
+		td_vmsg(td, ENOENT, "SQ not found", "fio_libunvmed_open_file");
 		return -1;
 	}
 
@@ -852,6 +856,8 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 				unvmed_sq_cqid(ld->usq));
 		unvmed_sq_put(u, ld->usq);
 		pthread_mutex_unlock(&g_serialize);
+
+		td_vmsg(td, ENOENT, "CQ not found", "fio_libunvmed_open_file");
 		return -1;
 	}
 
@@ -859,6 +865,7 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		libunvmed_log("--iodepth=%d is greater than SQ queue size %d\n",
 				td->o.iodepth, unvmed_sq_size(ld->usq));
 		ret = -1;
+		td_vmsg(td, EINVAL, "invalid iodepth", "fio_libunvmed_open_file");
 		goto out;
 	}
 
@@ -876,6 +883,8 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 			if (ret) {
 				libunvmed_log("failed to map io_u buffers to iommu\n");
 				ret = -1;
+				td_vmsg(td, EFAULT, "buffer mapping failed",
+						"fio_libunvmed_open_file");
 				goto out;
 			}
 		}
@@ -889,6 +898,8 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		if (ret) {
 			libunvmed_log("failed to map prp iomem to iommu\n");
 			ret = -1;
+			td_vmsg(td, EFAULT, "buffer mapping failed",
+					"fio_libunvmed_open_file");
 			goto out;
 		}
 	}
@@ -896,12 +907,14 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	if (libunvmed_parse_prchk(o)) {
 		libunvmed_log("'pi_chk=' has neither GUARD, APPTAG, or REFTAG\n");
 		ret = -1;
+		td_vmsg(td, EINVAL, "invalid pi_chk", "fio_libunvmed_open_file");
 		goto out;
 	}
 
 	if (o->write_mode != FIO_URING_CMD_WMODE_WRITE && !td_write(td)) {
 		libunvmed_log("'readwrite=|rw=' has no write\n");
 		ret = -1;
+		td_vmsg(td, EINVAL, "invalid rw", "fio_libunvmed_open_file");
 		goto out;
 	}
 
