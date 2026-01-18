@@ -456,10 +456,7 @@ static inline bool unvmed_cq_enabled(struct unvme *u, uint32_t qid)
  */
 static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 {
-	/*
-	 * XXX: Currently admin cq (qid=0) does not support irq.
-	 */
-	return ucq->id > 0 && ucq->q->vector >= 0;
+	return ucq->q->vector >= 0;
 }
 
 /**
