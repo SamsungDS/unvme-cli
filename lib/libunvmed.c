@@ -107,7 +107,7 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 
 	if (change) {
 		STORE(u->state, state);
-		unvmed_log_err("set controller state (%s -> %s)",
+		unvmed_log_info("set controller state (%s -> %s)",
 				unvmed_state_str(old), unvmed_state_str(state));
 	} else
 		unvmed_log_err("failed to set controller state (%s -> %s)",
