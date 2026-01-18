@@ -159,14 +159,6 @@ struct unvme_ctx {
 	struct list_node list;
 };
 
-/* Reaped CQ */
-struct unvme_rcq {
-	struct nvme_cqe *cqe;
-	int qsize;
-	uint16_t head;
-	uint16_t tail;
-};
-
 struct unvme_cq_reaper {
 	struct unvme *u;
 	int refcnt;
@@ -175,7 +167,6 @@ struct unvme_cq_reaper {
 	int epoll_fd;
 	int efd;
 	pthread_t th;
-	struct unvme_rcq rcq;
 };
 
 #include <sys/syscall.h>
