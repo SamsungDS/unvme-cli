@@ -2312,8 +2312,10 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	/*
 	 * Override @q->vector of libvfn in case device has no irq to -1.
 	 */
-	if (!irq || u->nr_irqs == 0)
+	if (!irq || u->nr_irqs == 0) {
+		ucq->q->vector = -1;
 		unvmed_cq_iv(ucq) = -1;
+	}
 
 	usq = unvmed_init_usq(u, 0, NVME_AQ_QSIZE, ucq, 0, 1, 0);
 	if (!usq)
@@ -2473,8 +2475,10 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 		return -1;
 	}
 
-	if (vector < 0)
+	if (vector < 0) {
+		ucq->q->vector = -1;
 		unvmed_cq_iv(ucq) = -1;
+	}
 
 	unvmed_enable_cq(ucq);
 

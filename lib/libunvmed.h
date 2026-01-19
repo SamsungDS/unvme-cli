@@ -464,7 +464,7 @@ static inline bool unvmed_cq_enabled(struct unvme *u, uint32_t qid)
  */
 static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 {
-	return ucq->q->vector >= 0;
+	return unvmed_cq_iv(ucq) >= 0;
 }
 
 /**
