@@ -1546,7 +1546,6 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		u->sqs[qid] = usq;
 		if (!qid)
 			u->asq = usq;
-		memset(usq->cmd_count, 0, sizeof(uint64_t) * CMD_COUNT_RANGE);
 		usq->refcnt = 1;
 		pthread_rwlock_unlock(&u->sqs_lock);
 	}
