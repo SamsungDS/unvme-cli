@@ -75,7 +75,7 @@ trap "unvme stop -a" EXIT
         unvme log-level 2
     fi
     unvme add $BDF --nr-ioqs=$NR_IOQS
-    unvme create-adminq $BDF
+    unvme create-adminq $BDF -s 32 -c 32
     if [ -z "$CMD_TIMEOUT" ]; then
         unvme enable $BDF
     else

@@ -24,7 +24,7 @@ ms="$4"
 
 unvme start
 unvme add $bdf
-unvme create-adminq $bdf
+unvme create-adminq $bdf -s 32 -c 32
 unvme enable $bdf
 
 unvme id-ns $bdf -n $nsid

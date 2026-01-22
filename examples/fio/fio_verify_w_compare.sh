@@ -48,7 +48,7 @@ set -x
 unvme start
 unvme add $bdf --nr-ioqs=$(nproc)
 
-unvme create-adminq $bdf
+unvme create-adminq $bdf -s 32 -c 32
 if [ -z "$CMD_TIMEOUT" ]; then
 	unvme enable $bdf
 else

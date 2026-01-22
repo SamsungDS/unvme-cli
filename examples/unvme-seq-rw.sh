@@ -26,7 +26,7 @@ nr=$(expr $totalsize / $blocksize)
 
 unvme start
 unvme add $bdf
-unvme create-adminq $bdf
+unvme create-adminq $bdf -s 32 -c 32
 unvme enable $bdf
 unvme create-iocq $bdf -q 1 -z $(($nr * 2)) -v 1
 unvme create-iosq $bdf -q 1 -z $(($nr * 2)) -c 1

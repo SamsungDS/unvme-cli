@@ -15,7 +15,7 @@ qd="$2"
 
 unvme start
 unvme add $bdf
-unvme create-adminq $bdf
+unvme create-adminq $bdf -s 32 -c 32
 unvme enable $bdf
 unvme create-iocq $bdf -q 1 -z 32 -v 1
 unvme create-iosq $bdf -q 1 -z 32 -c 1
