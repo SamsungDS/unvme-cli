@@ -647,6 +647,8 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_int *sqsize;
+	struct arg_int *cqsize;
 	struct arg_lit *noint;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -658,6 +660,8 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		sqsize = arg_int1("s", "sqsize", "<n>", "[M] Submission Queue size (1-based)"),
+		cqsize = arg_int1("c", "cqsize", "<n>", "[M] Completion Queue size (1-based)"),
 		noint = arg_lit0(NULL, "noint", "[O] Skip IRQ initialization"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
@@ -679,7 +683,8 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_create_adminq(u, !arg_boolv(noint))) {
+	if (unvmed_create_adminq(u, arg_intv(sqsize), arg_intv(cqsize),
+				!arg_boolv(noint))) {
 		unvme_pr_err("failed to create adminq\n");
 		ret = errno;
 		goto out;

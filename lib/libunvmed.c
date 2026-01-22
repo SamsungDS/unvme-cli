@@ -2284,21 +2284,28 @@ static void unvmed_discard_cq(struct unvme *u, uint32_t qid)
 	pthread_rwlock_unlock(&u->cqs_lock);
 }
 
-int unvmed_create_adminq(struct unvme *u, bool irq)
+int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
+			 uint32_t cq_size, bool irq)
 {
+	struct iommu_dmabuf sq_mem, cq_mem;
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	const uint16_t qid = 0;
+	bool irq_enabled = false;
 
 	if (unvmed_ctrl_get_state(u) != UNVME_DISABLED) {
 		errno = EPERM;
 		goto out;
 	}
 
-	if (irq && u->nr_irqs > 0 && unvmed_init_irq(u, 0)) {
-		unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=0, errno=%d \"%s\")",
-				u->nr_irqs, errno, strerror(errno));
-		return -1;
+	if (irq && u->nr_irqs > 0) {
+		if (unvmed_init_irq(u, 0)) {
+			unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=0, errno=%d \"%s\")",
+					u->nr_irqs, errno, strerror(errno));
+			return -1;
+		}
+
+		irq_enabled = true;
 	}
 
 	/*
@@ -2308,19 +2315,26 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 	 * with reaper thread in unvme, so temporally disable to  create reaper
 	 * thread of admin cq.
 	 */
+	if (__unvmed_mem_alloc(u, sq_size * sizeof(union nvme_cmd), &sq_mem)) {
+		unvmed_log_err("failed to allocate sq memory");
+		goto free_irq;
+	}
 
-	if (nvme_configure_adminq(&u->ctrl, qid))
-		goto out;
+	if (__unvmed_mem_alloc(u, cq_size * sizeof(struct nvme_cqe), &cq_mem)) {
+		unvmed_log_err("failed to allocate cq memory");
+		goto free_sq_mem;
+	}
 
-	/*
-	 * XXX: libvfn has fixed size of admin queue and it's not exported to
-	 * application layer yet.  Once it gets exported as a public, this
-	 * hard-coded value should be fixed ASAP.
-	 */
-#define NVME_AQ_QSIZE	32
-	ucq = unvmed_init_ucq(u, qid, NVME_AQ_QSIZE, 0, 1);
-	if (!ucq)
+	if (nvme_configure_adminq_mem(&u->ctrl, 0, &cq_mem, &sq_mem)) {
+		unvmed_log_err("failed to configure adminq");
+		goto free_cq_mem;
+	}
+
+	ucq = unvmed_init_ucq(u, qid, cq_size, 0, 1);
+	if (!ucq) {
+		unvmed_log_err("failed to init @ucq for admin cq");
 		goto free_sqcq;
+	}
 
 	/*
 	 * Override @q->vector of libvfn in case device has no irq to -1.
@@ -2330,9 +2344,11 @@ int unvmed_create_adminq(struct unvme *u, bool irq)
 		unvmed_cq_iv(ucq) = -1;
 	}
 
-	usq = unvmed_init_usq(u, 0, NVME_AQ_QSIZE, ucq, 0, 1, 0);
-	if (!usq)
+	usq = unvmed_init_usq(u, 0, sq_size, ucq, 0, 1, 0);
+	if (!usq) {
+		unvmed_log_err("failed to init @usq for admin sq");
 		goto free_ucq;
+	}
 
 	return 0;
 
@@ -2341,6 +2357,13 @@ free_ucq:
 free_sqcq:
 	nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 	nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+free_cq_mem:
+	__unvmed_mem_free(u, &cq_mem);
+free_sq_mem:
+	__unvmed_mem_free(u, &sq_mem);
+free_irq:
+	if (irq_enabled)
+		unvmed_free_irq(u, 0);
 out:
 	return -1;
 }
@@ -3647,7 +3670,7 @@ int unvmed_ctx_init(struct unvme *u)
 	struct unvme_cq *ucq;
 	struct __unvme_ns *ns;
 	struct unvme_ctx *ctx;
-	uint32_t cc;
+	uint32_t cc, aqa;
 	int qid;
 
 	if (!list_empty(&u->ctx_list)) {
@@ -3664,9 +3687,13 @@ int unvmed_ctx_init(struct unvme *u)
 	ctx->type = UNVME_CTX_T_CTRL;
 
 	cc = unvmed_read32(u, NVME_REG_CC);
+	aqa = unvmed_read32(u, NVME_REG_AQA);
+
 	ctx->ctrl.iosqes = NVME_CC_IOSQES(cc);
 	ctx->ctrl.iocqes = NVME_CC_IOCQES(cc);
 	ctx->ctrl.mps = NVME_CC_MPS(cc);
+	ctx->ctrl.sq_size = NVME_AQA_ASQS(aqa) + 1;
+	ctx->ctrl.cq_size = NVME_AQA_ACQS(aqa) + 1;
 	ctx->ctrl.css = NVME_CC_CSS(cc);
 	ctx->ctrl.timeout = u->timeout;
 	if (u->asq)
@@ -3726,7 +3753,9 @@ static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 {
 	switch (ctx->type) {
 		case UNVME_CTX_T_CTRL:
-			if (unvmed_create_adminq(u, ctx->ctrl.admin_irq))
+			if (unvmed_create_adminq(u, ctx->ctrl.sq_size,
+						ctx->ctrl.cq_size,
+						ctx->ctrl.admin_irq))
 				return -1;
 			return unvmed_enable_ctrl(u, ctx->ctrl.iosqes,
 					ctx->ctrl.iocqes, ctx->ctrl.mps,
