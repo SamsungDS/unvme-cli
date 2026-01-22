@@ -117,6 +117,19 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 	return change;
 }
 
+static int __unvmed_mem_alloc(struct unvme *u, size_t size,
+			      struct iommu_dmabuf *buf)
+{
+	if (iommu_get_dmabuf(__iommu_ctx(&u->ctrl), buf, size, 0x0)) {
+		unvmed_log_err("failed to allocate a buffer");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int __unvmed_mem_free(struct unvme *u, struct iommu_dmabuf *buf);
+
 static int unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 			   struct nvme_cqe *cqe)
 {
@@ -3889,48 +3902,35 @@ int unvmed_hmb_free(struct unvme *u)
 	return 0;
 }
 
-static struct iommu_dmabuf *unvmed_mem_add(struct unvme *u, void *vaddr,
-					   uint64_t iova, size_t size)
+static int unvmed_mem_add(struct unvme *u, struct iommu_dmabuf *buf)
 {
-	struct unvme_dmabuf *buf;
+	struct unvme_dmabuf *__buf;
 
-	buf = calloc(1, sizeof(*buf));
-	if (!buf)
-		return NULL;
+	__buf = calloc(1, sizeof(*__buf));
+	if (!__buf)
+		return -1;
 
-	buf->buf.ctx = __iommu_ctx(&u->ctrl);
-	buf->buf.vaddr = vaddr;
-	buf->buf.iova = iova;
-	buf->buf.len = size;
+	__buf->buf.ctx = buf->ctx;
+	__buf->buf.vaddr = buf->vaddr;
+	__buf->buf.iova = buf->iova;
+	__buf->buf.len = buf->len;
 
-	list_add_tail(&u->mem_list, &buf->list);
-	return &buf->buf;
+	list_add_tail(&u->mem_list, &__buf->list);
+	return 0;
 }
 
-struct iommu_dmabuf *unvmed_mem_alloc(struct unvme *u, size_t size)
+int unvmed_mem_alloc(struct unvme *u, size_t size, struct iommu_dmabuf *buf)
 {
-	struct iommu_dmabuf *buf;
-	uint64_t iova;
-	ssize_t len;
-	void *mem;
+	if (__unvmed_mem_alloc(u, size, buf))
+		return -1;
 
-	len = pgmap(&mem, size);
-	if (len < 0)
-		return NULL;
-
-	if (unvmed_map_vaddr(u, mem, len, &iova, 0)) {
-		pgunmap(mem, len);
-		return NULL;
+	if (unvmed_mem_add(u, buf)) {
+		unvmed_unmap_vaddr(u, buf->vaddr);
+		pgunmap(buf->vaddr, buf->len);
+		return -1;
 	}
 
-	buf = unvmed_mem_add(u, mem, iova, len);
-	if (!buf) {
-		unvmed_unmap_vaddr(u, mem);
-		pgunmap(mem, len);
-		return NULL;
-	}
-
-	return buf;
+	return 0;
 }
 
 struct iommu_dmabuf *unvmed_mem_get(struct unvme *u, uint64_t iova)

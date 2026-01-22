@@ -4021,7 +4021,7 @@ int unvme_malloc(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_end *end = arg_end(UNVME_ARG_MAX_ERROR);
 	void *argtable[] = { dev, size, help, end };
 
-	struct iommu_dmabuf *buf;
+	struct iommu_dmabuf buf;
 	struct unvme *u;
 	int ret = 0;
 
@@ -4034,14 +4034,13 @@ int unvme_malloc(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	buf = unvmed_mem_alloc(u, arg_intv(size));
-	if (!buf) {
+	if (unvmed_mem_alloc(u, arg_intv(size), &buf)) {
 		unvme_pr_err("failed to allocate an I/O memory buffer\n");
 		ret = errno;
 		goto out;
 	}
 
-	unvme_pr_buf(buf);
+	unvme_pr_buf(&buf);
 out:
 	unvme_free_args(argtable);
 	return ret;

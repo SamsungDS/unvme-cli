@@ -2081,13 +2081,14 @@ int unvmed_hmb_free(struct unvme *u);
  * unvmed_mem_alloc - Allocate and map a DMA buffer for NVMe controller
  * @u: pointer to struct unvme controller
  * @size: size of the buffer to allocate
+ * @buf: output buffer allocated
  *
  * Allocates a physically contiguous DMA buffer of the given size, maps it to
  * the IOMMU, and returns a pointer to the associated struct iommu_dmabuf.
  *
- * Return: &struct iommu_dmabuf, otherwise ``NULL`` with ``errno`` set.
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
-struct iommu_dmabuf *unvmed_mem_alloc(struct unvme *u, size_t size);
+int unvmed_mem_alloc(struct unvme *u, size_t size, struct iommu_dmabuf *buf);
 
 /**
  * unvmed_mem_get - Find a mapped DMA buffer by IOVA
