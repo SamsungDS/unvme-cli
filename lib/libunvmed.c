@@ -2054,6 +2054,14 @@ static inline void unvmed_cancel_cmd_all(struct unvme *u)
 	}
 }
 
+void unvmed_free_ctx(struct unvme *u)
+{
+	unvmed_free_ns_all(u);
+
+	__unvmed_delete_sq_all(u);
+	__unvmed_delete_cq_all(u);
+}
+
 static void unvmed_reset_ctx(struct unvme *u)
 {
 	unvmed_disable_sq_all(u);
@@ -2074,15 +2082,6 @@ static void unvmed_reset_ctx(struct unvme *u)
 	 * reaped, which means all the CQ-related codes are not running
 	 * anymore.
 	 */
-
-	/*
-	 * Free up all the namespace instances attached to the current
-	 * controller.
-	 */
-	unvmed_free_ns_all(u);
-
-	__unvmed_delete_sq_all(u);
-	__unvmed_delete_cq_all(u);
 }
 
 /*

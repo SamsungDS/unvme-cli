@@ -454,6 +454,7 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("controller %s has already been enabled.  Resetting...\n",
 				arg_strv(dev));
 		unvmed_reset_ctrl(u);
+		unvmed_free_ctx(u);
 	}
 
 out:
@@ -3527,8 +3528,10 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (arg_boolv(graceful))
 		unvmed_reset_ctrl_graceful(u);
-	else
+	else {
 		unvmed_reset_ctrl(u);
+		unvmed_free_ctx(u);
+	}
 
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");
@@ -3594,6 +3597,8 @@ int unvme_subsystem_reset(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	unvmed_free_ctx(u);
+
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");
 		ret = EINVAL;
@@ -3638,6 +3643,8 @@ int unvme_flr(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to flr\n");
 		goto out;
 	}
+
+	unvmed_free_ctx(u);
 
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");
@@ -3685,6 +3692,8 @@ int unvme_hot_reset(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	unvmed_free_ctx(u);
+
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");
 		ret = EINVAL;
@@ -3730,6 +3739,8 @@ int unvme_link_disable(int argc, char *argv[], struct unvme_msg *msg)
 		unvme_pr_err("failed to link disable\n");
 		goto out;
 	}
+
+	unvmed_free_ctx(u);
 
 	if (arg_boolv(reinit) && unvmed_ctx_restore(u)) {
 		unvme_pr_err("failed to restore the previous driver context\n");

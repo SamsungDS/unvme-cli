@@ -898,6 +898,17 @@ struct unvme_cmd *unvmed_cmd_get(struct unvme_sq *usq, uint16_t cid);
 int unvmed_cmd_put(struct unvme_cmd *cmd);
 
 /**
+ * unvmed_free_ctx - Free(discard) all contexts of @u
+ * @u: &struct unvme
+ *
+ * Free up all the context resources of @u.  Application which doesn't have
+ * all the resource instances in its own context should call this API to clean
+ * up all the resources at once.  Usually, this API is called right after
+ * calling reset APIs.
+ */
+void unvmed_free_ctx(struct unvme *u);
+
+/**
  * unvmed_reset_ctrl - Reset controller
  * @u: &struct unvme
  *
