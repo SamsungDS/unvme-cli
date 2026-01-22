@@ -924,6 +924,8 @@ void unvmed_reset_ctrl_graceful(struct unvme *u);
 /**
  * unvmed_create_adminq - Configure admin SQ and CQ
  * @u: &struct unvme
+ * @sq_size: number of queue entries
+ * @cq_size: number of queue entries
  * @irq: whether to initialize IRQ
  *
  * Create admin SQ and CQ instances in libvfn and configure admin queue
@@ -933,7 +935,8 @@ void unvmed_reset_ctrl_graceful(struct unvme *u);
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_create_adminq(struct unvme *u, bool irq);
+int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
+			 uint32_t cq_size, bool irq);
 
 /**
  * unvmed_enable_ctrl - Enable NVMe controller
