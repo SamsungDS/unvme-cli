@@ -647,7 +647,9 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct unvme *u;
 	struct arg_rex *dev;
+	struct arg_dbl *sqaddr;
 	struct arg_int *sqsize;
+	struct arg_dbl *cqaddr;
 	struct arg_int *cqsize;
 	struct arg_lit *noint;
 	struct arg_lit *help;
@@ -660,13 +662,20 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 
 	void *argtable[] = {
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
+		sqaddr = arg_dbl0("S", "sqaddr", "<iova>", "[O] pre-mapped I/O virtual address of Submission queue"),
 		sqsize = arg_int1("s", "sqsize", "<n>", "[M] Submission Queue size (1-based)"),
+		cqaddr = arg_dbl0("C", "cqaddr", "<iova>", "[O] pre-mapped I/O virtual address of Completion queue"),
 		cqsize = arg_int1("c", "cqsize", "<n>", "[M] Completion Queue size (1-based)"),
 		noint = arg_lit0(NULL, "noint", "[O] Skip IRQ initialization"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	struct unvme_sq *usq;
+	struct unvme_cq *ucq;
 	int ret = 0;
+
+	arg_dblv(sqaddr) = 0;
+	arg_dblv(cqaddr) = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -683,13 +692,48 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_create_adminq(u, arg_intv(sqsize), arg_intv(cqsize),
-				!arg_boolv(noint))) {
-		unvme_pr_err("failed to create adminq\n");
+	if (arg_boolv(cqaddr))
+		ucq = unvmed_init_cq_iova(u, 0 /* qid */, arg_intv(cqsize),
+				0 /* vector */, 1 /* pc */, arg_dblv(cqaddr));
+	else
+		ucq = unvmed_init_cq(u, 0 /* qid */, arg_intv(cqsize),
+				0 /* vector */, 1 /* pc */);
+	if (!ucq) {
+		unvme_pr_err("failed to allocate @ucq instance for adminq\n");
 		ret = errno;
 		goto out;
 	}
 
+	if (arg_boolv(sqaddr))
+		usq = unvmed_init_sq_iova(u, 0 /* qid */, arg_intv(sqsize),
+				0 /* cqid */, 0 /* qprio */, 1 /* pc */,
+				0 /* nvmsetid */, arg_dblv(sqaddr));
+	else
+		usq = unvmed_init_sq(u, 0 /* qid */, arg_intv(sqsize),
+				0 /* cqid */, 0 /* qprio */, 1 /* pc */,
+				0 /* nvmsetid */);
+	if (!usq) {
+		unvme_pr_err("failed to allocate @usq instance for adminq\n");
+		ret = errno;
+		goto ucq;
+	}
+
+	if (unvmed_configure_adminq(u, usq, ucq)) {
+		unvme_pr_err("failed to configure adminq to register\n");
+		ret = errno;
+		goto usq;
+	}
+
+	unvmed_enable_sq(usq);
+	unvmed_enable_cq(ucq);
+
+	unvme_free_args(argtable);
+	return 0;
+
+usq:
+	unvmed_free_sq(u, 0);
+ucq:
+	unvmed_free_cq(u, 0);
 out:
 	unvme_free_args(argtable);
 	return ret;

@@ -922,6 +922,18 @@ void unvmed_reset_ctrl(struct unvme *u);
 void unvmed_reset_ctrl_graceful(struct unvme *u);
 
 /**
+ * unvmed_configure_adminq - Configure admin SQ/CQ to Controller register
+ * @u: &struct unvme
+ * @usq: &struct unvme_sq (can be NULL)
+ * @ucq: &struct unvme_cq (can be NULL)
+ *
+ * @usq and @ucq can be NULL.  If NULL, no ops, but if not, controller register
+ * will be configured.
+ */
+int unvmed_configure_adminq(struct unvme *u, struct unvme_sq *usq,
+			    struct unvme_cq *ucq);
+
+/**
  * unvmed_create_adminq - Configure admin SQ and CQ
  * @u: &struct unvme
  * @sq_size: number of queue entries

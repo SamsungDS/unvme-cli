@@ -1578,6 +1578,9 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	ucq->usq = usq;
 	usq->flags = 0;
 
+	if (!qid)
+		u->ctrl.adminq.sq = usq->q;
+
 	unvmed_sq_exit(usq);
 
 	return usq;
@@ -1657,6 +1660,10 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid,
 	ucq->qsize = qsize;
 	ucq->vector = vector;
 	ucq->pc = pc;
+
+	if (!qid)
+		u->ctrl.adminq.cq = ucq->q;
+
 	unvmed_cq_exit(ucq);
 
 	return ucq;
@@ -2282,6 +2289,27 @@ static void unvmed_discard_cq(struct unvme *u, uint32_t qid)
 		unvmed_cq_exit(ucq);
 	}
 	pthread_rwlock_unlock(&u->cqs_lock);
+}
+
+int unvmed_configure_adminq(struct unvme *u, struct unvme_sq *usq,
+			    struct unvme_cq *ucq)
+{
+	uint32_t aqa = unvmed_read32(u, NVME_REG_AQA);
+
+	if (!usq || !ucq) {
+		unvmed_log_err("@usq or @ucq is NULL");
+		errno = EINVAL;
+		return -1;
+	}
+
+	aqa = usq->qsize - 1;
+	aqa |= (ucq->qsize - 1) << 16;
+
+	unvmed_write32(u, NVME_REG_AQA, cpu_to_le32(aqa));
+	unvmed_write64(u, NVME_REG_ASQ, cpu_to_le64(usq->q->mem.iova));
+	unvmed_write64(u, NVME_REG_ACQ, cpu_to_le64(ucq->q->mem.iova));
+
+	return 0;
 }
 
 int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
@@ -4103,12 +4131,6 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 	if (vector >= 0 && unvmed_init_irq(u, vector)) {
 		unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=%d, errno=%d \"%s\")",
 				u->nr_irqs, vector, errno, strerror(errno));
-		return NULL;
-	}
-
-	if (!u->asq) {
-		unvmed_log_err("failed to initialize I/O CQ due to no Admin SQ");
-		errno = EPERM;
 		return NULL;
 	}
 
