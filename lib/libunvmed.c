@@ -1693,11 +1693,6 @@ static void __unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
 		u->acq = NULL;
 }
 
-static void unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
-{
-	__unvmed_free_ucq(u, ucq);
-}
-
 static void unvmed_free_ns_all(struct unvme *u)
 {
 	struct __unvme_ns *ns, *next_ns;
@@ -2315,7 +2310,6 @@ int unvmed_configure_adminq(struct unvme *u, struct unvme_sq *usq,
 int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
 			 uint32_t cq_size, bool irq)
 {
-	struct iommu_dmabuf sq_mem, cq_mem;
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	const uint16_t qid = 0;
@@ -2336,32 +2330,21 @@ int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
 		irq_enabled = true;
 	}
 
-	/*
-	 * XXX: unvme uses a few libvfn functions which are very helpful for
-	 * setting environments.  However, some of them calls `nvme_sync()`
-	 * function, which waits its completion queue entry.  This conflicts
-	 * with reaper thread in unvme, so temporally disable to  create reaper
-	 * thread of admin cq.
-	 */
-	if (__unvmed_mem_alloc(u, sq_size * sizeof(union nvme_cmd), &sq_mem)) {
-		unvmed_log_err("failed to allocate sq memory");
+	ucq = unvmed_init_cq(u, qid, cq_size, 0, 1);
+	if (!ucq) {
+		unvmed_log_err("failed to allocate cq memory");
 		goto free_irq;
 	}
 
-	if (__unvmed_mem_alloc(u, cq_size * sizeof(struct nvme_cqe), &cq_mem)) {
-		unvmed_log_err("failed to allocate cq memory");
-		goto free_sq_mem;
+	usq = unvmed_init_sq(u, qid, sq_size, qid, 0, 1, 0);
+	if (!usq) {
+		unvmed_log_err("failed to allocate sq memory");
+		goto free_cq;
 	}
 
-	if (nvme_configure_adminq_mem(&u->ctrl, 0, &cq_mem, &sq_mem)) {
+	if (unvmed_configure_adminq(u, usq, ucq)) {
 		unvmed_log_err("failed to configure adminq");
-		goto free_cq_mem;
-	}
-
-	ucq = unvmed_init_ucq(u, qid, cq_size, 0, 1);
-	if (!ucq) {
-		unvmed_log_err("failed to init @ucq for admin cq");
-		goto free_sqcq;
+		goto free_sq;
 	}
 
 	/*
@@ -2372,23 +2355,12 @@ int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
 		unvmed_cq_iv(ucq) = -1;
 	}
 
-	usq = unvmed_init_usq(u, 0, sq_size, ucq, 0, 1, 0);
-	if (!usq) {
-		unvmed_log_err("failed to init @usq for admin sq");
-		goto free_ucq;
-	}
-
 	return 0;
 
-free_ucq:
-	unvmed_free_ucq(u, ucq);
-free_sqcq:
-	nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
-	nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-free_cq_mem:
-	__unvmed_mem_free(u, &cq_mem);
-free_sq_mem:
-	__unvmed_mem_free(u, &sq_mem);
+free_sq:
+	unvmed_free_sq(u, qid);
+free_cq:
+	unvmed_free_cq(u, qid);
 free_irq:
 	if (irq_enabled)
 		unvmed_free_irq(u, 0);
