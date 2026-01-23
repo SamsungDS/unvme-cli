@@ -2148,7 +2148,7 @@ static inline int unvmed_cqe_status(struct nvme_cqe *cqe)
 #define unvmed_write32(u, offset, value) \
 	mmio_write32(unvmed_reg(u) + (offset), cpu_to_le32((value)))
 #define unvmed_write64(u, offset, value) \
-	mmio_write64(unvmed_reg(u) + (offset), cpu_to_le64((value)))
+	mmio_hl_write64(unvmed_reg(u) + (offset), cpu_to_le64((value)))
 
 /**
  * unvmed_cmd_prep_create_ns - Prepare Create Namespace command instance
