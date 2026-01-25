@@ -1595,12 +1595,12 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 
 void unvmed_enable_sq(struct unvme_sq *usq)
 {
-	usq->enabled = true;
+	atomic_store_release(&usq->enabled, true);
 }
 
 static void unvmed_disable_sq(struct unvme_sq *usq)
 {
-	usq->enabled = false;
+	atomic_store_release(&usq->enabled, false);
 }
 
 static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
@@ -1678,7 +1678,7 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid,
 
 void unvmed_enable_cq(struct unvme_cq *ucq)
 {
-	ucq->enabled = true;
+	atomic_store_release(&ucq->enabled, true);
 }
 
 static void __unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
