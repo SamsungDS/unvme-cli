@@ -1439,8 +1439,19 @@ static void unvmed_timer_handler(union sigval sv)
 			STORE(usq->flags, usq->flags | UNVMED_SQ_F_FROZEN);
 
 		unvmed_sq_exit(usq);
-		atomic_store_release(&usq->timer.active, false);
 
+		/*
+		 * If there are still pending commands that haven't expired yet,
+		 * keep the timer running to check them later.
+		 */
+		if (next.tv_sec) {
+			int delta = next.tv_sec - now.tv_sec;
+
+			unvmed_timer_update(usq, delta > 0 ? delta : 1);
+			return;
+		}
+
+		atomic_store_release(&usq->timer.active, false);
 		unvmed_log_debug("sq%d: command timedout detected, terminated.",
 				unvmed_sq_id(usq));
 		return;
