@@ -1309,8 +1309,6 @@ static int unvmed_timer_update(struct unvme_sq *usq, int sec)
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	timer->expire.tv_sec = now.tv_sec + delta.it_value.tv_sec;
 
-	unvmed_log_debug("sq%d: timer expiration time updated to +%ld",
-			unvmed_sq_id(usq), delta.it_value.tv_sec);
 	if (timer_settime(timer->t, 0, &delta, NULL) < 0) {
 		unvmed_log_err("failed to update timer expiration time");
 		return -1;
@@ -1385,8 +1383,6 @@ static void unvmed_timer_handler(union sigval sv)
 
 	if (!atomic_load_acquire(&usq->timer.active))
 		return;
-
-	unvmed_log_debug("sq%d: timer expired", unvmed_sq_id(usq));
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
 
