@@ -230,6 +230,24 @@ int unvme_log_level(int argc, char *argv[], struct unvme_msg *msg)
 	return 0;
 }
 
+static const char *pci_get_iommu_group_id(const char *bdf)
+{
+	char *iommu_path = pci_get_iommu_group(bdf);
+	const char *group_id;
+
+	if (!iommu_path)
+		return "-";
+
+	/*
+	 * iommu_path example: "/dev/vfio/45"
+	 */
+	group_id = strrchr(iommu_path, '/');
+	if (group_id)
+		return group_id + 1;
+
+	return "-";
+}
+
 int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct dirent *entry;
@@ -258,8 +276,8 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	unvme_pr("NVMe device    \tAttached\tDriver      \n");
-        unvme_pr("---------------\t--------\t------------\n");
+	unvme_pr("NVMe device    \tAttached\tIOMMU Group\tDriver      \n");
+	unvme_pr("---------------\t--------\t-----------\t------------\n");
 	while ((entry = readdir(dfd))) {
 		if (streq(entry->d_name, ".") || streq(entry->d_name, ".."))
 			continue;
@@ -268,8 +286,9 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 		if (!__is_nvme_device(bdf))
 			continue;
 
-		unvme_pr("%-15s\t%-8s\t%-12s\n", bdf,
+		unvme_pr("%-15s\t%-8s\t%-11s\t%-12s\n", bdf,
 				unvmed_get(bdf) ? "yes" : "no",
+				pci_get_iommu_group_id(bdf),
 				pci_get_driver(bdf));
 	}
 
