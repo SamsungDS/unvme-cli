@@ -290,6 +290,11 @@ static struct unvme_cmd *__unvmed_cmd_init(struct unvme *u, struct unvme_sq *usq
 {
 	struct unvme_cmd *cmd;
 
+	if (!atomic_load_acquire(&usq->enabled)) {
+		errno = ENODEV;
+		return NULL;
+	}
+
 	cmd = __unvmed_cmd_alloc(u, usq, cid);
 	if (!cmd)
 		return NULL;
