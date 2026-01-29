@@ -656,20 +656,81 @@ void unvme_pr_show_regs(const char *format, struct unvme *u)
 	}
 }
 
-void unvme_pr_status(const char *format, struct unvme *u)
+static void __unvme_pr_statistics_json(struct unvme *u, struct json_object *root)
 {
-	uint32_t cc = unvmed_read32(u, NVME_REG_CC);
-	uint32_t csts = unvmed_read32(u, NVME_REG_CSTS);
+	struct json_object *sq_array = json_object_new_array();
+
+	for (int i = 0; i < u->nr_sqs; i++) {
+		struct unvme_sq *usq = u->sqs[i];
+		struct json_object *sq_obj;
+		struct json_object *opc_array;
+
+		if (!usq)
+			continue;
+
+		sq_obj = json_object_new_object();
+		json_object_object_add(sq_obj, "id", json_object_new_int(usq->id));
+
+		opc_array = json_object_new_array();
+		for (int opc = 0; opc < CMD_COUNT_RANGE; opc++) {
+			struct json_object *opc_obj;
+
+			if (!usq->cmd_count[opc])
+				continue;
+
+			opc_obj = json_object_new_object();
+			json_object_object_add(opc_obj, "opcode", json_object_new_int(opc));
+			json_object_object_add(opc_obj, "count", json_object_new_uint64(usq->cmd_count[opc]));
+			json_object_array_add(opc_array, opc_obj);
+		}
+		json_object_object_add(sq_obj, "counts", opc_array);
+		json_object_array_add(sq_array, sq_obj);
+	}
+
+	json_object_object_add(root, "statistics", sq_array);
+}
+
+static void __unvme_pr_statistics_normal(struct unvme *u)
+{
+	unvme_pr("\nCommand Statistics\n");
+	unvme_pr("sqid opcode count       \n");
+	unvme_pr("---- ------ ------------\n");
+	for (int i = 0; i < u->nr_sqs; i++) {
+		struct unvme_sq *usq = u->sqs[i];
+
+		if (!usq)
+			continue;
+
+		for (int j = 0; j < CMD_COUNT_RANGE; j++) {
+			if (usq->cmd_count[j])
+				unvme_pr("%4d %#6x %12ld\n", usq->id, j, usq->cmd_count[j]);
+		}
+	}
+}
+
+void unvme_pr_status(const char *format, struct unvme *u, bool stats)
+{
 	struct unvme_ns *nslist = NULL;
-	struct unvme_sq **usqs;
-	struct unvme_cq **ucqs;
+	struct unvme_sq **usqs = NULL;
+	struct unvme_cq **ucqs = NULL;
 	int nr_ns, nr_sqs, nr_cqs;
-	struct unvme_ns *ns;
-	struct unvme_sq *usq;
-	struct unvme_cq *ucq;
 	struct unvme_hmb *hmb;
 	struct unvme_cmb *cmb;
 
+	if (streq(format, "json")) {
+		struct json_object *status = unvmed_to_json(u);
+
+		if (status) {
+			if (stats)
+				__unvme_pr_statistics_json(u, status);
+			unvme_pr("%s\n", json_object_to_json_string_ext(status,
+					JSON_C_TO_STRING_PRETTY));
+		}
+		json_object_put(status);
+		return;
+	}
+
+	/* normal format */
 	nr_ns = unvmed_get_nslist(u, &nslist);
 	if (nr_ns < 0) {
 		unvme_pr_err("failed to get namespaces\n");
@@ -694,263 +755,108 @@ void unvme_pr_status(const char *format, struct unvme *u)
 	hmb = unvmed_hmb(u);
 	cmb = unvmed_cmb(u);
 
-	if (streq(format, "normal")) {
-		unvme_pr("Controller				: %s\n", unvmed_bdf(u));
-		unvme_pr("Controller Configuration	(CC)	: %#x\n", cc);
-		unvme_pr("Controller Status		(CSTS)	: %#x\n\n", csts);
+	unvme_pr("Controller				: %s\n", unvmed_bdf(u));
+	unvme_pr("Controller Configuration	(CC)	: %#x\n",
+		 unvmed_read32(u, NVME_REG_CC));
+	unvme_pr("Controller Status		(CSTS)	: %#x\n\n",
+		 unvmed_read32(u, NVME_REG_CSTS));
 
-		unvme_pr("Number of inflight commands		: %d\n", unvmed_nr_cmds(u));
-		unvme_pr("\n");
+	unvme_pr("Number of inflight commands		: %d\n", unvmed_nr_cmds(u));
+	unvme_pr("\n");
 
-		unvme_pr("Maximum of IRQs reported by the vfio-pci: %d\n", unvmed_nr_irqs(u));
-		unvme_pr("\n");
+	unvme_pr("Maximum of IRQs reported by the vfio-pci: %d\n", unvmed_nr_irqs(u));
+	unvme_pr("\n");
 
-		unvme_pr("Namespaces\n");
-		unvme_pr("nsid       block size(B) meta size(B) size(blocks) meta(b)\n");
-		unvme_pr("---------- ------------- ------------ ------------ -----------------\n");
-		for (int i = 0; i < nr_ns; i++) {
-			ns = &nslist[i];
+	unvme_pr("Namespaces\n");
+	unvme_pr("nsid       block size(B) meta size(B) size(blocks) meta(b)\n");
+	unvme_pr("---------- ------------- ------------ ------------ -----------------\n");
+	for (int i = 0; i < nr_ns; i++) {
+		struct unvme_ns *ns = &nslist[i];
 
-			unvme_pr("%#10x %13u %12u %#12lx ",
-					ns->nsid, ns->lba_size, ns->ms, ns->nr_lbas);
-			if (ns->ms)
-				unvme_pr("[%2d]%s:pi%d:st%d\n", ns->format_idx, ns->mset ? "dif" : "dix",
-						16 * (ns->pif + 1), ns->sts);
-			else
-				unvme_pr("\n");
-		}
-		unvme_pr("\n");
-
-		unvme_pr("Submission Queue\n");
-		unvme_pr("qid  vaddr              iova               cqid qprio pc nvmsetid tail ptail qsize nr_cmds refcnt\n");
-		unvme_pr("---- ------------------ ------------------ ---- ----- -- -------- ---- ----- ----- ------- ------\n");
-		for (int i = 0; i < nr_sqs; i++) {
-			usq = usqs[i];
-
-			unvme_pr("%4d %18p %#18lx %4d %5d %2d %8d %4d %5d %5d %7d %6d\n",
-				 usq->id, usq->q->mem.vaddr, usq->q->mem.iova,
-				 usq->ucq->id, usq->qprio, usq->pc, usq->nvmsetid,
-				 usq->q->tail, usq->q->ptail, usq->qsize, usq->nr_cmds, usq->refcnt);
-		}
-		unvme_pr("\n");
-
-		unvme_pr("Virtual Completion Queue\n");
-		unvme_pr("sqid head tail qsize\n");
-		unvme_pr("---- ---- ---- -----\n");
-		for (int i = 0; i < nr_sqs; i++) {
-			usq = usqs[i];
-
-			unvme_pr("%4d %4d %4d %5d\n",
-				 usq->id, usq->vcq.head, usq->vcq.tail, usq->vcq.qsize);
-		}
-		unvme_pr("\n");
-
-		unvme_pr("Completion Queue\n");
-		unvme_pr("qid  vaddr              iova               pc head qsize phase vec  refcnt\n");
-		unvme_pr("---- ------------------ ------------------ -- ---- ----- ----- ---- ------\n");
-		for (int i = 0; i < nr_cqs; i++) {
-			ucq = ucqs[i];
-			if (!ucq)
-				break;
-
-			unvme_pr("%4d %18p %#18lx %2d %4d %5d %5d %4d %6d\n",
-				 ucq->id, ucq->q->mem.vaddr, ucq->q->mem.iova, ucq->pc,
-				 ucq->q->head, ucq->qsize, ucq->q->phase, ucq->vector, ucq->refcnt);
-		}
-		unvme_pr("\n");
-
-		unvme_pr("Host Memory Buffer\n");
-		unvme_pr("Size (CC.MPS unit):    %d\n", hmb->hsize);
-		unvme_pr("Descriptor Address:    %#lx\n", hmb->descs_iova);
-		unvme_pr("Number of descriptors: %d\n", hmb->nr_descs);
-		unvme_pr("\n");
-		unvme_pr("index baddr              bsize\n");
-		unvme_pr("----- ------------------ ------\n");
-		for (int i = 0; i < hmb->nr_descs; i++)
-			unvme_pr("%5d %#18llx %6d\n", i, hmb->descs[i].badd, hmb->descs[i].bsize);
-
-		unvme_pr("\n");
-		unvme_pr("Controller Memory Buffer\n");
-		unvme_pr("------------------------\n");
-		unvme_pr("BIR:     %d\n", cmb->bar);
-		unvme_pr("Size:    %zu bytes\n", cmb->size);
-		unvme_pr("IOVA:    %#lx\n", cmb->iova);
-
-		unvme_pr("\n");
-		unvme_pr("Shared Memory\n");
-		unvme_pr("-------------\n");
-		if (u->shmem_size > 0) {
-			unvme_pr("Size:              %zu bytes\n", u->shmem_size);
-			unvme_pr("IOVA:              0x%lx\n", u->shmem_iova);
-			unvme_pr("Name:              %s\n", u->shmem_name);
-		} else {
-			unvme_pr("No shared memory allocated\n");
-		}
-
-	} else if (streq(format, "json")) {
-		struct json_object *root = json_object_new_object();
-		json_object_object_add(root, "controller", json_object_new_string(unvmed_bdf(u)));
-		json_object_object_add(root, "cc", json_object_new_int(cc));
-		json_object_object_add(root, "csts", json_object_new_int(csts));
-		json_object_object_add(root, "nr_inflight_cmds", json_object_new_int(unvmed_nr_cmds(u)));
-		json_object_object_add(root, "nr_irqs", json_object_new_int(unvmed_nr_irqs(u)));
-
-		struct json_object *ns_array = json_object_new_array();
-		for (int i = 0; i < nr_ns; i++) {
-			ns = &nslist[i];
-			struct json_object *ns_obj = json_object_new_object();
-			json_object_object_add(ns_obj, "nsid", json_object_new_int(ns->nsid));
-			json_object_object_add(ns_obj, "block_size", json_object_new_int(ns->lba_size));
-			json_object_object_add(ns_obj, "meta_size", json_object_new_int(ns->ms));
-			json_object_object_add(ns_obj, "nr_blocks", json_object_new_int64(ns->nr_lbas));
-			if (ns->ms) {
-				char meta_info[64];
-				sprintf(meta_info, "[%d]%s:pi%d:st%d", ns->format_idx, ns->mset ? "dif" : "dix", 16 * (ns->pif + 1), ns->sts);
-				json_object_object_add(ns_obj, "meta_info", json_object_new_string(meta_info));
-			}
-			json_object_array_add(ns_array, ns_obj);
-		}
-		json_object_object_add(root, "ns", ns_array);
-
-		struct json_object *sq_array = json_object_new_array();
-		for (int i = 0; i < nr_sqs; i++) {
-			usq = usqs[i];
-			struct json_object *sq_obj = json_object_new_object();
-			json_object_object_add(sq_obj, "id", json_object_new_int(usq->id));
-			json_object_object_add(sq_obj, "vaddr", json_object_new_int64((uint64_t)usq->q->mem.vaddr));
-			json_object_object_add(sq_obj, "iova", json_object_new_int64(usq->q->mem.iova));
-			json_object_object_add(sq_obj, "cqid", json_object_new_int(usq->ucq->id));
-			json_object_object_add(sq_obj, "qprio", json_object_new_int(usq->qprio));
-			json_object_object_add(sq_obj, "pc", json_object_new_int(usq->pc));
-			json_object_object_add(sq_obj, "nvmsetid", json_object_new_int(usq->nvmsetid));
-			json_object_object_add(sq_obj, "tail", json_object_new_int(usq->q->tail));
-			json_object_object_add(sq_obj, "ptail", json_object_new_int(usq->q->ptail));
-			json_object_object_add(sq_obj, "qsize", json_object_new_int(usq->qsize));
-			json_object_object_add(sq_obj, "nr_cmds", json_object_new_int(usq->nr_cmds));
-			
-			json_object_object_add(sq_obj, "refcnt", json_object_new_int(usq->refcnt));
-			json_object_array_add(sq_array, sq_obj);
-		}
-		json_object_object_add(root, "sq", sq_array);
-
-		struct json_object *vcq_array = json_object_new_array();
-		for (int i = 0; i < nr_sqs; i++) {
-			usq = usqs[i];
-			struct json_object *vcq_obj = json_object_new_object();
-			json_object_object_add(vcq_obj, "sqid", json_object_new_int(usq->id));
-			json_object_object_add(vcq_obj, "head", json_object_new_int(usq->vcq.head));
-			json_object_object_add(vcq_obj, "tail", json_object_new_int(usq->vcq.tail));
-			json_object_object_add(vcq_obj, "qsize", json_object_new_int(usq->vcq.qsize));
-			json_object_array_add(vcq_array, vcq_obj);
-		}
-		json_object_object_add(root, "vcq", vcq_array);
-
-		struct json_object *cq_array = json_object_new_array();
-		for (int i = 0; i < nr_cqs; i++) {
-			ucq = ucqs[i];
-			if (!ucq)
-				break;
-			struct json_object *cq_obj = json_object_new_object();
-			json_object_object_add(cq_obj, "id", json_object_new_int(ucq->id));
-			json_object_object_add(cq_obj, "vaddr", json_object_new_int64((uint64_t)ucq->q->mem.vaddr));
-			json_object_object_add(cq_obj, "iova", json_object_new_int64(ucq->q->mem.iova));
-			json_object_object_add(cq_obj, "pc", json_object_new_int64(ucq->pc));
-			json_object_object_add(cq_obj, "head", json_object_new_int(ucq->q->head));
-			json_object_object_add(cq_obj, "qsize", json_object_new_int(ucq->qsize));
-			json_object_object_add(cq_obj, "phase", json_object_new_int(ucq->q->phase));
-			json_object_object_add(cq_obj, "iv", json_object_new_int(ucq->vector));
-			json_object_object_add(cq_obj, "refcnt", json_object_new_int(ucq->refcnt));
-			json_object_array_add(cq_array, cq_obj);
-		}
-		json_object_object_add(root, "cq", cq_array);
-
-		struct json_object *hmb_obj = json_object_new_object();
-		json_object_object_add(hmb_obj, "hsize", json_object_new_int((uint32_t)hmb->hsize));
-		json_object_object_add(hmb_obj, "descs_addr", json_object_new_int64((uint64_t)hmb->descs_iova));
-		json_object_object_add(hmb_obj, "nr_descs", json_object_new_int((uint32_t)hmb->nr_descs));
-		json_object_object_add(root, "hmb", hmb_obj);
-
-		struct json_object *hmb_array = json_object_new_array();
-		for (int i = 0; i < hmb->nr_descs; i++) {
-			struct json_object *block_obj = json_object_new_object();
-			json_object_object_add(block_obj, "badd", json_object_new_int64((uint64_t)le64_to_cpu(hmb->descs[i].badd)));
-			json_object_object_add(block_obj, "bsize", json_object_new_int((uint32_t)le32_to_cpu(hmb->descs[i].bsize)));
-			json_object_array_add(hmb_array, block_obj);
-		}
-		json_object_object_add(hmb_obj, "descs", hmb_array);
-
-		struct json_object *cmb_obj = json_object_new_object();
-		json_object_object_add(cmb_obj, "bir", json_object_new_int(cmb->bar));
-		json_object_object_add(cmb_obj, "size", json_object_new_int((size_t)cmb->size));
-		json_object_object_add(cmb_obj, "iova", json_object_new_int64((uint64_t)cmb->iova));
-		json_object_object_add(root, "cmb", cmb_obj);
-
-		struct json_object *shmem_obj = json_object_new_object();
-		if (u->shmem_size > 0) {
-			json_object_object_add(shmem_obj, "size", json_object_new_int64((uint64_t)u->shmem_size));
-			json_object_object_add(shmem_obj, "vaddr", json_object_new_int64((uint64_t)u->shmem_vaddr));
-			json_object_object_add(shmem_obj, "iova", json_object_new_int64(u->shmem_iova));
-			json_object_object_add(shmem_obj, "name", json_object_new_string(u->shmem_name));
-		}
-		json_object_object_add(root, "shmem", shmem_obj);
-
-		unvme_pr("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY));
-		json_object_put(root);
+		unvme_pr("%#10x %13u %12u %#12lx ",
+			 ns->nsid, ns->lba_size, ns->ms, ns->nr_lbas);
+		if (ns->ms)
+			unvme_pr("[%2d]%s:pi%d:st%d\n", ns->format_idx,
+				 ns->mset ? "dif" : "dix",
+				 16 * (ns->pif + 1), ns->sts);
+		else
+			unvme_pr("\n");
 	}
+	unvme_pr("\n");
+
+	unvme_pr("Submission Queue\n");
+	unvme_pr("qid  vaddr              iova               cqid qprio pc nvmsetid tail ptail qsize nr_cmds refcnt\n");
+	unvme_pr("---- ------------------ ------------------ ---- ----- -- -------- ---- ----- ----- ------- ------\n");
+	for (int i = 0; i < nr_sqs; i++) {
+		struct unvme_sq *usq = usqs[i];
+
+		unvme_pr("%4d %18p %#18lx %4d %5d %2d %8d %4d %5d %5d %7d %6d\n",
+			 usq->id, usq->q->mem.vaddr, usq->q->mem.iova,
+			 usq->ucq->id, usq->qprio, usq->pc, usq->nvmsetid,
+			 usq->q->tail, usq->q->ptail, usq->qsize, usq->nr_cmds, usq->refcnt);
+	}
+	unvme_pr("\n");
+
+	unvme_pr("Virtual Completion Queue\n");
+	unvme_pr("sqid head tail qsize\n");
+	unvme_pr("---- ---- ---- -----\n");
+	for (int i = 0; i < nr_sqs; i++) {
+		struct unvme_sq *usq = usqs[i];
+
+		unvme_pr("%4d %4d %4d %5d\n",
+			 usq->id, usq->vcq.head, usq->vcq.tail, usq->vcq.qsize);
+	}
+	unvme_pr("\n");
+
+	unvme_pr("Completion Queue\n");
+	unvme_pr("qid  vaddr              iova               pc head qsize phase vec  refcnt\n");
+	unvme_pr("---- ------------------ ------------------ -- ---- ----- ----- ---- ------\n");
+	for (int i = 0; i < nr_cqs; i++) {
+		struct unvme_cq *ucq = ucqs[i];
+
+		if (!ucq)
+			break;
+
+		unvme_pr("%4d %18p %#18lx %2d %4d %5d %5d %4d %6d\n",
+			 ucq->id, ucq->q->mem.vaddr, ucq->q->mem.iova, ucq->pc,
+			 ucq->q->head, ucq->qsize, ucq->q->phase, ucq->vector, ucq->refcnt);
+	}
+	unvme_pr("\n");
+
+	unvme_pr("Host Memory Buffer\n");
+	unvme_pr("Size (CC.MPS unit):    %d\n", hmb->hsize);
+	unvme_pr("Descriptor Address:    %#lx\n", hmb->descs_iova);
+	unvme_pr("Number of descriptors: %d\n", hmb->nr_descs);
+	unvme_pr("\n");
+	unvme_pr("index baddr              bsize\n");
+	unvme_pr("----- ------------------ ------\n");
+	for (int i = 0; i < hmb->nr_descs; i++)
+		unvme_pr("%5d %#18llx %6d\n", i, hmb->descs[i].badd, hmb->descs[i].bsize);
+
+	unvme_pr("\n");
+	unvme_pr("Controller Memory Buffer\n");
+	unvme_pr("------------------------\n");
+	unvme_pr("BIR:     %d\n", cmb->bar);
+	unvme_pr("Size:    %zu bytes\n", cmb->size);
+	unvme_pr("IOVA:    %#lx\n", cmb->iova);
+
+	unvme_pr("\n");
+	unvme_pr("Shared Memory\n");
+	unvme_pr("-------------\n");
+	if (u->shmem_size > 0) {
+		unvme_pr("Size:              %zu bytes\n", u->shmem_size);
+		unvme_pr("IOVA:              0x%lx\n", u->shmem_iova);
+		unvme_pr("Name:              %s\n", u->shmem_name);
+	} else {
+		unvme_pr("No shared memory allocated\n");
+	}
+
+	if (stats)
+		__unvme_pr_statistics_normal(u);
 
 	free(nslist);
 	free(ucqs);
 	free(usqs);
-}
-
-void unvme_pr_statistics(const char *format, struct unvme *u)
-{
-	struct unvme_sq *usq;
-
-	if (streq(format, "normal")) {
-		unvme_pr("\nCommand Statistics\n");
-		unvme_pr("sqid opcode count       \n");
-		unvme_pr("---- ------ ------------\n");
-		for (int i = 0; i < u->nr_sqs; i++) {
-			usq = u->sqs[i];
-			if (!usq)
-				continue;
-
-			for (int j = 0; j < CMD_COUNT_RANGE; j++) {
-				if (usq->cmd_count[j])
-					unvme_pr("%4d %#6x %12ld\n", usq->id, j, usq->cmd_count[j]);
-			}
-		}
-	} else {
-		struct json_object *root = json_object_new_object();
-		struct json_object *sq_array = json_object_new_array();
-
-		for (int i = 0; i < u->nr_sqs; i++) {
-			usq = u->sqs[i];
-			if (!usq)
-				continue;
-
-			struct json_object *sq_obj = json_object_new_object();
-
-			json_object_object_add(sq_obj, "id", json_object_new_int(usq->id));
-			struct json_object *opc_array = json_object_new_array();
-			for (int opc = 0; opc < CMD_COUNT_RANGE; opc++) {
-				if (!usq->cmd_count[opc])
-					continue;
-
-				struct json_object *opc_obj = json_object_new_object();
-				json_object_object_add(opc_obj, "opcode", json_object_new_int(opc));
-				json_object_object_add(opc_obj, "count", json_object_new_uint64(usq->cmd_count[opc]));
-				json_object_array_add(opc_array, opc_obj);
-			}
-			json_object_object_add(sq_obj, "counts", opc_array);
-			json_object_array_add(sq_array, sq_obj);
-		}
-
-		json_object_object_add(root, "sq", sq_array);
-		unvme_pr("%s\n", json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY));
-		json_object_put(root);
-	}
 }
 
 void unvme_pr_buf(struct iommu_dmabuf *buf)

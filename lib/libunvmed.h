@@ -2428,4 +2428,18 @@ int unvmed_detach_ns(struct unvme_cmd *cmd, uint32_t nsid,
 		     int nr_ctrlids, uint16_t *ctrlids,
 		     struct iovec *iov, int nr_iov);
 
+/**
+ * unvmed_to_json - Get controller status as JSON object
+ * @u: &struct unvme
+ *
+ * Returns a json_object containing controller status information including
+ * queues, namespaces, HMB, CMB, shared memory, etc.
+ *
+ * The caller is responsible for calling json_object_put() on the returned
+ * object when done.
+ *
+ * Return: json_object pointer on success, ``NULL`` on failure with ``errno`` set.
+ */
+struct json_object *unvmed_to_json(struct unvme *u);
+
 #endif
