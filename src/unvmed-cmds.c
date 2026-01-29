@@ -589,10 +589,7 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	unvme_pr_status(arg_strv(format), u);
-
-	if (arg_boolv(stats))
-		unvme_pr_statistics(arg_strv(format), u);
+	unvme_pr_status(arg_strv(format), u, arg_boolv(stats));
 out:
 	unvme_free_args(argtable);
 	return ret;

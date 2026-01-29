@@ -20,6 +20,7 @@
 #include <nvme/util.h>
 
 #include <ccan/list/list.h>
+#include <json-c/json.h>
 
 #include "libunvmed.h"
 #include "libunvmed-private.h"
@@ -4240,4 +4241,200 @@ int unvmed_free_cq(struct unvme *u, uint16_t qid)
 
 	__unvmed_delete_cq(u, ucq);
 	return 0;
+}
+
+struct json_object *unvmed_to_json(struct unvme *u)
+{
+	struct json_object *status;
+	struct unvme_ns *nslist = NULL;
+	struct unvme_sq **usqs = NULL;
+	struct unvme_cq **ucqs = NULL;
+	int nr_ns, nr_sqs, nr_cqs;
+	struct unvme_hmb *hmb;
+	struct unvme_cmb *cmb;
+
+	status = json_object_new_object();
+	if (!status)
+		return NULL;
+
+	nr_ns = unvmed_get_nslist(u, &nslist);
+	nr_sqs = unvmed_get_sqs(u, &usqs);
+	nr_cqs = unvmed_get_cqs(u, &ucqs);
+	hmb = unvmed_hmb(u);
+	cmb = unvmed_cmb(u);
+
+	json_object_object_add(status, "controller",
+			       json_object_new_string(unvmed_bdf(u)));
+	json_object_object_add(status, "cc",
+			       json_object_new_int(unvmed_read32(u, NVME_REG_CC)));
+	json_object_object_add(status, "csts",
+			       json_object_new_int(unvmed_read32(u, NVME_REG_CSTS)));
+	json_object_object_add(status, "nr_inflight_cmds",
+			       json_object_new_int(unvmed_nr_cmds(u)));
+	json_object_object_add(status, "nr_irqs",
+			       json_object_new_int(unvmed_nr_irqs(u)));
+
+	/* Namespaces */
+	struct json_object *ns_array = json_object_new_array();
+	for (int i = 0; i < nr_ns; i++) {
+		struct unvme_ns *ns = &nslist[i];
+		struct json_object *ns_obj = json_object_new_object();
+
+		json_object_object_add(ns_obj, "nsid",
+				       json_object_new_int(ns->nsid));
+		json_object_object_add(ns_obj, "block_size",
+				       json_object_new_int(ns->lba_size));
+		json_object_object_add(ns_obj, "meta_size",
+				       json_object_new_int(ns->ms));
+		json_object_object_add(ns_obj, "nr_blocks",
+				       json_object_new_int64(ns->nr_lbas));
+		if (ns->ms) {
+			char meta_info[64];
+
+			snprintf(meta_info, sizeof(meta_info),
+				 "[%d]%s:pi%d:st%d", ns->format_idx,
+				 ns->mset ? "dif" : "dix",
+				 16 * (ns->pif + 1), ns->sts);
+			json_object_object_add(ns_obj, "meta_info",
+					       json_object_new_string(meta_info));
+		}
+		json_object_array_add(ns_array, ns_obj);
+	}
+	json_object_object_add(status, "ns", ns_array);
+
+	/* Submission Queues */
+	struct json_object *sq_array = json_object_new_array();
+	for (int i = 0; i < nr_sqs; i++) {
+		struct unvme_sq *usq = usqs[i];
+		struct json_object *sq_obj = json_object_new_object();
+
+		json_object_object_add(sq_obj, "id",
+				       json_object_new_int(usq->id));
+		json_object_object_add(sq_obj, "vaddr",
+				       json_object_new_int64((uint64_t)usq->q->mem.vaddr));
+		json_object_object_add(sq_obj, "iova",
+				       json_object_new_int64(usq->q->mem.iova));
+		json_object_object_add(sq_obj, "cqid",
+				       json_object_new_int(usq->ucq->id));
+		json_object_object_add(sq_obj, "qprio",
+				       json_object_new_int(usq->qprio));
+		json_object_object_add(sq_obj, "pc",
+				       json_object_new_int(usq->pc));
+		json_object_object_add(sq_obj, "nvmsetid",
+				       json_object_new_int(usq->nvmsetid));
+		json_object_object_add(sq_obj, "tail",
+				       json_object_new_int(usq->q->tail));
+		json_object_object_add(sq_obj, "ptail",
+				       json_object_new_int(usq->q->ptail));
+		json_object_object_add(sq_obj, "qsize",
+				       json_object_new_int(usq->qsize));
+		json_object_object_add(sq_obj, "nr_cmds",
+				       json_object_new_int(usq->nr_cmds));
+		json_object_object_add(sq_obj, "refcnt",
+				       json_object_new_int(usq->refcnt));
+		json_object_array_add(sq_array, sq_obj);
+	}
+	json_object_object_add(status, "sq", sq_array);
+
+	/* Virtual Completion Queues */
+	struct json_object *vcq_array = json_object_new_array();
+	for (int i = 0; i < nr_sqs; i++) {
+		struct unvme_sq *usq = usqs[i];
+		struct json_object *vcq_obj = json_object_new_object();
+
+		json_object_object_add(vcq_obj, "sqid",
+				       json_object_new_int(usq->id));
+		json_object_object_add(vcq_obj, "head",
+				       json_object_new_int(usq->vcq.head));
+		json_object_object_add(vcq_obj, "tail",
+				       json_object_new_int(usq->vcq.tail));
+		json_object_object_add(vcq_obj, "qsize",
+				       json_object_new_int(usq->vcq.qsize));
+		json_object_array_add(vcq_array, vcq_obj);
+	}
+	json_object_object_add(status, "vcq", vcq_array);
+
+	/* Completion Queues */
+	struct json_object *cq_array = json_object_new_array();
+	for (int i = 0; i < nr_cqs; i++) {
+		struct unvme_cq *ucq = ucqs[i];
+		struct json_object *cq_obj;
+
+		if (!ucq)
+			break;
+
+		cq_obj = json_object_new_object();
+		json_object_object_add(cq_obj, "id",
+				       json_object_new_int(ucq->id));
+		json_object_object_add(cq_obj, "vaddr",
+				       json_object_new_int64((uint64_t)ucq->q->mem.vaddr));
+		json_object_object_add(cq_obj, "iova",
+				       json_object_new_int64(ucq->q->mem.iova));
+		json_object_object_add(cq_obj, "pc",
+				       json_object_new_int64(ucq->pc));
+		json_object_object_add(cq_obj, "head",
+				       json_object_new_int(ucq->q->head));
+		json_object_object_add(cq_obj, "qsize",
+				       json_object_new_int(ucq->qsize));
+		json_object_object_add(cq_obj, "phase",
+				       json_object_new_int(ucq->q->phase));
+		json_object_object_add(cq_obj, "iv",
+				       json_object_new_int(ucq->vector));
+		json_object_object_add(cq_obj, "refcnt",
+				       json_object_new_int(ucq->refcnt));
+		json_object_array_add(cq_array, cq_obj);
+	}
+	json_object_object_add(status, "cq", cq_array);
+
+	/* Host Memory Buffer */
+	struct json_object *hmb_obj = json_object_new_object();
+	json_object_object_add(hmb_obj, "hsize",
+			       json_object_new_int((uint32_t)hmb->hsize));
+	json_object_object_add(hmb_obj, "descs_addr",
+			       json_object_new_int64((uint64_t)hmb->descs_iova));
+	json_object_object_add(hmb_obj, "nr_descs",
+			       json_object_new_int((uint32_t)hmb->nr_descs));
+
+	struct json_object *hmb_descs = json_object_new_array();
+	for (int i = 0; i < hmb->nr_descs; i++) {
+		struct json_object *desc_obj = json_object_new_object();
+
+		json_object_object_add(desc_obj, "badd",
+				       json_object_new_int64((uint64_t)le64_to_cpu(hmb->descs[i].badd)));
+		json_object_object_add(desc_obj, "bsize",
+				       json_object_new_int((uint32_t)le32_to_cpu(hmb->descs[i].bsize)));
+		json_object_array_add(hmb_descs, desc_obj);
+	}
+	json_object_object_add(hmb_obj, "descs", hmb_descs);
+	json_object_object_add(status, "hmb", hmb_obj);
+
+	/* Controller Memory Buffer */
+	struct json_object *cmb_obj = json_object_new_object();
+	json_object_object_add(cmb_obj, "bir",
+			       json_object_new_int(cmb->bar));
+	json_object_object_add(cmb_obj, "size",
+			       json_object_new_int((size_t)cmb->size));
+	json_object_object_add(cmb_obj, "iova",
+			       json_object_new_int64((uint64_t)cmb->iova));
+	json_object_object_add(status, "cmb", cmb_obj);
+
+	/* Shared Memory */
+	struct json_object *shmem_obj = json_object_new_object();
+	if (u->shmem_size > 0) {
+		json_object_object_add(shmem_obj, "size",
+				       json_object_new_int64((uint64_t)u->shmem_size));
+		json_object_object_add(shmem_obj, "vaddr",
+				       json_object_new_int64((uint64_t)u->shmem_vaddr));
+		json_object_object_add(shmem_obj, "iova",
+				       json_object_new_int64(u->shmem_iova));
+		json_object_object_add(shmem_obj, "name",
+				       json_object_new_string(u->shmem_name));
+	}
+	json_object_object_add(status, "shmem", shmem_obj);
+
+	free(nslist);
+	free(ucqs);
+	free(usqs);
+
+	return status;
 }
