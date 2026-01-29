@@ -565,6 +565,7 @@ int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
 /**
  * unvmed_init - Initialize libunvmed library
  * @logfile: logfile path, NULL if no-log mode
+ * @log_level: log level (0: ERROR, 1: INFO, 2: DEBUG)
  *
  * Initialize libunvmed library in the current process context.
  */
