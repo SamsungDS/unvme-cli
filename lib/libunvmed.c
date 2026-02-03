@@ -1883,7 +1883,7 @@ static inline void unvmed_disable_ns_all(struct unvme *u)
 	pthread_rwlock_unlock(&u->ns_list_lock);
 }
 
-static inline void unvmed_quiesce_sq_all(struct unvme *u)
+void unvmed_quiesce_sq_all(struct unvme *u)
 {
 	struct unvme_sq *usq;
 	int qid;
@@ -1897,7 +1897,7 @@ static inline void unvmed_quiesce_sq_all(struct unvme *u)
 	}
 }
 
-static inline void unvmed_unquiesce_sq_all(struct unvme *u)
+void unvmed_unquiesce_sq_all(struct unvme *u)
 {
 	struct unvme_sq *usq;
 	int qid;
@@ -2116,12 +2116,15 @@ void unvmed_free_ctx(struct unvme *u)
 	__unvmed_delete_cq_all(u);
 }
 
-static void unvmed_reset_ctx(struct unvme *u)
+void unvmed_disable_ctx(struct unvme *u)
 {
 	unvmed_disable_sq_all(u);
 	unvmed_disable_cq_all(u);
 	unvmed_disable_ns_all(u);
+}
 
+static void unvmed_cancel_cmds(struct unvme *u)
+{
 	/*
 	 * Quiesce all submission queues to prevent I/O submission from upper
 	 * layer.  The queues should be re-enabled (unquiesced) back once
@@ -2130,12 +2133,14 @@ static void unvmed_reset_ctx(struct unvme *u)
 	unvmed_quiesce_sq_all(u);
 	unvmed_cancel_cmd_all(u);
 	unvmed_unquiesce_sq_all(u);
+}
 
-	/*
-	 * In this step, we can ensure that no more CQ entries left to be
-	 * reaped, which means all the CQ-related codes are not running
-	 * anymore.
-	 */
+void unvmed_reset_ctx(struct unvme *u)
+{
+	unvmed_disable_ctx(u);
+	unvmed_cancel_cmds(u);
+
+	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 }
 
 /*
@@ -2151,8 +2156,6 @@ void unvmed_reset_ctrl(struct unvme *u)
 	}
 
 	unvmed_reset_ctx(u);
-
-	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 }
 
 void unvmed_reset_ctrl_graceful(struct unvme *u)
@@ -3397,7 +3400,6 @@ int unvmed_subsystem_reset(struct unvme *u)
 	}
 
 	unvmed_reset_ctx(u);
-	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 
 	return 0;
 }
@@ -3482,7 +3484,6 @@ int unvmed_flr(struct unvme *u)
 	}
 
 	unvmed_reset_ctx(u);
-	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 close:
 	close(fd);
 free:
@@ -3639,7 +3640,6 @@ int unvmed_hot_reset(struct unvme *u)
 	}
 
 	unvmed_reset_ctx(u);
-	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 close:
 	close(fd);
 free:
@@ -3718,7 +3718,6 @@ int unvmed_link_disable(struct unvme *u)
 	}
 
 	unvmed_reset_ctx(u);
-	unvmed_ctrl_set_state(u, UNVME_DISABLED);
 close:
 	close(fd);
 free:

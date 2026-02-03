@@ -994,6 +994,44 @@ struct unvme_cmd *unvmed_cmd_get(struct unvme_sq *usq, uint16_t cid);
 int unvmed_cmd_put(struct unvme_cmd *cmd);
 
 /**
+ * unvmed_disable_ctx - Disable driver contexts to disabled state
+ * @u: &struct unvme
+ *
+ * Disable @usq, @ucq and @ns driver contexts right after reset.  This API
+ * should be called right after the reset APIs to avoid application pushes or
+ * reaps the sqe and cqe anymore.
+ */
+void unvmed_disable_ctx(struct unvme *u);
+
+/**
+ * unvmed_reset_ctx - Reset driver contexts to initial state
+ * @u: &struct unvme
+ *
+ * Reset @usq, @ucq and @ns driver contexts right after reset.  This API should
+ * be called right after the reset APIs to reset(clear) all the driver context
+ * instances and cancel inflight commands.
+ */
+void unvmed_reset_ctx(struct unvme *u);
+
+/**
+ * unvmed_quiesce_sq_all - Quiesce all the submission queue instances
+ * @u: &struct unvme
+ *
+ * This is to quiesce(lock) all the @usq instances to avoid additional command
+ * submissions among threads.
+ */
+void unvmed_quiesce_sq_all(struct unvme *u);
+
+/**
+ * unvmed_unquiesce_sq_all - Unquiesce all the submission queue instances
+ * @u: &struct unvme
+ *
+ * This is to unquiesce(un-lock) all the @usq instances to allow additional
+ * command submissions from threads.
+ */
+void unvmed_unquiesce_sq_all(struct unvme *u);
+
+/**
  * unvmed_free_ctx - Free(discard) all contexts of @u
  * @u: &struct unvme
  *
