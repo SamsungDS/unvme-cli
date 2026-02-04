@@ -2,13 +2,28 @@
 
 set -e
 
+polling=0
+qsize=256
+while getopts "ps:" opt; do
+	case $opt in
+		p) polling=1 ;;
+		s) qsize=$OPTARG ;;
+		*) ;;
+	esac
+done
+shift $((OPTIND - 1))
+
 if [[ $# -ne 2 ]]; then
-	echo "Usage: $0 <bdf> <nr_ioqs>"
+	echo "Usage: $0 [-p] [-s <qsize>] <bdf> <nr_ioqs>"
 	echo ""
 	echo "This driver enables the given NVMe controller <bdf> and issues the following commands."
 	echo "  - Identify Namespace (CNS 0h) to nsid=1"
 	echo "  - Set Features for Number of Queues (FID 7h) for maximum number of queues"
-	echo "  - Create 256-sized I/O CQ and SQ pair for <nr_ioqs> with interrupt enabled"
+	echo "  - Create I/O CQ and SQ pair for <nr_ioqs>"
+	echo ""
+	echo "Options:"
+	echo "  -p          Polling mode (disable interrupts for adminq and iocq)"
+	echo "  -s <qsize>  Queue size for adminq and ioq (default: 256)"
 	exit 1
 fi
 bdf="$1"
@@ -17,10 +32,18 @@ nr_ioqs="$2"
 function create_ioq() {
 	bdf="$1"
 	qid="$2"
+	polling="$3"
+	qsize="$4"
+
+	if [[ $polling -eq 1 ]]; then
+		iv=-1
+	else
+		iv=$qid
+	fi
 
 	set -x
-	unvme create-iocq $bdf -q $qid -z 256 -v $qid
-	unvme create-iosq $bdf -q $qid -z 256 -c $qid
+	unvme create-iocq $bdf -q $qid -z $qsize -v $iv
+	unvme create-iosq $bdf -q $qid -z $qsize -c $qid
 }
 
 function init_hmb() {
@@ -48,12 +71,18 @@ if pgrep -x "unvmed" > /dev/null; then (
 	unvme stop
 ) fi
 
+if [[ $polling -eq 1 ]]; then
+	adminq_opts="--noint"
+else
+	adminq_opts=""
+fi
+
 (
 set -x
 unvme start
 unvme add $bdf --nr-ioqs=$nr_ioqs
 
-unvme create-adminq $bdf --sqsize=32 --cqsize=32
+unvme create-adminq $bdf --sqsize=$qsize --cqsize=$qsize $adminq_opts
 unvme enable $bdf
 unvme id-ns $bdf -n 1 > /dev/null
 unvme set-features-noq $bdf -s 0xfffe -c 0xfffe > /dev/null
@@ -63,7 +92,7 @@ init_hmb &
 
 for ((qid=1; qid <= $nr_ioqs; qid++));
 do
-	create_ioq $bdf $qid &
+	create_ioq $bdf $qid $polling $qsize &
 done
 
 wait
