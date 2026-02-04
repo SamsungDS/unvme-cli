@@ -692,6 +692,7 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
+	int vector;
 	int ret = 0;
 
 	arg_dblv(sqaddr) = 0;
@@ -712,12 +713,14 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
+	vector = arg_boolv(noint) ? -1 : 0;
+
 	if (arg_boolv(cqaddr))
 		ucq = unvmed_init_cq_iova(u, 0 /* qid */, arg_intv(cqsize),
-				0 /* vector */, 1 /* pc */, arg_dblv(cqaddr));
+				vector, 1 /* pc */, arg_dblv(cqaddr));
 	else
 		ucq = unvmed_init_cq(u, 0 /* qid */, arg_intv(cqsize),
-				0 /* vector */, 1 /* pc */);
+				vector, 1 /* pc */);
 	if (!ucq) {
 		unvme_pr_err("failed to allocate @ucq instance for adminq\n");
 		ret = errno;
