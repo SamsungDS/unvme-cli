@@ -134,14 +134,21 @@ static int __unvmed_mem_free(struct unvme *u, struct iommu_dmabuf *buf);
 static int unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 			   struct nvme_cqe *cqe)
 {
-	uint16_t tail = atomic_load_acquire(&q->tail);
+	uint16_t tail;
 
-	if ((tail + 1) % q->qsize == atomic_load_acquire(&q->head))
-		return -EAGAIN;
+	pthread_spin_lock(&q->tail_lock);
+
+	tail = atomic_load_acquire(&q->tail);
+	if ((tail + 1) % q->qsize == atomic_load_acquire(&q->head)) {
+		pthread_spin_unlock(&q->tail_lock);
+		return -ENOENT;
+	}
 
 	q->cqe[tail] = *cqe;
 	atomic_store_release(&q->tail, (tail + 1) % q->qsize);
 	unvmed_log_cmd_vcq_push(cqe);
+
+	pthread_spin_unlock(&q->tail_lock);
 	return 0;
 }
 
@@ -1331,6 +1338,7 @@ int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize)
 	vcq->head = 0;
 	vcq->tail = 0;
 	vcq->qsize = qsize;
+	pthread_spin_init(&vcq->tail_lock, 0);
 	vcq->cqe = malloc(sizeof(struct nvme_cqe) * qsize);
 
 	if (!vcq->cqe) {

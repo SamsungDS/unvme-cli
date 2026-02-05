@@ -139,6 +139,8 @@ struct unvme_vcq {
 	uint16_t head;
 	uint16_t tail;
 
+	pthread_spinlock_t tail_lock;
+
 	/* CQE array for @qsize */
 	struct nvme_cqe *cqe;
 };
