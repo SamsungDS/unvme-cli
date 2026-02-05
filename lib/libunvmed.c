@@ -2017,7 +2017,7 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 			if (!cmd) {
 				unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
 						le16_to_cpu(cqe->sqid), cqe->cid);
-				continue;
+				goto update;
 			}
 
 			cmd->state = UNVME_CMD_S_TO_BE_COMPLETED;
@@ -2030,6 +2030,7 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 			if (!unvmed_cmd_cmpl(cmd, cqe))
 				unvmed_vcq_push(u, unvmed_cmd_get_vcq(cmd), cqe);
 
+update:
 			if (++head == ucq->q->qsize) {
 				head = 0;
 				phase ^= 0x1;
