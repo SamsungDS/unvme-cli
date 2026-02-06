@@ -3063,13 +3063,15 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 
 	unvmed_cq_enter(ucq);
 	cqe = unvmed_get_completion(u, ucq);
-	unvmed_cq_exit(ucq);
 	if (cqe) {
 		cmd = unvmed_get_cmd(usq, cqe->cid);
 		if (cmd && !unvmed_cmd_cmpl(cmd, cqe))
 			unvmed_vcq_push(u, unvmed_cmd_get_vcq(cmd), cqe);
-		return NULL;
+
+		nvme_cq_update_head(ucq->q);
+		cqe = NULL;
 	}
+	unvmed_cq_exit(ucq);
 
 	return cqe;
 }
@@ -3127,15 +3129,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 
 int unvmed_cq_run(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq, struct nvme_cqe *cqes)
 {
-	int n;
-
-	n = __unvmed_cq_run_n(u, usq, ucq, NULL, cqes, ucq->q->qsize - 1, true);
-	if (n > 0) {
-		if (!unvmed_cq_irq_enabled(ucq))
-			nvme_cq_update_head(ucq->q);
-	}
-
-	return n;
+	return __unvmed_cq_run_n(u, usq, ucq, NULL, cqes, ucq->q->qsize - 1, true);
 }
 
 int unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
@@ -3150,19 +3144,12 @@ int unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
 
 	ret = n;
 
-	if (ret >= max) {
-		if (!unvmed_cq_irq_enabled(ucq))
-			nvme_cq_update_head(ucq->q);
+	if (ret >= max)
 		return ret;
-	}
 
 	n = __unvmed_cq_run_n(u, usq, ucq, vcq, cqes + n, max - n, true);
 	if (n < 0)
 		return -1;
-	else if (n > 0) {
-		if (!unvmed_cq_irq_enabled(ucq))
-			nvme_cq_update_head(ucq->q);
-	}
 
 	return ret + n;
 }
