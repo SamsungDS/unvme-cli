@@ -2996,9 +2996,10 @@ static void unvmed_cmd_add_timer(struct unvme_cmd *cmd)
 		unvmed_timer_update(cmd->usq, cmd->u->timeout);
 }
 
-void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-		     unsigned long flags)
+uint16_t unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			 unsigned long flags)
 {
+	uint16_t idx = cmd->rq->sq->tail;
 	int nr_cmds;
 
 	sqe->cid = cmd->cid;
@@ -3016,6 +3017,8 @@ void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 
 	if (!(flags & UNVMED_CMD_F_NODB))
 		nvme_sq_update_tail(cmd->rq->sq);
+
+	return idx;
 }
 
 static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,

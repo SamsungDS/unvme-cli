@@ -1397,10 +1397,12 @@ int unvmed_unmap_vaddr(struct unvme *u, void *buf);
  * After posting @sqe, @cmd->state will be set to UNVME_CMD_S_SUBMITTED.
  *
  * This API is not thread-safe.  Caller should acquire a lock by calling
- * unvmed_sq_enter() for the corresponding submission queue.
+ * unvmed_sq_enter() for void the corresponding submission queue.
+ *
+ * Return: queue entry index written
  */
-void unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-		     unsigned long flags);
+uint16_t unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			 unsigned long flags);
 
 /**
  * unvmed_get_cmd - Get &struct unvme_cmd instance
