@@ -565,6 +565,19 @@ int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
 		     struct nvme_cqe *cqes, int min, int max);
 
 /**
+ * unvmed_vcq_push - Push the given @cqe to @cmd->vcq
+ * @u: &struct unvme
+ * @cqe: completion queue entry to be pushed
+ *
+ * It pusehd the given @cqe to the corresponding @vcq which is registered to
+ * the @cmd instance whose (sqid == cqe->sqid) && (cid == cqe->cid).
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe);
+/**
  * unvmed_init - Initialize libunvmed library
  * @logfile: logfile path, NULL if no-log mode
  * @log_level: log level (0: ERROR, 1: INFO, 2: DEBUG)

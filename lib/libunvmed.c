@@ -131,7 +131,7 @@ static int __unvmed_mem_alloc(struct unvme *u, size_t size,
 
 static int __unvmed_mem_free(struct unvme *u, struct iommu_dmabuf *buf);
 
-static int unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
+static int __unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 			   struct nvme_cqe *cqe)
 {
 	uint16_t tail;
@@ -163,6 +163,19 @@ static int unvmed_vcq_pop(struct unvme_vcq *q, struct nvme_cqe *cqe)
 	atomic_store_release(&q->head, (head + 1) % q->qsize);
 	unvmed_log_cmd_vcq_pop(cqe);
 	return 0;
+}
+
+int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
+{
+	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
+	struct unvme_vcq *vcq;
+
+	if (!cmd)
+		return -ENOENT;
+
+	vcq = unvmed_cmd_get_vcq(cmd);
+
+	return __unvmed_vcq_push(u, vcq, cqe);
 }
 
 int __unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
@@ -1425,7 +1438,7 @@ static void unvmed_cmd_timeout(struct unvme_cmd *cmd)
 		} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - 1));
 	} else {
 		do {
-			ret = unvmed_vcq_push(u, &usq->vcq, &timeout_cqe);
+			ret = __unvmed_vcq_push(u, &usq->vcq, &timeout_cqe);
 		} while (ret == -EAGAIN);
 	}
 
@@ -1980,7 +1993,7 @@ static inline void unvmed_put_cqe(struct unvme *u, struct unvme_cq *ucq,
 	cqe.sfp = cpu_to_le16((status << 1));
 
 	if (!unvmed_cmd_cmpl(cmd, &cqe))
-		unvmed_vcq_push(u, unvmed_cmd_get_vcq(cmd), &cqe);
+		unvmed_vcq_push(u, &cqe);
 
 	unvmed_log_info("canceled command (sqid=%u, cid=%u)", cqe.sqid, cqe.cid);
 }
@@ -2028,7 +2041,7 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 			 * @vcq rather than the actual @ucq.
 			 */
 			if (!unvmed_cmd_cmpl(cmd, cqe))
-				unvmed_vcq_push(u, unvmed_cmd_get_vcq(cmd), cqe);
+				unvmed_vcq_push(u, cqe);
 
 update:
 			if (++head == ucq->q->qsize) {
@@ -2262,7 +2275,7 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 		 * unvmed_cancel_sq where @ucq lock actually held.
 		 */
 		do {
-			ret = unvmed_vcq_push(u, unvmed_cmd_get_vcq(cmd), cqe);
+			ret = unvmed_vcq_push(u, cqe);
 		} while (ret == -EAGAIN);
 
 up:
@@ -3066,7 +3079,7 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 	if (cqe) {
 		cmd = unvmed_get_cmd(usq, cqe->cid);
 		if (cmd && !unvmed_cmd_cmpl(cmd, cqe))
-			unvmed_vcq_push(u, unvmed_cmd_get_vcq(cmd), cqe);
+			unvmed_vcq_push(u, cqe);
 
 		nvme_cq_update_head(ucq->q);
 		cqe = NULL;
