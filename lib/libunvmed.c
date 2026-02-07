@@ -169,13 +169,25 @@ int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
 {
 	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
 	struct unvme_vcq *vcq;
+	int ret;
 
 	if (!cmd)
 		return -ENOENT;
 
 	vcq = unvmed_cmd_get_vcq(cmd);
 
-	return __unvmed_vcq_push(u, vcq, cqe);
+	ret =  __unvmed_vcq_push(u, vcq, cqe);
+	/*
+	 * @cmd->state mostly might have been set to
+	 * UNVME_CMD_S_TO_BE_COMPLETED before this function, especially in
+	 * `unvmed_cmd_cmpl()` in libunvmed context.  But, exteranl app can
+	 * also call this function so that we should mark the @cmd as `to be
+	 * completed`.
+	 */
+	if (!ret)
+		atomic_store_release(&cmd->state, UNVME_CMD_S_TO_BE_COMPLETED);
+
+	return ret;
 }
 
 int __unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
