@@ -45,6 +45,7 @@ static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
 						 struct nvme_cqe *cqe);
 static int unvmed_get_pcie_cap_offset(char *bdf);
 static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
+static void __unvmed_reap_cqe(struct unvme_cq *ucq);
 
 static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
 {
@@ -2086,22 +2087,31 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 		struct unvme_cq_reaper *r = &u->reapers[unvmed_cq_iv(ucq)];
 
 		eventfd_write(r->efd, 1);  /* Wake up reaper thread */
+
+		/* Wait for reaper thread to reap the pending cq entries */
+		do {
+			phase = LOAD(ucq->q->phase);
+			head = LOAD(ucq->q->head);
+
+			cqe = unvmed_get_cqe(ucq, head);
+
+			if (!unvmed_get_cmd_from_cqe(u, cqe)) {
+				unvmed_log_err("invalid cqe, ignored (sqid=%d, cid=%d)",
+						le16_to_cpu(cqe->sqid), cqe->cid);
+				nvme_cq_get_cqe(ucq->q);
+				continue;
+			}
+		} while ((le16_to_cpu(cqe->sfp) & 0x1) != phase);
+	} else {
+		/*
+		 * If interrupt is disabled for the @ucq, here we can quiesce
+		 * @ucq and reap the cq entries rather than waiting for the
+		 * application to reap because appcliation *might* not try to
+		 * reap the remaining entries due to some reasons (e.g.,
+		 * terminated or scenario does not have reaping).
+		 */
+		__unvmed_reap_cqe(ucq);
 	}
-
-	/* Wait for reaper thread to reap the pending cq entries */
-	do {
-		phase = LOAD(ucq->q->phase);
-		head = LOAD(ucq->q->head);
-
-		cqe = unvmed_get_cqe(ucq, head);
-
-		if (!unvmed_get_cmd_from_cqe(u, cqe)) {
-			unvmed_log_err("invalid cqe, ignored (sqid=%d, cid=%d)",
-					le16_to_cpu(cqe->sqid), cqe->cid);
-			nvme_cq_get_cqe(ucq->q);
-			continue;
-		}
-	} while ((le16_to_cpu(cqe->sfp) & 0x1) != phase);
 }
 
 static void unvmed_vcq_drain(struct unvme_vcq *vcq)
