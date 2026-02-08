@@ -887,16 +887,16 @@ ssize_t unvmed_cmb_get_region(struct unvme *u, void **vaddr)
 
 static bool unvmed_iova_in_cmb(struct unvme *u, uint64_t iova, size_t size)
 {
-       if (!u->ctrl.cmb.vaddr)
-               return false;
+	if (!u->ctrl.cmb.vaddr)
+		return false;
 
-       uint64_t cmb_start = u->ctrl.cmb.iova;
-       uint64_t cmb_end = u->ctrl.cmb.iova + u->ctrl.cmb.size;
+	uint64_t cmb_start = u->ctrl.cmb.iova;
+	uint64_t cmb_end = u->ctrl.cmb.iova + u->ctrl.cmb.size;
 
-       if (iova >= cmb_start && (iova + size) < cmb_end)
-               return true;
+	if (iova >= cmb_start && (iova + size) <= cmb_end)
+		return true;
 
-       return false;
+	return false;
 }
 
 /*
