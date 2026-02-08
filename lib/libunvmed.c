@@ -1009,6 +1009,7 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 		unvmed_log_err("failed to find enabled adminq");
 
 		unvmed_sq_exit(asq);
+		unvmed_sq_put(u, asq);
 		errno = EINVAL;
 		return -1;
 	}
@@ -1027,6 +1028,7 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 				"(errno=%d \"%s\")", errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
+		unvmed_sq_put(u, asq);
 		return -1;
 	}
 
@@ -1041,6 +1043,7 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 
 		unvmed_cmd_put(cmd);
 		unvmed_sq_exit(asq);
+		unvmed_sq_put(u, asq);
 		return -1;
 	}
 
@@ -1611,6 +1614,8 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 
 	if (usq->enabled) {
 		unvmed_log_err("usq is already enabled");
+		if (!alloc)
+			unvmed_sq_put(u, usq);
 		return NULL;
 	}
 
@@ -1728,6 +1733,8 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid,
 
 	if (ucq->enabled) {
 		unvmed_log_err("ucq is already enabled");
+		if (!alloc)
+			unvmed_cq_put(u, ucq);
 		return NULL;
 	}
 
