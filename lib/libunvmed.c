@@ -2812,7 +2812,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	sqe->qid = cpu_to_le16(qid);
 	sqe->prp1 = cpu_to_le64(u->ctrl.sq[qid].mem.iova);
 	sqe->qsize = cpu_to_le16((uint16_t)(qsize - 1));
-	sqe->qflags = cpu_to_le16(NVME_Q_PC);
+	sqe->qflags = cpu_to_le16(qflags);
 	sqe->rsvd12[0] = cpu_to_le32(nvmsetid);
 	sqe->cqid = cpu_to_le16((uint16_t)ucq->id);
 
