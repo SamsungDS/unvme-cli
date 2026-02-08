@@ -2742,7 +2742,6 @@ static int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 		errno = EILSEQ;
 
 	unvmed_cmd_put(cmd);
-	unvmed_sq_exit(asq);
 	unvmed_sq_put(u, asq);
 	return ret;
 }
