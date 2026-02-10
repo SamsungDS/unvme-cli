@@ -2255,6 +2255,12 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	}
 
 	/*
+	* Delete I/O queues created with re-enabling the adminq.
+	*/
+	u->asq->enabled = true;
+	u->acq->enabled = true;
+
+	/*
 	 * Unquiesce all SQs here since we already _disabled_ all the queues so
 	 * that application has already been stuck issuing commands.  It's
 	 * totally safe to unquiesce queues here after @usq->nr_cmds becomes 0.
@@ -2265,6 +2271,9 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	unvmed_delete_iocq_all(u);
 
 	__unvme_reset_ctrl(u);
+
+	u->asq->enabled = false;
+	u->acq->enabled = false;
 
 	unvmed_free_ns_all(u);
 
