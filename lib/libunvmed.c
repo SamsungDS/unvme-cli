@@ -172,8 +172,11 @@ int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
 	struct unvme_vcq *vcq;
 	int ret;
 
-	if (!cmd)
+	if (!cmd) {
+		unvmed_log_err("failed to get command (sqid=%d, cid=%d)",
+				cqe->sqid, cqe->cid);
 		return -ENOENT;
+	}
 
 	vcq = unvmed_cmd_get_vcq(cmd);
 
