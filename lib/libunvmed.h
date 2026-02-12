@@ -1116,6 +1116,7 @@ int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
  * @iosqes: I/O Submission Queue Entry Size (specified as 2^n)
  * @iocqes: I/O Completion Queue Entry Size (specified as 2^n)
  * @mps: Memory Page Size (specified as (2 ^ (12 + n)))
+ * @ams: Arbitration Mechanism Selected
  * @css: I/O Command Set Selected
  * @timeout: timeout in seconds (0: disabled)
  *
@@ -1126,7 +1127,7 @@ int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
-		       uint8_t mps, uint8_t css, int timeout);
+		       uint8_t mps, uint8_t ams, uint8_t css, int timeout);
 
 /**
  * unvmed_create_cq - Create I/O Completion Queue

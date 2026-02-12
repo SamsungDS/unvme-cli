@@ -2503,7 +2503,7 @@ out:
 }
 
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
-		      uint8_t mps, uint8_t css, int timeout)
+		      uint8_t mps, uint8_t ams, uint8_t css, int timeout)
 {
 	uint32_t cc;
 	uint32_t csts;
@@ -2522,6 +2522,7 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	}
 
 	cc = mps << NVME_CC_MPS_SHIFT |
+		ams << NVME_CC_AMS_SHIFT |
 		iosqes << NVME_CC_IOSQES_SHIFT |
 		iocqes << NVME_CC_IOCQES_SHIFT |
 		1 << NVME_CC_EN_SHIFT;
@@ -3813,6 +3814,7 @@ int unvmed_ctx_init(struct unvme *u)
 	ctx->ctrl.iosqes = NVME_CC_IOSQES(cc);
 	ctx->ctrl.iocqes = NVME_CC_IOCQES(cc);
 	ctx->ctrl.mps = NVME_CC_MPS(cc);
+	ctx->ctrl.ams = NVME_CC_AMS(cc);
 	ctx->ctrl.sq_size = NVME_AQA_ASQS(aqa) + 1;
 	ctx->ctrl.cq_size = NVME_AQA_ACQS(aqa) + 1;
 	ctx->ctrl.css = NVME_CC_CSS(cc);
@@ -3879,7 +3881,7 @@ static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 						ctx->ctrl.admin_irq))
 				return -1;
 			return unvmed_enable_ctrl(u, ctx->ctrl.iosqes,
-					ctx->ctrl.iocqes, ctx->ctrl.mps,
+					ctx->ctrl.iocqes, ctx->ctrl.mps, ctx->ctrl.ams,
 					ctx->ctrl.css, ctx->ctrl.timeout);
 		case UNVME_CTX_T_NS:
 			int ret;

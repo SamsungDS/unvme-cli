@@ -130,6 +130,7 @@ struct unvme_ctx {
 			uint8_t iosqes;
 			uint8_t iocqes;
 			uint8_t mps;
+			uint8_t ams;
 			uint16_t sq_size;
 			uint16_t cq_size;
 			int timeout;

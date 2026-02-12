@@ -766,6 +766,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *iosqes;
 	struct arg_int *iocqes;
 	struct arg_int *mps;
+	struct arg_int *ams;
 	struct arg_int *css;
 	struct arg_int *timeout;
 	struct arg_lit *help;
@@ -781,6 +782,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		iosqes = arg_int0("s", "iosqes", "<n>", "[O] I/O Sumission Queue Entry Size (2^n) (default: 6)"),
 		iocqes = arg_int0("c", "iocqes", "<n>", "[O] I/O Completion Queue Entry Size (2^n) (default: 4)"),
 		mps = arg_int0("m", "mps", "<n>", "[O] Memory Page Size (2^(12+n)) (default: 0)"),
+		ams = arg_int0("a", "ams", "<n>", "[O] Arbitration Mechanism Selected (default: 0)"),
 		css = arg_int0("i", "css", "<n>", "[O] I/O Command Set Selected  (default: 0)"),
 		timeout = arg_int0("t", "timeout", "<n>", "[O] Command timeout in seconds (default: 0 - disabled)"),
 		help = arg_lit0("h", "help", "Show help message"),
@@ -792,6 +794,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	arg_intv(iosqes) = 6;
 	arg_intv(iocqes) = 4;
 	arg_intv(mps) = 0;
+	arg_intv(ams) = 0;
 	arg_intv(css) = 0;
 	arg_intv(timeout) = 0;
 
@@ -806,6 +809,12 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 
 	if (arg_intv(mps) > 0xf) {
 		unvme_pr_err("invalid -m|--mps\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	if (arg_intv(ams) > 0xf) {
+		unvme_pr_err("invalid -a|--ams\n");
 		ret = EINVAL;
 		goto out;
 	}
@@ -829,7 +838,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (unvmed_enable_ctrl(u, arg_intv(iosqes), arg_intv(iocqes),
-				arg_intv(mps), arg_intv(css),
+				arg_intv(mps), arg_intv(ams), arg_intv(css),
 				arg_intv(timeout))) {
 		unvme_pr_err("failed to enable controller\n");
 		ret = errno;
