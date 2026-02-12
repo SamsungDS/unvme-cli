@@ -142,7 +142,7 @@ static int __unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 	tail = atomic_load_acquire(&q->tail);
 	if ((tail + 1) % q->qsize == atomic_load_acquire(&q->head)) {
 		pthread_spin_unlock(&q->tail_lock);
-		return -ENOENT;
+		return -EAGAIN;
 	}
 
 	q->cqe[tail] = *cqe;
