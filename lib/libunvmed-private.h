@@ -3,6 +3,8 @@
 #ifndef LIBUNVMED_PRIVATE_H
 #define LIBUNVMED_PRIVATE_H
 
+#include <ccan/list/list.h>
+
 struct unvme_ctx;
 struct unvme_cq_reaper;
 struct iommu_dmabuf;
@@ -218,5 +220,10 @@ static inline bool unvmed_timer_after(struct timespec *a, struct timespec *b)
 		return a->tv_sec > b->tv_sec;
 	return a->tv_nsec > b->tv_nsec;
 }
+
+struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
+					  struct nvme_cqe *cqe);
+
+void unvmed_vcq_pool_init(void);
 
 #endif

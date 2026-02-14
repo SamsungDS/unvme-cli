@@ -32,6 +32,7 @@
 
 
 static __thread struct unvme_vcq __vcq;
+static __thread uint32_t __vcq_qid;
 
 struct libunvmed_options {
 	struct thread_data *td;
@@ -918,7 +919,7 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		goto out;
 	}
 
-	if (unvmed_vcq_init(&__vcq, ld->ucq->qsize)) {
+	if (unvmed_vcq_init(&__vcq, ld->ucq->qsize, &__vcq_qid)) {
 		libunvmed_log("failed to init @vcq\n");
 		ret = -1;
 		goto out;
@@ -1381,7 +1382,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	}
 
 	cmd->opaque = io_u;
-	cmd->vcq = &__vcq;
+	cmd->vcq = __vcq_qid;
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
 	return FIO_Q_QUEUED;
 }
@@ -1445,7 +1446,7 @@ static enum fio_q_status fio_libunvmed_trim(struct thread_data *td,
 	}
 
 	cmd->opaque = io_u;
-	cmd->vcq = &__vcq;
+	cmd->vcq = __vcq_qid;
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
 	return FIO_Q_QUEUED;
 }
@@ -1467,7 +1468,7 @@ static enum fio_q_status fio_libunvmed_fsync(struct thread_data *td,
 	sqe.nsid = cpu_to_le32(ns->nsid);
 
 	cmd->opaque = io_u;
-	cmd->vcq = &__vcq;
+	cmd->vcq = __vcq_qid;
 	unvmed_cmd_post(cmd, (union nvme_cmd *)&sqe, UNVMED_CMD_F_NODB);
 	return FIO_Q_QUEUED;
 }

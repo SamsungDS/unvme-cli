@@ -41,8 +41,6 @@ static void unvmed_delete_iocq_all(struct unvme *u);
 static int unvmed_get_downstream_port(struct unvme *u, char *bdf);
 static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 					      struct unvme_cq *ucq);
-static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
-						 struct nvme_cqe *cqe);
 static int unvmed_get_pcie_cap_offset(char *bdf);
 static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 static void __unvmed_reap_cqe(struct unvme_cq *ucq);
@@ -132,119 +130,6 @@ static int __unvmed_mem_alloc(struct unvme *u, size_t size,
 
 static int __unvmed_mem_free(struct unvme *u, struct iommu_dmabuf *buf);
 
-static int __unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
-			   struct nvme_cqe *cqe)
-{
-	uint16_t tail;
-
-	pthread_spin_lock(&q->tail_lock);
-
-	tail = atomic_load_acquire(&q->tail);
-	if ((tail + 1) % q->qsize == atomic_load_acquire(&q->head)) {
-		pthread_spin_unlock(&q->tail_lock);
-		return -EAGAIN;
-	}
-
-	q->cqe[tail] = *cqe;
-	atomic_store_release(&q->tail, (tail + 1) % q->qsize);
-	unvmed_log_cmd_vcq_push(cqe);
-
-	pthread_spin_unlock(&q->tail_lock);
-	return 0;
-}
-
-static int unvmed_vcq_pop(struct unvme_vcq *q, struct nvme_cqe *cqe)
-{
-	uint16_t head = atomic_load_acquire(&q->head);
-
-	if (head == atomic_load_acquire(&q->tail))
-		return -ENOENT;
-
-	*cqe = q->cqe[head];
-	atomic_store_release(&q->head, (head + 1) % q->qsize);
-	unvmed_log_cmd_vcq_pop(cqe);
-	return 0;
-}
-
-int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
-{
-	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
-	struct unvme_vcq *vcq;
-	int ret;
-
-	if (!cmd) {
-		unvmed_log_err("failed to get command (sqid=%d, cid=%d)",
-				cqe->sqid, cqe->cid);
-		return -ENOENT;
-	}
-
-	vcq = unvmed_cmd_get_vcq(cmd);
-
-	ret =  __unvmed_vcq_push(u, vcq, cqe);
-	/*
-	 * @cmd->state mostly might have been set to
-	 * UNVME_CMD_S_TO_BE_COMPLETED before this function, especially in
-	 * `unvmed_cmd_cmpl()` in libunvmed context.  But, exteranl app can
-	 * also call this function so that we should mark the @cmd as `to be
-	 * completed`.
-	 */
-	if (!ret)
-		atomic_store_release(&cmd->state, UNVME_CMD_S_TO_BE_COMPLETED);
-
-	return ret;
-}
-
-int __unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
-		       struct nvme_cqe *cqes, int nr_cqes, bool nowait)
-{
-	struct nvme_cqe __cqe;
-	struct nvme_cqe *cqe = &__cqe;
-	int nr_cmds;
-	int nr = 0;
-	int ret;
-
-	while (nr < nr_cqes) {
-		do {
-			ret = unvmed_vcq_pop(vcq, &__cqe);
-		} while (ret == -ENOENT && !nowait);
-
-		if (ret)
-			break;
-
-		if (cqes)
-			memcpy(&cqes[nr], cqe, sizeof(*cqe));
-		nr++;
-	}
-
-	do {
-		nr_cmds = u->nr_cmds;
-	} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - nr));
-
-	return nr;
-}
-
-int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
-		     struct nvme_cqe *cqes, int min, int max)
-{
-	int ret;
-	int n;
-
-	n = __unvmed_vcq_run_n(u, vcq, cqes, min, false);
-	if (n < 0)
-		return 0;
-
-	ret = n;
-
-	if (ret >= max)
-		return ret;
-
-	n = __unvmed_vcq_run_n(u, vcq, cqes + n, max - n, true);
-	if (n < 0)
-		return ret;
-
-	return ret + n;
-}
-
 static LIST_HEAD(unvme_list);
 
 static int unvmed_create_logfile(const char *logfile)
@@ -267,6 +152,8 @@ void unvmed_init(const char *logfile, int log_level)
 		__unvmed_logfd = unvmed_create_logfile(logfile);
 
 	atomic_store_release(&__log_level, log_level);
+
+	unvmed_vcq_pool_init();
 }
 
 int unvmed_parse_bdf(const char *input, char *bdf)
@@ -1365,28 +1252,6 @@ static void unvmed_cid_free(struct unvme_sq *usq)
 	free(bitmap->bits);
 }
 
-int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize)
-{
-	vcq->head = 0;
-	vcq->tail = 0;
-	vcq->qsize = qsize;
-	pthread_spin_init(&vcq->tail_lock, 0);
-	vcq->cqe = malloc(sizeof(struct nvme_cqe) * qsize);
-
-	if (!vcq->cqe) {
-		errno = ENOMEM;
-		return -1;
-	}
-
-	return 0;
-}
-
-void unvmed_vcq_free(struct unvme_vcq *vcq)
-{
-	free(vcq->cqe);
-	memset(vcq, 0, sizeof(struct unvme_vcq));
-}
-
 static int unvmed_timer_update(struct unvme_sq *usq, int sec)
 {
 	struct unvme_timer *timer = &usq->timer;
@@ -1457,7 +1322,7 @@ static void unvmed_cmd_timeout(struct unvme_cmd *cmd)
 		} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - 1));
 	} else {
 		do {
-			ret = __unvmed_vcq_push(u, &usq->vcq, &timeout_cqe);
+			ret = unvmed_vcq_push(u, &timeout_cqe);
 		} while (ret == -EAGAIN);
 	}
 
@@ -1637,7 +1502,7 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 			return NULL;
 		}
 
-		if (unvmed_vcq_init(&usq->vcq, qsize)) {
+		if (unvmed_vcq_init(&usq->vcq, qsize, &usq->vcq.qid)) {
 			if (alloc)
 				free(usq);
 			return NULL;
@@ -2124,12 +1989,6 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 	}
 }
 
-static void unvmed_vcq_drain(struct unvme_vcq *vcq)
-{
-	/* Wait for @vcq to be empty (reaped by application) */
-	while (LOAD(vcq->head) != LOAD(vcq->tail))
-		;
-}
 
 static void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 {
@@ -3069,8 +2928,8 @@ uint16_t unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 	return idx;
 }
 
-static struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
-						 struct nvme_cqe *cqe)
+struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
+					  struct nvme_cqe *cqe)
 {
 	struct unvme_sq *usq;
 

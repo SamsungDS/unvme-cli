@@ -135,6 +135,7 @@ struct unvme_bitmap {
 };
 
 struct unvme_vcq {
+	uint32_t qid;
 	int qsize;
 	uint16_t head;
 	uint16_t tail;
@@ -326,8 +327,8 @@ struct unvme_cmd {
 
 	struct unvme_sq *usq;
 	/*
-	 * If != NULL, CQ entry will be pushed to the @vcq for this command by
-	 * one of the following:
+	 * If != 0, CQ entry will be pushed to the @vcq identified by this
+	 * @vcq qid for this command by one of the following:
 	 *   - irq enabled
 	 *     (1) rcq thread
 	 *
@@ -335,7 +336,7 @@ struct unvme_cmd {
 	 *     (1) owner thread
 	 *     (2) another thread (if reaped @ucq before owner thread)
 	 */
-	struct unvme_vcq *vcq;
+	uint32_t vcq;
 	uint16_t cid;
 
 	/*
@@ -520,36 +521,65 @@ static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 }
 
 /**
- * unvmed_cmd_get_vcq - Get @vcq instance of the given @cmd
- * @cmd: command instance
+ * unvmed_vcq_get - Get virtual CQ instance by @qid
+ * @qid: virtual completion queue identifier
  *
- * If application sets @cmd->vcq for their own @vcq usage, it will return the
- * @cmd->vcq, otherwise @cmd->usq->vcq.
- *
- * Return: @vcq instance
+ * Return: &struct unvme_vcq pointer if @qid is valid, otherwise ``NULL``.
  */
-static inline struct unvme_vcq *unvmed_cmd_get_vcq(struct unvme_cmd *cmd)
-{
-	if (cmd->vcq)
-		return cmd->vcq;
-
-	return &cmd->usq->vcq;
-}
+struct unvme_vcq *unvmed_vcq_get(uint32_t qid);
 
 /**
  * unvmed_vcq_init - Initialize virtual CQ for a specific application
  * @vcq: virtual completion queue instance
  * @qsize: size of queue to initialize (usually same as @ucq->qsize)
+ * @qid: output parameter to store the assigned vcq identifier
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize);
+int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize, uint32_t *qid);
 
 /**
  * unvmed_vcq_free - Free virtual CQ
  * @vcq: virtual completion queue instance
  */
 void unvmed_vcq_free(struct unvme_vcq *vcq);
+
+/**
+ * unvmed_cmd_get_vcq - Get @vcq instance of the given @cmd
+ * @cmd: command instance
+ *
+ * If application sets @cmd->vcq for their own @vcq qid, it will return the
+ * corresponding @vcq looked up by the qid, otherwise @cmd->usq->vcq.
+ *
+ * Return: @vcq instance
+ */
+static inline struct unvme_vcq *unvmed_cmd_get_vcq(struct unvme_cmd *cmd)
+{
+	if (cmd->vcq)
+		return unvmed_vcq_get(cmd->vcq);
+
+	return &cmd->usq->vcq;
+}
+
+/**
+ * unvmed_vcq_pop - Pop a CQE from the virtual completion queue
+ * @q: virtual completion queue instance
+ * @cqe: output completion queue entry
+ *
+ * Pop a single CQE from @q.  The caller is the sole consumer; no locking is
+ * required on the head side.
+ *
+ * Return: ``0`` on success, ``-ENOENT`` if @q is empty.
+ */
+int unvmed_vcq_pop(struct unvme_vcq *q, struct nvme_cqe *cqe);
+
+/**
+ * unvmed_vcq_drain - Wait until the virtual completion queue is empty
+ * @vcq: virtual completion queue instance
+ *
+ * Busy-wait until all entries in @vcq have been consumed by the application.
+ */
+void unvmed_vcq_drain(struct unvme_vcq *vcq);
 
 /**
  * unvmed_vcq_run_n - Run the given @vcq for [min, max]
