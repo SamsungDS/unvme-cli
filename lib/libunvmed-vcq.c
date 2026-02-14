@@ -155,6 +155,11 @@ int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
 	}
 
 	vcq = unvmed_cmd_get_vcq(cmd);
+	if (!vcq) {
+		unvmed_log_debug("failed to get @vcq for cmd (sqid=%d, cid=%d), "
+				"skip pushing vcq", cqe->sqid, cqe->cid);
+		return -ENODEV;
+	}
 
 	ret =  __unvmed_vcq_push(u, vcq, cqe);
 	/*
