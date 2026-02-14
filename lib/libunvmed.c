@@ -43,6 +43,7 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 					      struct unvme_cq *ucq);
 static int unvmed_get_pcie_cap_offset(char *bdf);
 static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
+static bool unvmed_cmd_cmpl_wakeup(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 static void __unvmed_reap_cqe(struct unvme_cq *ucq);
 
 static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
@@ -1274,6 +1275,17 @@ static int unvmed_timer_update(struct unvme_sq *usq, int sec)
 	return 0;
 }
 
+static void unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
+{
+	int ret;
+
+	if (!unvmed_cmd_cmpl_wakeup(cmd, cqe)) {
+		do {
+			ret = unvmed_vcq_push(cmd->u, cqe);
+		} while (ret == -EAGAIN);
+	}
+}
+
 static void unvmed_cmd_timeout(struct unvme_cmd *cmd)
 {
 	const uint16_t status =
@@ -1283,8 +1295,6 @@ static void unvmed_cmd_timeout(struct unvme_cmd *cmd)
 	uint16_t qid = unvmed_sq_id(usq);
 	struct unvme *u = cmd->u;
 	uint16_t cid = cmd->cid;
-	int nr_cmds;
-	int ret;
 
 	unvmed_log_err("%s: command timeout detected (sqid=%d, cid=%d)",
 			unvmed_bdf(u), qid, cid);
@@ -1307,25 +1317,7 @@ static void unvmed_cmd_timeout(struct unvme_cmd *cmd)
 	timeout_cqe.cid = cid;
 	timeout_cqe.sfp = cpu_to_le16(status << 1);
 
-	/*
-	 * XXX: unvmed_cmd_cmpl has exactly the same code, will be
-	 * cleaned up.
-	 */
-	if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE) {
-		__unvmed_cmd_cmpl(cmd, &timeout_cqe);
-
-		atomic_store_release(&cmd->completed, 1);
-		unvmed_futex_wake(&cmd->completed, 1);
-
-		do {
-			nr_cmds = u->nr_cmds;
-		} while (!atomic_cmpxchg(&u->nr_cmds, nr_cmds, nr_cmds - 1));
-	} else {
-		do {
-			ret = unvmed_vcq_push(u, &timeout_cqe);
-		} while (ret == -EAGAIN);
-	}
-
+	unvmed_cmd_cmpl(cmd, &timeout_cqe);
 	unvmed_cmd_put(cmd);
 }
 
@@ -1837,7 +1829,7 @@ static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 /*
  * Returns ``true`` if the given @cmd is woke up and finished.
  */
-static bool unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
+static bool unvmed_cmd_cmpl_wakeup(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 {
 	struct unvme *u = cmd->u;
 	int nr_cmds;
@@ -1880,9 +1872,7 @@ static inline void unvmed_put_cqe(struct unvme *u, struct unvme_cq *ucq,
 	cqe.cid = cmd->cid;
 	cqe.sfp = cpu_to_le16((status << 1));
 
-	if (!unvmed_cmd_cmpl(cmd, &cqe))
-		unvmed_vcq_push(u, &cqe);
-
+	unvmed_cmd_cmpl(cmd, &cqe);
 	unvmed_log_info("canceled command (sqid=%u, cid=%u)", cqe.sqid, cqe.cid);
 }
 
@@ -1928,8 +1918,7 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 			 * will not be reaped at all since callers will look at
 			 * @vcq rather than the actual @ucq.
 			 */
-			if (!unvmed_cmd_cmpl(cmd, cqe))
-				unvmed_vcq_push(u, cqe);
+			unvmed_cmd_cmpl(cmd, cqe);
 
 update:
 			if (++head == ucq->q->qsize) {
@@ -2153,7 +2142,6 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 	struct unvme *u = ucq->u;
 	struct unvme_cmd *cmd;
 	struct nvme_cqe *cqe;
-	int ret;
 
 	unvmed_cq_enter(ucq);
 	if (!ucq->q) {
@@ -2173,19 +2161,7 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 			continue;
 		}
 
-		if (unvmed_cmd_cmpl(cmd, cqe))
-			goto up;
-
-		/*
-		 * To protect @vcq, we lock @ucq instance here since the only
-		 * thread context which races with the current context is
-		 * unvmed_cancel_sq where @ucq lock actually held.
-		 */
-		do {
-			ret = unvmed_vcq_push(u, cqe);
-		} while (ret == -EAGAIN);
-
-up:
+		unvmed_cmd_cmpl(cmd, cqe);
 		nvme_cq_update_head(ucq->q);
 	}
 	unvmed_cq_exit(ucq);
@@ -2988,8 +2964,8 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 	cqe = unvmed_get_completion(u, ucq);
 	if (cqe) {
 		cmd = unvmed_get_cmd(usq, cqe->cid);
-		if (cmd && !unvmed_cmd_cmpl(cmd, cqe))
-			unvmed_vcq_push(u, cqe);
+		if (cmd)
+			unvmed_cmd_cmpl(cmd, cqe);
 
 		nvme_cq_update_head(ucq->q);
 		cqe = NULL;
