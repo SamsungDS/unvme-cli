@@ -1279,6 +1279,9 @@ static void unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 {
 	int ret;
 
+	atomic_inc(&cmd->usq->cmd_count[cmd->sqe.opcode]);
+	unvmed_log_cmd_cmpl(unvmed_bdf(cmd->u), cqe);
+
 	if (!unvmed_cmd_cmpl_wakeup(cmd, cqe)) {
 		do {
 			ret = unvmed_vcq_push(cmd->u, cqe);
@@ -1822,8 +1825,6 @@ static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 {
 	cmd->cqe = *cqe;
 	atomic_store_release(&cmd->state, UNVME_CMD_S_COMPLETED);
-	atomic_inc(&cmd->usq->cmd_count[cmd->sqe.opcode]);
-	unvmed_log_cmd_cmpl(unvmed_bdf(cmd->u), cqe);
 }
 
 /*
