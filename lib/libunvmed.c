@@ -4493,6 +4493,39 @@ struct json_object *unvmed_to_json(struct unvme *u)
 	}
 	json_object_object_add(status, "shmem", shmem_obj);
 
+	/* Statistics */
+	struct json_object *stats_array = json_object_new_array();
+	for (int i = 0; i < nr_sqs; i++) {
+		struct unvme_sq *usq = usqs[i];
+		struct json_object *sq_obj;
+		struct json_object *opc_array;
+
+		if (!usq)
+			continue;
+
+		sq_obj = json_object_new_object();
+		json_object_object_add(sq_obj, "id",
+				       json_object_new_int(usq->id));
+
+		opc_array = json_object_new_array();
+		for (int opc = 0; opc < CMD_COUNT_RANGE; opc++) {
+			struct json_object *opc_obj;
+
+			if (!usq->cmd_count[opc])
+				continue;
+
+			opc_obj = json_object_new_object();
+			json_object_object_add(opc_obj, "opcode",
+					       json_object_new_int(opc));
+			json_object_object_add(opc_obj, "count",
+					       json_object_new_uint64(usq->cmd_count[opc]));
+			json_object_array_add(opc_array, opc_obj);
+		}
+		json_object_object_add(sq_obj, "counts", opc_array);
+		json_object_array_add(stats_array, sq_obj);
+	}
+	json_object_object_add(status, "statistics", stats_array);
+
 	free(nslist);
 	free(ucqs);
 	free(usqs);

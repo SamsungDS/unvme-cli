@@ -656,40 +656,6 @@ void unvme_pr_show_regs(const char *format, struct unvme *u)
 	}
 }
 
-static void __unvme_pr_statistics_json(struct unvme *u, struct json_object *root)
-{
-	struct json_object *sq_array = json_object_new_array();
-
-	for (int i = 0; i < u->nr_sqs; i++) {
-		struct unvme_sq *usq = u->sqs[i];
-		struct json_object *sq_obj;
-		struct json_object *opc_array;
-
-		if (!usq)
-			continue;
-
-		sq_obj = json_object_new_object();
-		json_object_object_add(sq_obj, "id", json_object_new_int(usq->id));
-
-		opc_array = json_object_new_array();
-		for (int opc = 0; opc < CMD_COUNT_RANGE; opc++) {
-			struct json_object *opc_obj;
-
-			if (!usq->cmd_count[opc])
-				continue;
-
-			opc_obj = json_object_new_object();
-			json_object_object_add(opc_obj, "opcode", json_object_new_int(opc));
-			json_object_object_add(opc_obj, "count", json_object_new_uint64(usq->cmd_count[opc]));
-			json_object_array_add(opc_array, opc_obj);
-		}
-		json_object_object_add(sq_obj, "counts", opc_array);
-		json_object_array_add(sq_array, sq_obj);
-	}
-
-	json_object_object_add(root, "statistics", sq_array);
-}
-
 static void __unvme_pr_statistics_normal(struct unvme *u)
 {
 	unvme_pr("\nCommand Statistics\n");
@@ -721,8 +687,8 @@ void unvme_pr_status(const char *format, struct unvme *u, bool stats)
 		struct json_object *status = unvmed_to_json(u);
 
 		if (status) {
-			if (stats)
-				__unvme_pr_statistics_json(u, status);
+			if (!stats)
+				json_object_object_del(status, "statistics");
 			unvme_pr("%s\n", json_object_to_json_string_ext(status,
 					JSON_C_TO_STRING_PRETTY));
 		}
