@@ -1958,13 +1958,6 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 			head = LOAD(ucq->q->head);
 
 			cqe = unvmed_get_cqe(ucq, head);
-
-			if (!unvmed_get_cmd_from_cqe(u, cqe)) {
-				unvmed_log_err("invalid cqe, ignored (sqid=%d, cid=%d)",
-						le16_to_cpu(cqe->sqid), cqe->cid);
-				nvme_cq_get_cqe(ucq->q);
-				continue;
-			}
 		} while ((le16_to_cpu(cqe->sfp) & 0x1) != phase);
 	} else {
 		/*
