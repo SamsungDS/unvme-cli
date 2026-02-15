@@ -2158,6 +2158,7 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 		if (!cmd) {
 			unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
 					le16_to_cpu(cqe->sqid), cqe->cid);
+			nvme_cq_update_head(ucq->q);
 			continue;
 		}
 
