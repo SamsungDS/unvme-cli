@@ -2277,27 +2277,16 @@ int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	const uint16_t qid = 0;
-	bool irq_enabled = false;
 
 	if (unvmed_ctrl_get_state(u) != UNVME_DISABLED) {
 		errno = EPERM;
 		goto out;
 	}
 
-	if (irq && u->nr_irqs > 0) {
-		if (unvmed_init_irq(u, 0)) {
-			unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=0, errno=%d \"%s\")",
-					u->nr_irqs, errno, strerror(errno));
-			return -1;
-		}
-
-		irq_enabled = true;
-	}
-
 	ucq = unvmed_init_cq(u, qid, cq_size, 0, 1);
 	if (!ucq) {
 		unvmed_log_err("failed to allocate cq memory");
-		goto free_irq;
+		goto out;
 	}
 
 	usq = unvmed_init_sq(u, qid, sq_size, qid, 0, 1, 0);
@@ -2325,9 +2314,6 @@ free_sq:
 	unvmed_free_sq(u, qid);
 free_cq:
 	unvmed_free_cq(u, qid);
-free_irq:
-	if (irq_enabled)
-		unvmed_free_irq(u, 0);
 out:
 	return -1;
 }
