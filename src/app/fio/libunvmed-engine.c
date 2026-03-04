@@ -450,6 +450,23 @@ static pthread_mutex_t g_serialize = PTHREAD_MUTEX_INITIALIZER;
 /* Device instances; *must* be serialized to update */
 static FLIST_HEAD(g_devices);
 
+/* Thread initialization tracking */
+static int g_initialized_threads;
+static int g_total_threads;
+static bool g_all_threads_initialized;
+
+/*
+ * This function is used to determine whether all threads have completed
+ * initialization. If a similar function is added to the FIO core framework,
+ * this implementation may be removed as redundant.
+ * This API was introduced solely to allow external applications to monitor the
+ * engine's initialization status, and it may be removed at any time.
+ */
+bool libunvmed_fio_all_initialized(void)
+{
+	return LOAD(g_all_threads_initialized);
+}
+
 static inline int ilog2(uint32_t i)
 {
 	int log = -1;
@@ -722,6 +739,12 @@ static int fio_libunvmed_init(struct thread_data *td)
 		return ret;
 
 	/*
+	 * Set total threads count on first call
+	 */
+	if (g_total_threads == 0)
+		g_total_threads = thread_number;
+
+	/*
 	 * If called twice, return directly here.
 	 */
 	if (td->io_ops_data) {
@@ -845,10 +868,9 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	ld->usq = unvmed_sq_get(u, o->sqid);
 	if (!ld->usq) {
 		libunvmed_log("submission queue (--sqid=%d) not found\n", o->sqid);
-		pthread_mutex_unlock(&g_serialize);
-
 		td_vmsg(td, ENOENT, "SQ not found", "fio_libunvmed_open_file");
-		return -1;
+		ret = -1;
+		goto err;
 	}
 
 	ld->ucq = unvmed_cq_get(u, unvmed_sq_cqid(ld->usq));
@@ -856,10 +878,9 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		libunvmed_log("completion queue (--cqid=%d) not found\n",
 				unvmed_sq_cqid(ld->usq));
 		unvmed_sq_put(u, ld->usq);
-		pthread_mutex_unlock(&g_serialize);
-
 		td_vmsg(td, ENOENT, "CQ not found", "fio_libunvmed_open_file");
-		return -1;
+		ret = -1;
+		goto err;
 	}
 
 	if (td->o.iodepth >= unvmed_sq_size(ld->usq)) {
@@ -930,6 +951,13 @@ out:
 		unvmed_cq_put(u, ld->ucq);
 		unvmed_sq_put(u, ld->usq);
 	}
+
+err:
+	/* Increment initialized thread counter */
+	g_initialized_threads++;
+
+	if (g_initialized_threads >= g_total_threads)
+		g_all_threads_initialized = true;
 
 	pthread_mutex_unlock(&g_serialize);
 	return ret;
