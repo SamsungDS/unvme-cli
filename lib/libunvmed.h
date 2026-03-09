@@ -2295,6 +2295,8 @@ int unvmed_hmb_free(struct unvme *u);
  * Allocates a physically contiguous DMA buffer of the given size, maps it to
  * the IOMMU, and returns a pointer to the associated struct iommu_dmabuf.
  *
+ * This API is thread-safe.
+ *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_mem_alloc(struct unvme *u, size_t size, struct iommu_dmabuf *buf);

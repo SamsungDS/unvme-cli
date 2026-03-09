@@ -3883,7 +3883,10 @@ static int unvmed_mem_add(struct unvme *u, struct iommu_dmabuf *buf)
 	__buf->buf.iova = buf->iova;
 	__buf->buf.len = buf->len;
 
+	pthread_rwlock_wrlock(&u->mem_list_lock);
 	list_add_tail(&u->mem_list, &__buf->list);
+	pthread_rwlock_unlock(&u->mem_list_lock);
+
 	return 0;
 }
 
