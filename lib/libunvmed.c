@@ -1637,6 +1637,11 @@ void unvmed_enable_cq(struct unvme_cq *ucq)
 	atomic_store_release(&ucq->enabled, true);
 }
 
+void unvmed_disable_cq(struct unvme_cq *ucq)
+{
+	atomic_store_release(&ucq->enabled, false);
+}
+
 static void __unvmed_free_ucq(struct unvme *u, struct unvme_cq *ucq)
 {
 	uint32_t qid = unvmed_cq_id(ucq);
@@ -4118,6 +4123,8 @@ int unvmed_free_cq(struct unvme *u, uint16_t qid)
 		errno = ENODEV;
 		return -1;
 	}
+
+	unvmed_disable_cq(ucq);
 
 	__unvmed_delete_cq(u, ucq);
 	return 0;

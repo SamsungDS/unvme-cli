@@ -1334,6 +1334,15 @@ struct unvme_cq *unvmed_init_cq_iova(struct unvme *u, uint32_t qid, uint32_t qsi
 void unvmed_enable_cq(struct unvme_cq *ucq);
 
 /**
+ * unvmed_disable_cq - Disable the corresponding @ucq.
+ * @ucq: completion queue (&struct unvme_cq)
+ *
+ * This function disables the completion queue by atomically clearing the
+ * @ucq->enabled flag.
+ */
+void unvmed_disable_cq(struct unvme_cq *ucq);
+
+/**
  * unvmed_free_sq - Clean up SQ on command error
  * @u: unvme controller instance
  * @qid: submission queue identifier
