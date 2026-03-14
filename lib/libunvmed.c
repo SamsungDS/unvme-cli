@@ -1552,7 +1552,7 @@ void unvmed_enable_sq(struct unvme_sq *usq)
 	atomic_store_release(&usq->enabled, true);
 }
 
-static void unvmed_disable_sq(struct unvme_sq *usq)
+void unvmed_disable_sq(struct unvme_sq *usq)
 {
 	atomic_store_release(&usq->enabled, false);
 }
@@ -1978,7 +1978,7 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 }
 
 
-static void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
+void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 {
 	if (!usq->q)
 		return;

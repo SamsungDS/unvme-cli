@@ -1293,6 +1293,15 @@ struct unvme_sq *unvmed_init_sq_iova(struct unvme *u, uint32_t qid, uint32_t qsi
 void unvmed_enable_sq(struct unvme_sq *usq);
 
 /**
+ * unvmed_disable_sq - Disable the corresponding @usq.
+ * @usq: submission queue (&struct unvme_sq)
+ *
+ * This function disables the submission queue by atomically clearing the
+ * @usq->enabled flag.
+ */
+void unvmed_disable_sq(struct unvme_sq *usq);
+
+/**
  * unvmed_init_cq - Configure and initialize completion queue
  * @u: unvme controller instance
  * @qid: completion queue identifier
@@ -1460,6 +1469,18 @@ static inline struct unvme_cmd *unvmed_get_cmd(struct unvme_sq *usq,
 		return NULL;
 	return cmd;
 }
+
+
+/**
+ * unvmed_cancel_cmd - Cancel a command in the submission queue
+ * @u: &struct unvme
+ * @usq: submission queue (&struct unvme_sq)
+ *
+ * This function drains @usq->ucq, cancels the submission queue, and waits
+ * for all commands to be fetched from its own @vcq in submission
+ * threads.
+ */
+void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq);
 
 /**
  * __unvmed_cq_run_n - Reap CQ entries from a completion queue
