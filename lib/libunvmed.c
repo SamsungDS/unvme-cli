@@ -1821,6 +1821,36 @@ void unvmed_unquiesce_sq_all(struct unvme *u)
 	}
 }
 
+int unvmed_quiesce_sq(struct unvme *u, uint16_t qid)
+{
+	struct unvme_sq *usq;
+
+	usq = unvmed_sq_get(u, qid);
+	if (!usq) {
+		unvmed_log_err("failed to get sq instance (qid=%d)", qid);
+		return -1;
+	}
+	unvmed_sq_enter(usq);
+	unvmed_sq_put(u, usq);
+
+	return 0;
+}
+
+int unvmed_unquiesce_sq(struct unvme *u, uint16_t qid)
+{
+	struct unvme_sq *usq;
+
+	usq = unvmed_sq_get(u, qid);
+	if (!usq) {
+		unvmed_log_err("failed to get sq instance (qid=%d)", qid);
+		return -1;
+	}
+	unvmed_sq_exit(usq);
+	unvmed_sq_put(u, usq);
+
+	return 0;
+}
+
 static inline struct nvme_cqe *unvmed_get_cqe(struct unvme_cq *ucq, uint32_t head)
 {
 	return (struct nvme_cqe *)(ucq->q->mem.vaddr + (head << NVME_CQES));

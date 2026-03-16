@@ -1077,6 +1077,30 @@ void unvmed_quiesce_sq_all(struct unvme *u);
 void unvmed_unquiesce_sq_all(struct unvme *u);
 
 /**
+ * unvmed_quiesce_sq - Quiesce a specific submission queue instance
+ * @u: &struct unvme
+ * @qid: submission queue identifier
+ *
+ * This is to quiesce(lock) the @usq instances to avoid additional command
+ * submissions among threads.
+ *
+ * Return: ``0`` on success, otherwise ``-1``.
+ */
+int unvmed_quiesce_sq(struct unvme *u, uint16_t qid);
+
+/**
+ * unvmed_unquiesce_sq - Unquiesce a specific submission queue instance
+ * @u: &struct unvme
+ * @qid: submission queue identifier
+ *
+ * This is to unquiesce(un-lock) the @usq instances to allow additional
+ * command submissions from threads.
+ *
+ * Return: ``0`` on success, otherwise ``-1``.
+ */
+int unvmed_unquiesce_sq(struct unvme *u, uint16_t qid);
+
+/**
  * unvmed_free_ctx - Free(discard) all contexts of @u
  * @u: &struct unvme
  *
