@@ -626,6 +626,7 @@ static int libunvmed_init_data(struct thread_data *td)
 	uint32_t lba_size;
 	ssize_t ret;
 	size_t mlen;
+	ssize_t max_xfer_size;
 
 	if (td->io_ops_data)
 		goto out;
@@ -651,6 +652,12 @@ static int libunvmed_init_data(struct thread_data *td)
 	ld->u = u;
 	ld->ns = ns;
 
+	max_xfer_size = unvmed_get_max_xfer_size(u);
+	if (max_xfer_size < 0) {
+		libunvmed_log("failed to get maximum transfer size");
+		return -EINVAL;
+	}
+
 	/*
 	 * The given ``bs`` may not be fit with the namespace format.  To prevent
 	 * variable error cases, we have to handle this as an error and notice to user.
@@ -661,6 +668,11 @@ static int libunvmed_init_data(struct thread_data *td)
 		lba_size = ns->lba_size + ns->ms;
 
 	for_each_rw_ddir(ddir) {
+		if (td->o.max_bs[ddir] > max_xfer_size) {
+			libunvmed_log("bs must be smaller than max_xfer_size (%ld bytes)\n", max_xfer_size);
+			return -EINVAL;
+		}
+
 		if (td->o.min_bs[ddir] % lba_size || td->o.max_bs[ddir] % lba_size) {
 			libunvmed_log("bs must be multiple of %d\n", lba_size);
 			return -EINVAL;
