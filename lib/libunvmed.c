@@ -129,7 +129,7 @@ static int __unvmed_mem_alloc(struct unvme *u, size_t size,
 	return 0;
 }
 
-static int __unvmed_mem_free(struct unvme *u, struct iommu_dmabuf *buf);
+static int __unvmed_mem_free(struct unvme *u, uint64_t iova);
 
 static LIST_HEAD(unvme_list);
 
@@ -3954,25 +3954,33 @@ struct iommu_dmabuf *unvmed_mem_get(struct unvme *u, uint64_t iova)
 	return NULL;
 }
 
-static int __unvmed_mem_free(struct unvme *u, struct iommu_dmabuf *buf)
+static int __unvmed_mem_free(struct unvme *u, uint64_t iova)
 {
-	struct unvme_dmabuf *dbuf;
-	struct iommu_dmabuf *found;
+	struct unvme_dmabuf *dbuf = NULL;
+	bool found = false;
 
-	found = unvmed_mem_get(u, buf->iova);
+	pthread_rwlock_wrlock(&u->mem_list_lock);
+
+	list_for_each(&u->mem_list, dbuf, list) {
+		uint64_t start = dbuf->buf.iova;
+		uint64_t end = start + dbuf->buf.len;
+
+		if (iova >= start && iova < end) {
+			list_del(&dbuf->list);
+			found = true;
+			break;
+		}
+	}
+
+	pthread_rwlock_unlock(&u->mem_list_lock);
+
 	if (!found) {
 		errno = EINVAL;
 		return -1;
 	}
 
-	dbuf = container_of(found, struct unvme_dmabuf, buf);
-
-	unvmed_unmap_vaddr(u, buf->vaddr);
-	pgunmap(buf->vaddr, buf->len);
-
-	pthread_rwlock_wrlock(&u->mem_list_lock);
-	list_del(&dbuf->list);
-	pthread_rwlock_unlock(&u->mem_list_lock);
+	unvmed_unmap_vaddr(u, dbuf->buf.vaddr);
+	pgunmap(dbuf->buf.vaddr, dbuf->buf.len);
 
 	free(dbuf);
 	return 0;
@@ -3980,13 +3988,7 @@ static int __unvmed_mem_free(struct unvme *u, struct iommu_dmabuf *buf)
 
 int unvmed_mem_free(struct unvme *u, uint64_t iova)
 {
-	struct iommu_dmabuf *buf;
-
-	buf = unvmed_mem_get(u, iova);
-	if (!buf)
-		return -1;
-
-	return __unvmed_mem_free(u, buf);
+	return __unvmed_mem_free(u, iova);
 }
 
 static struct unvme_sq *__unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
