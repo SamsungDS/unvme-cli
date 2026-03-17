@@ -1243,6 +1243,12 @@ static int unvmed_cid_init(struct unvme_sq *usq, size_t size)
 		return -1;
 	}
 
+	/*
+	 * Mark un-used trailing bits in-used.
+	 */
+	if (size % 8)
+		bitmap->bits[bitmap->nr_bytes - 1] = (uint8_t)(0xff << (size % 8));
+
 	return 0;
 }
 
