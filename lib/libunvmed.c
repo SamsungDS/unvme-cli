@@ -45,6 +45,7 @@ static int unvmed_get_pcie_cap_offset(char *bdf);
 static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 static bool unvmed_cmd_cmpl_wakeup(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 static void __unvmed_reap_cqe(struct unvme_cq *ucq);
+static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl);
 
 static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
 {
@@ -525,7 +526,19 @@ int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl)
 	}
 
 	memcpy(u->id_ctrl, id_ctrl, sizeof(*u->id_ctrl));
+
 	return 0;
+}
+
+ssize_t unvmed_get_max_xfer_size(struct unvme *u)
+{
+	if (!u->id_ctrl) {
+		unvmed_log_err("failed to get id-ctrl context");
+		errno = EINVAL;
+		return -1;
+	}
+
+	return (1ULL << u->id_ctrl->mdts) * __mps_to_pagesize(u->mps);
 }
 
 static int unvmed_init_irq_reaper(struct unvme *u, int vector)

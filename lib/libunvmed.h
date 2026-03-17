@@ -949,6 +949,14 @@ struct unvme_cq *unvmed_cq_find(struct unvme *u, uint32_t qid);
 int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl);
 
 /**
+ * unvmed_get_max_xfer_size - Get the maximum transfer size of an I/O
+ * @u: &struct unvme
+ *
+ * Return: maximum transfer size in bytes, otherwise ``-1``.
+ */
+ssize_t unvmed_get_max_xfer_size(struct unvme *u);
+
+/**
  * unvmed_alloc_cmd - Allocate a NVMe command instance.
  * @u: &struct unvme
  * @usq: submission queue instance (&struct unvme_sq)
