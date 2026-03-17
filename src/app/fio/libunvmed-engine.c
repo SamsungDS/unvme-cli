@@ -380,6 +380,7 @@ struct libunvmed_data {
 	 */
 	void *prp_list_iomem;
 	size_t prp_list_iomem_size;
+	size_t prp_list_iomem_usize;  /* unit size for per io_u */
 
 	/*
 	 * metadata buffer and size
@@ -938,6 +939,26 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		}
 	}
 
+	if (ld->prp_list_iomem) {
+		uint64_t iova;
+
+		ret = unvmed_map_vaddr(u, ld->prp_list_iomem, ld->prp_list_iomem_size,
+				&iova, 0);
+		if (ret) {
+			libunvmed_log("failed to map prp_list iomem to iommu\n");
+
+			if (ld->prp_iomem && unvmed_unmap_vaddr(u, ld->prp_iomem))
+				libunvmed_log("failed to unmap prp_iomem\n");
+			if (td->orig_buffer && unvmed_unmap_vaddr(u, td->orig_buffer))
+				libunvmed_log("failed to unmap orig_buffer\n");
+
+			ret = -1;
+			td_vmsg(td, EFAULT, "buffer mapping failed",
+					"fio_libunvmed_open_file");
+			goto out;
+		}
+	}
+
 	if (libunvmed_parse_prchk(o)) {
 		libunvmed_log("'pi_chk=' has neither GUARD, APPTAG, or REFTAG\n");
 		ret = -1;
@@ -986,6 +1007,12 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 	if (ret) {
 		libunvmed_log("failed to grab mutex lock\n");
 		return ret;
+	}
+
+	if (ld->prp_list_iomem) {
+		ret = unvmed_unmap_vaddr(ld->u, ld->prp_list_iomem);
+		if (ret)
+			libunvmed_log("failed to unmap prp list iomem from iommu\n");
 	}
 
 	if (ld->prp_iomem) {
@@ -1062,6 +1089,30 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 
 		ld->prp_list_iomem = ptr;
 		ld->prp_list_iomem_size = size;
+	} else {
+		/*
+		 * Give +1 spare since the last entry of a prplist is a linked
+		 * entry, not data entry.
+		 */
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+		int nr_lists = DIV_ROUND_UP((td_max_bs(td) / getpagesize()) * sizeof(uint64_t),
+				getpagesize()) + 1;
+		size_t __size = (size_t)nr_lists * getpagesize() * td->o.iodepth;
+		size = pgmap(&ld->prp_list_iomem, __size);
+		if (size < 0) {
+			libunvmed_log("failed to allocate prplist_iomem\n");
+
+			if (ld->prp_iomem)
+				pgunmap(ld->prp_iomem, ld->prp_iomem_size);
+			if (td->orig_buffer)
+				pgunmap(td->orig_buffer, ld->orig_buffer_size);
+
+			pthread_mutex_unlock(&g_serialize);
+			return 1;
+		}
+
+		ld->prp_list_iomem_size = size;
+		ld->prp_list_iomem_usize = (size_t)nr_lists * getpagesize();
 	}
 
 	pthread_mutex_unlock(&g_serialize);
@@ -1074,6 +1125,9 @@ static void fio_libunvmed_iomem_free(struct thread_data *td)
 	struct libunvmed_options *o = td->eo;
 
 	pthread_mutex_lock(&g_serialize);
+
+	if (ld->prp_list_iomem)
+		pgunmap(ld->prp_list_iomem, ld->prp_list_iomem_size);
 
 	if (ld->prp_iomem)
 		pgunmap(ld->prp_iomem, ld->prp_iomem_size);
@@ -1393,8 +1447,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 
 	cmd->sqe = (union nvme_cmd)sqe;
 
-	if (o->cmb_list)
-		list = ld->prp_list_iomem + (io_u->index * getpagesize());
+	list = ld->prp_list_iomem + (io_u->index * ld->prp_list_iomem_usize);
 
 	if (o->enable_sgl) {
 		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
