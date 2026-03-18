@@ -74,7 +74,7 @@ static const char *unvmed_log_read_write(union nvme_cmd *sqe)
 {
 	uint64_t slba = ((uint64_t) le32_to_cpu(sqe->cdw11) << 32) |
 		le32_to_cpu(sqe->cdw10);
-	uint16_t length = le32_to_cpu(sqe->cdw12) & 0xFF;
+	uint16_t length = le32_to_cpu(sqe->cdw12) & 0xFFFF;
 	uint16_t control = (le32_to_cpu(sqe->cdw12) >> 16) & 0xFFFF;
 	uint32_t dsmgmt = le32_to_cpu(sqe->cdw13);
 	uint32_t reftag = le32_to_cpu(sqe->cdw14);
