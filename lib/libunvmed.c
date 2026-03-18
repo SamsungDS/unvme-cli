@@ -2522,10 +2522,10 @@ static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 	bool irq = unvmed_cq_irq_enabled(ucq);
 
 	unvmed_discard_cq(u, qid);
-	if (!unvmed_cq_put(u, ucq)) {
-		if (irq)
-			unvmed_free_irq(u, vector);
-	}
+	unvmed_cq_put(u, ucq);
+
+	if (irq)
+		unvmed_free_irq(u, vector);
 }
 
 static void __unvmed_delete_cq_all(struct unvme *u)
