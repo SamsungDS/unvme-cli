@@ -2109,7 +2109,7 @@ void unvmed_reset_ctx(struct unvme *u)
 void unvmed_reset_ctrl(struct unvme *u)
 {
 	if (__unvme_reset_ctrl(u)) {
-		unvmed_log_err("faeild to reset the controller");
+		unvmed_log_err("failed to reset the controller");
 		return;
 	}
 
