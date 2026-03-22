@@ -543,7 +543,7 @@ ssize_t unvmed_get_max_xfer_size(struct unvme *u)
 		return -1;
 	}
 
-	return (1ULL << u->id_ctrl->mdts) * __mps_to_pagesize(u->mps);
+	return (1ULL << u->id_ctrl->mdts) * unvmed_pagesize(u);
 }
 
 static int unvmed_init_irq_reaper(struct unvme *u, int vector)
@@ -3813,7 +3813,7 @@ struct unvme_hmb *unvmed_hmb(struct unvme *u)
 
 int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 {
-	const size_t page_size = unvmed_pow(2, u->mps + 12);
+	const size_t page_size = unvmed_pagesize(u);
 	void *descs = NULL;
 	uint64_t iova;
 	ssize_t ret;
@@ -3901,7 +3901,7 @@ free:
 
 int unvmed_hmb_free(struct unvme *u)
 {
-	const size_t page_size = unvmed_pow(2, u->mps + 12);
+	const size_t page_size = unvmed_pagesize(u);
 	size_t size;
 	int i;
 
@@ -4090,7 +4090,7 @@ struct unvme_sq *unvmed_init_sq_iova(struct unvme *u, uint32_t qid, uint32_t qsi
 				     uint64_t iova)
 {
 	struct iommu_dmabuf mem;
-	size_t size = ALIGN_UP(qsize << NVME_SQES, __VFN_PAGESIZE);
+	size_t size = ALIGN_UP(qsize << NVME_SQES, unvmed_pagesize(u));
 
 	if (unvmed_map_iova_to_mem(u, iova, size, &mem))
 		return NULL;
@@ -4147,7 +4147,7 @@ struct unvme_cq *unvmed_init_cq_iova(struct unvme *u, uint32_t qid, uint32_t qsi
 				     int vector, int pc, uint64_t iova)
 {
 	struct iommu_dmabuf mem;
-	size_t size = ALIGN_UP(qsize << NVME_CQES, __VFN_PAGESIZE);
+	size_t size = ALIGN_UP(qsize << NVME_CQES, unvmed_pagesize(u));
 
 	if (unvmed_map_iova_to_mem(u, iova, size, &mem))
 		return NULL;

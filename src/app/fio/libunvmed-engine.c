@@ -560,7 +560,7 @@ static int libunvmed_cmb_alloc(struct thread_data *td, void **ptr, size_t len)
 	if (!__cmb_ptr)
 		__cmb_ptr = cmb;
 
-	len = ROUND_UP(len, getpagesize());
+	len = ROUND_UP(len, unvmed_pagesize(ld->u));
 
 	if (__cmb_ptr + len > cmb + size) {
 		libunvmed_log("failed to allocate data buffer in CMB memory, "
@@ -1044,6 +1044,7 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 
 	uint64_t max_bs = td_max_bs(td);
 	uint64_t max_units = td->o.iodepth;
+	struct unvme *u = ld->u;
 
 	ssize_t size;
 	void *ptr;
@@ -1075,13 +1076,13 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 	ld->orig_buffer_size = size;
 
 	if (o->prp1_offset) {
-		ld->prp_iomem_usize = max_bs + getpagesize();
+		ld->prp_iomem_usize = max_bs + unvmed_pagesize(u);
 		ld->prp_iomem_size = pgmap(&ld->prp_iomem,
 				ld->prp_iomem_usize * max_units);
 	}
 
 	if (o->cmb_list) {
-		size = getpagesize() * td->o.iodepth;
+		size = unvmed_pagesize(u) * td->o.iodepth;
 		if (libunvmed_cmb_alloc(td, &ptr, size)) {
 			pthread_mutex_unlock(&g_serialize);
 			return 1;
@@ -1095,9 +1096,9 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 		 * entry, not data entry.
 		 */
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-		int nr_lists = DIV_ROUND_UP((td_max_bs(td) / getpagesize()) * sizeof(uint64_t),
-				getpagesize()) + 1;
-		size_t __size = (size_t)nr_lists * getpagesize() * td->o.iodepth;
+		int nr_lists = DIV_ROUND_UP((td_max_bs(td) / unvmed_pagesize(u)) * sizeof(uint64_t),
+				unvmed_pagesize(u)) + 1;
+		size_t __size = (size_t)nr_lists * unvmed_pagesize(u) * td->o.iodepth;
 		size = pgmap(&ld->prp_list_iomem, __size);
 		if (size < 0) {
 			libunvmed_log("failed to allocate prplist_iomem\n");
@@ -1112,7 +1113,7 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 		}
 
 		ld->prp_list_iomem_size = size;
-		ld->prp_list_iomem_usize = (size_t)nr_lists * getpagesize();
+		ld->prp_list_iomem_usize = (size_t)nr_lists * unvmed_pagesize(u);
 	}
 
 	pthread_mutex_unlock(&g_serialize);
