@@ -134,7 +134,8 @@ int __unvmed_mem_alloc(struct unvme *u, size_t size,
 		return -1;
 	}
 
-	if (iommu_map_vaddr(buf->ctx, buf->vaddr, buf->len, &buf->iova, 0x0)) {
+	buf->iova = (uint64_t)buf->vaddr;
+	if (iommu_map_vaddr(buf->ctx, buf->vaddr, buf->len, &buf->iova, IOMMU_MAP_FIXED_IOVA)) {
 		unvmed_pgunmap(buf->vaddr);
 		unvmed_log_err("failed to map a buffer to IOMMU");
 		return -1;
@@ -2913,7 +2914,8 @@ int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len,
 {
 	struct iommu_ctx *ctx = __iommu_ctx(&u->ctrl);
 
-	if (iommu_map_vaddr(ctx, buf, len, iova, flags))
+	*iova = (uint64_t)buf;
+	if (iommu_map_vaddr(ctx, buf, len, iova, flags | IOMMU_MAP_FIXED_IOVA))
 		return -1;
 
 	return 0;
