@@ -2377,6 +2377,17 @@ out:
 	return -1;
 }
 
+static void __unvmed_init_mps(struct unvme *u, uint8_t mps)
+{
+	u->mps = mps;
+
+	/*
+	 * Let libvfn be aware of MPS configuration since libunvmed doesn't
+	 * call `nvme_ctrl_init()` in libvfn.
+	 */
+	u->ctrl.config.mps = mps;
+}
+
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 		      uint8_t mps, uint8_t ams, uint8_t css, int timeout)
 {
@@ -2409,7 +2420,7 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 			break;
 	}
 
-	u->mps = mps;
+	__unvmed_init_mps(u, mps);
 	u->timeout = timeout;
 
 	/*
