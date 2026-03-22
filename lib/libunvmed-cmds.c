@@ -192,7 +192,7 @@ static void unvmed_buf_free(struct unvme *u, struct unvme_buf *buf)
 		unvmed_unmap_vaddr(u, buf->va);
 
 	if (buf->flags & UNVME_CMD_BUF_F_VA_UNMAP)
-		pgunmap(buf->va, buf->len);
+		unvmed_pgunmap(buf->va);
 }
 
 static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u,
@@ -250,9 +250,9 @@ static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
 	 * unvmed_cmd_put().
 	 */
 	if (!buf && len) {
-		__len = pgmap(&__buf, len);
+		__len = unvmed_pgmap(u, &__buf, len);
 		if (__len < 0) {
-			unvmed_log_err("failed to mmap() for data buffer");
+			unvmed_log_err("failed to allocate data buffer");
 			return -1;
 		}
 
@@ -270,7 +270,7 @@ static int unvmed_buf_init(struct unvme *u, struct unvme_buf *ubuf,
 				unvmed_log_err("failed to map vaddr for data buffer");
 
 				if (__buf)
-					pgunmap(buf, len);
+					unvmed_pgunmap(buf);
 				return -1;
 			}
 			ubuf->flags |= UNVME_CMD_BUF_F_IOVA_UNMAP;

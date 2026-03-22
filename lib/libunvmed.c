@@ -124,11 +124,19 @@ size_t unvmed_pagesize(struct unvme *u)
 	return __mps_to_pagesize(u->mps);
 }
 
-static int __unvmed_mem_alloc(struct unvme *u, size_t size,
-			      struct iommu_dmabuf *buf)
+int __unvmed_mem_alloc(struct unvme *u, size_t size,
+		       struct iommu_dmabuf *buf, size_t pagesize)
 {
-	if (iommu_get_dmabuf(__iommu_ctx(&u->ctrl), buf, size, 0x0)) {
+	buf->ctx = __iommu_ctx(&u->ctrl);
+	buf->len = unvmed_pgmap_aligned(u, &buf->vaddr, size, pagesize);
+	if (buf->len < 0) {
 		unvmed_log_err("failed to allocate a buffer");
+		return -1;
+	}
+
+	if (iommu_map_vaddr(buf->ctx, buf->vaddr, buf->len, &buf->iova, 0x0)) {
+		unvmed_pgunmap(buf->vaddr);
+		unvmed_log_err("failed to map a buffer to IOMMU");
 		return -1;
 	}
 
@@ -970,7 +978,7 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	uint8_t format_idx;
 
 	if (!id_ns) {
-		pgmap((void **)&id_ns, sizeof(struct nvme_id_ns));
+		unvmed_pgmap(u, (void **)&id_ns, sizeof(struct nvme_id_ns));
 		if (!id_ns) {
 			unvmed_log_err("failed to allocate a buffer");
 			return -1;
@@ -984,7 +992,7 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 		ns = zmalloc(sizeof(struct __unvme_ns));
 		if (!ns) {
 			if (id_ns != identify)
-				pgunmap(id_ns, sizeof(*id_ns));
+				unvmed_pgunmap(id_ns);
 			return -1;
 		}
 	} else {
@@ -1025,7 +1033,7 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	ns->enabled = true;
 
 	if (id_ns != identify)
-		pgunmap(id_ns, sizeof(*id_ns));
+		unvmed_pgunmap(id_ns);
 	return 0;
 }
 
@@ -1194,7 +1202,7 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 	 * to calling this function?
 	 */
 	if (!u->id_ctrl) {
-		pgmap((void **)&id_ctrl, sizeof(struct nvme_id_ctrl));
+		unvmed_pgmap(u, (void **)&id_ctrl, sizeof(struct nvme_id_ctrl));
 		if (!id_ctrl) {
 			unvmed_log_err("failed to allocate a buffer");
 			ret = -1;
@@ -1203,13 +1211,13 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 
 		if (__unvmed_id_ctrl(u, id_ctrl)) {
 			unvmed_log_err("failed to identify controller");
-			pgunmap(id_ctrl, sizeof(struct nvme_id_ctrl));
+			unvmed_pgunmap(id_ctrl);
 			ret = -1;
 			goto out;
 		}
 
 		unvmed_init_id_ctrl(u, id_ctrl);
-		pgunmap(id_ctrl, sizeof(struct nvme_id_ctrl));
+		unvmed_pgunmap(id_ctrl);
 	}
 
 	/*
@@ -1220,7 +1228,7 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 		goto out;
 
 	if (!__nvm_id_ns) {
-		pgmap((void **)&__nvm_id_ns, sizeof(struct nvme_nvm_id_ns));
+		unvmed_pgmap(u, (void **)&__nvm_id_ns, sizeof(struct nvme_nvm_id_ns));
 		if (!__nvm_id_ns) {
 			unvmed_log_err("failed to allocate a buffer");
 			ret = -1;
@@ -1243,7 +1251,7 @@ out:
 	assert(refcnt > 0);
 
 	if (__nvm_id_ns != nvm_id_ns)
-		pgunmap(__nvm_id_ns, sizeof(struct nvme_nvm_id_ns));
+		unvmed_pgunmap(__nvm_id_ns);
 
 	return ret;
 }
@@ -3828,7 +3836,6 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 	void *descs = NULL;
 	uint64_t iova;
 	ssize_t ret;
-	size_t memsize;
 	size_t hsize = 0;
 	int i;
 
@@ -3838,12 +3845,11 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 		return -1;
 	}
 
-	ret = pgmap(&descs, nr_bsize * sizeof(*u->hmb.descs));
+	ret = unvmed_pgmap(u, &descs, nr_bsize * sizeof(*u->hmb.descs));
 	if (ret < 0) {
 		unvmed_log_err("failed to allocate HMB buffer descriptors");
 		return -1;
 	}
-	memsize = ret;
 
 	if (unvmed_map_vaddr(u, descs, ret, &iova, 0x0) < 0) {
 		unvmed_log_err("failed to map HMB buffer descriptors to IOMMU");
@@ -3868,7 +3874,7 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 		size_t size = bsize[i] * page_size;
 		void *buf = NULL;
 
-		ret = pgmap(&buf, size);
+		ret = unvmed_pgmap(u, &buf, size);
 		if (ret < 0) {
 			unvmed_log_err("failed to allocate HMB buffer");
 			goto free;
@@ -3892,17 +3898,16 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 	return 0;
 free:
 	for (i = 0; i < nr_bsize; i++) {
-		size_t size = bsize[i] * page_size;
 		if (u->hmb.descs[i].badd) {
 			unvmed_unmap_vaddr(u, (void *)u->hmb.descs_vaddr[i]);
-			pgunmap((void *)u->hmb.descs_vaddr[i], size);
+			unvmed_pgunmap((void *)u->hmb.descs_vaddr[i]);
 		}
 	}
 
 	if (u->hmb.descs_vaddr)
 		free(u->hmb.descs_vaddr);
 	unvmed_unmap_vaddr(u, descs);
-	pgunmap(descs, memsize);
+	unvmed_pgunmap(descs);
 
 	memset(&u->hmb, 0, sizeof(u->hmb));
 
@@ -3912,8 +3917,6 @@ free:
 
 int unvmed_hmb_free(struct unvme *u)
 {
-	const size_t page_size = unvmed_pagesize(u);
-	size_t size;
 	int i;
 
 	if (!u->hmb.descs) {
@@ -3923,10 +3926,8 @@ int unvmed_hmb_free(struct unvme *u)
 
 	for (i = 0; i < u->hmb.nr_descs; i++) {
 		if (u->hmb.descs[i].badd) {
-			size = le32_to_cpu(u->hmb.descs[i].bsize) * page_size;
-
 			unvmed_unmap_vaddr(u, (void *)u->hmb.descs_vaddr[i]);
-			pgunmap((void *)u->hmb.descs_vaddr[i], size);
+			unvmed_pgunmap((void *)u->hmb.descs_vaddr[i]);
 			unvmed_log_info("HMB descriptor #%d freed", i);
 		}
 	}
@@ -3934,7 +3935,7 @@ int unvmed_hmb_free(struct unvme *u)
 	if (unvmed_unmap_vaddr(u, u->hmb.descs) < 0)
 		unvmed_log_err("failed to unmap HMB buffer descriptors from IOMMU");
 
-	pgunmap(u->hmb.descs, u->hmb.descs_size);
+	unvmed_pgunmap(u->hmb.descs);
 
 	memset(&u->hmb, 0, sizeof(u->hmb));
 	return 0;
@@ -3962,12 +3963,14 @@ static int unvmed_mem_add(struct unvme *u, struct iommu_dmabuf *buf)
 
 int unvmed_mem_alloc(struct unvme *u, size_t size, struct iommu_dmabuf *buf)
 {
-	if (__unvmed_mem_alloc(u, size, buf))
+	size_t pagesize = getpagesize();
+
+	if (__unvmed_mem_alloc(u, size, buf, pagesize))
 		return -1;
 
 	if (unvmed_mem_add(u, buf)) {
 		unvmed_unmap_vaddr(u, buf->vaddr);
-		pgunmap(buf->vaddr, buf->len);
+		unvmed_pgunmap(buf->vaddr);
 		return -1;
 	}
 
@@ -4015,7 +4018,7 @@ static int __unvmed_mem_free(struct unvme *u, uint64_t iova)
 	}
 
 	unvmed_unmap_vaddr(u, dbuf->buf.vaddr);
-	pgunmap(dbuf->buf.vaddr, dbuf->buf.len);
+	unvmed_pgunmap(dbuf->buf.vaddr);
 
 	free(dbuf);
 	return 0;

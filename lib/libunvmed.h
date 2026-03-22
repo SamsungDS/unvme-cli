@@ -529,6 +529,61 @@ static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 size_t unvmed_pagesize(struct unvme *u);
 
 /**
+ * unvmed_pgmap_aligned - Allocate a buffer aligned to the given pagesize
+ * @u: &struct unvme
+ * @mem: pointer to store the allocated address
+ * @sz: size in bytes to allocate
+ * @pagesize: pagesize to align
+ *
+ * Allocates memory using posix_memalign() aligned to the given pagesize.
+ * rounding @sz up to the next multiple of the pagesize.
+ *
+ * Return: allocated size on success, -1 on failure with ``errno`` set.
+ */
+static inline ssize_t unvmed_pgmap_aligned(struct unvme *u, void **mem,
+					   size_t sz, size_t pagesize)
+{
+	size_t len = ALIGN_UP(sz, pagesize);
+
+	if (posix_memalign(mem, pagesize, len))
+		return -1;
+
+	/*
+	 * Zero-fill just like `mmap()` in libvfn and to ensure the page-fault
+	 * to happen to let page into the physical memory.
+	 */
+	memset(*mem, 0, len);
+	return len;
+}
+
+/**
+ * unvmed_pgmap - Allocate a buffer aligned to the MPS-based pagesize
+ * @u: &struct unvme
+ * @mem: pointer to store the allocated address
+ * @sz: size in bytes to allocate
+ *
+ * Allocates memory using posix_memalign() aligned to unvmed_pagesize(@u),
+ * rounding @sz up to the next multiple of the MPS-based pagesize.
+ *
+ * Return: allocated size on success, -1 on failure with ``errno`` set.
+ */
+static inline ssize_t unvmed_pgmap(struct unvme *u, void **mem, size_t sz)
+{
+	size_t pagesize = unvmed_pagesize(u);
+
+	return unvmed_pgmap_aligned(u, mem, sz, pagesize);
+}
+
+/**
+ * unvmed_pgunmap - Free a buffer allocated by unvmed_pgmap()
+ * @mem: pointer returned by unvmed_pgmap()
+ */
+static inline void unvmed_pgunmap(void *mem)
+{
+	free(mem);
+}
+
+/**
  * unvmed_vcq_get - Get virtual CQ instance by @qid
  * @qid: virtual completion queue identifier
  *
@@ -2355,6 +2410,23 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize);
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_hmb_free(struct unvme *u);
+
+/**
+ * __unvmed_mem_alloc - Allocate and map a DMA buffer for NVMe controller
+ * @u: pointer to struct unvme controller
+ * @size: size of the buffer to allocate
+ * @buf: output buffer allocated
+ * @pagesize: pagesize in bytes to align
+ *
+ * Allocates a physically contiguous DMA buffer of the given size, maps it to
+ * the IOMMU, and returns a pointer to the associated struct iommu_dmabuf.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ */
+int __unvmed_mem_alloc(struct unvme *u, size_t size,
+		       struct iommu_dmabuf *buf, size_t pagesize);
 
 /**
  * unvmed_mem_alloc - Allocate and map a DMA buffer for NVMe controller
