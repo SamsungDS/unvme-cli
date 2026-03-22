@@ -521,6 +521,14 @@ static inline bool unvmed_cq_irq_enabled(struct unvme_cq *ucq)
 }
 
 /**
+ * unvmed_pagesize - Get configured MPS-based pagesize in bytes
+ * @u: &struct unvme
+ *
+ * Return: Size of memory page size(MPS) configured in CC register
+ */
+size_t unvmed_pagesize(struct unvme *u);
+
+/**
  * unvmed_vcq_get - Get virtual CQ instance by @qid
  * @qid: virtual completion queue identifier
  *

@@ -119,6 +119,11 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 	return change;
 }
 
+size_t unvmed_pagesize(struct unvme *u)
+{
+	return __mps_to_pagesize(u->mps);
+}
+
 static int __unvmed_mem_alloc(struct unvme *u, size_t size,
 			      struct iommu_dmabuf *buf)
 {
