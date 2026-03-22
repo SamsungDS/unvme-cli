@@ -668,6 +668,7 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 	struct arg_int *sqsize;
 	struct arg_dbl *cqaddr;
 	struct arg_int *cqsize;
+	struct arg_int *pagesize;
 	struct arg_lit *noint;
 	struct arg_lit *help;
 	struct arg_end *end;
@@ -683,10 +684,14 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 		sqsize = arg_int1("s", "sqsize", "<n>", "[M] Submission Queue size (1-based)"),
 		cqaddr = arg_dbl0("C", "cqaddr", "<iova>", "[O] pre-mapped I/O virtual address of Completion queue"),
 		cqsize = arg_int1("c", "cqsize", "<n>", "[M] Completion Queue size (1-based)"),
+		pagesize = arg_int0("p", "pagesize", "<n>", "[O] pagesize in bytes to align if -S|-C not given (default: system page size)"),
 		noint = arg_lit0(NULL, "noint", "[O] Skip IRQ initialization"),
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	const int CQE_SIZE = sizeof(struct nvme_cqe);
+	const int SQE_SIZE = sizeof(union nvme_cmd);
+	struct iommu_dmabuf asq, acq;
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	int vector;
@@ -694,6 +699,7 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 
 	arg_dblv(sqaddr) = 0;
 	arg_dblv(cqaddr) = 0;
+	arg_intv(pagesize) = getpagesize();
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
@@ -712,26 +718,39 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 
 	vector = arg_boolv(noint) ? -1 : 0;
 
-	if (arg_boolv(cqaddr))
-		ucq = unvmed_init_cq_iova(u, 0 /* qid */, arg_intv(cqsize),
-				vector, 1 /* pc */, arg_dblv(cqaddr));
-	else
-		ucq = unvmed_init_cq(u, 0 /* qid */, arg_intv(cqsize),
-				vector, 1 /* pc */);
+	if (!arg_boolv(cqaddr)) {
+		if (__unvmed_mem_alloc(u, CQE_SIZE * arg_intv(cqsize), &acq,
+					arg_intv(pagesize))) {
+			unvme_pr_err("failed to allocate CQ buffer\n");
+			ret = ENOMEM;
+			goto out;
+		}
+
+		arg_dblv(cqaddr) = acq.iova;
+	}
+
+	ucq = unvmed_init_cq_iova(u, 0 /* qid */, arg_intv(cqsize),
+			vector, 1 /* pc */, arg_dblv(cqaddr));
 	if (!ucq) {
 		unvme_pr_err("failed to allocate @ucq instance for adminq\n");
 		ret = errno;
 		goto out;
 	}
 
-	if (arg_boolv(sqaddr))
-		usq = unvmed_init_sq_iova(u, 0 /* qid */, arg_intv(sqsize),
-				0 /* cqid */, 0 /* qprio */, 1 /* pc */,
-				0 /* nvmsetid */, arg_dblv(sqaddr));
-	else
-		usq = unvmed_init_sq(u, 0 /* qid */, arg_intv(sqsize),
-				0 /* cqid */, 0 /* qprio */, 1 /* pc */,
-				0 /* nvmsetid */);
+	if (!arg_boolv(sqaddr)) {
+		if (__unvmed_mem_alloc(u, SQE_SIZE * arg_intv(sqsize), &asq,
+					arg_intv(pagesize))) {
+			unvme_pr_err("failed to allocate SQ buffer\n");
+			ret = ENOMEM;
+			goto out;
+		}
+
+		arg_dblv(sqaddr) = asq.iova;
+	}
+
+	usq = unvmed_init_sq_iova(u, 0 /* qid */, arg_intv(sqsize),
+			0 /* cqid */, 0 /* qprio */, 1 /* pc */,
+			0 /* nvmsetid */, arg_dblv(sqaddr));
 	if (!usq) {
 		unvme_pr_err("failed to allocate @usq instance for adminq\n");
 		ret = errno;
@@ -781,7 +800,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 		dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf"),
 		iosqes = arg_int0("s", "iosqes", "<n>", "[O] I/O Sumission Queue Entry Size (2^n) (default: 6)"),
 		iocqes = arg_int0("c", "iocqes", "<n>", "[O] I/O Completion Queue Entry Size (2^n) (default: 4)"),
-		mps = arg_int0("m", "mps", "<n>", "[O] Memory Page Size (2^(12+n)) (default: 0)"),
+		mps = arg_int0("m", "mps", "<n>", "[O] Memory Page Size (2^(12+n)) (default: system pagesize)"),
 		ams = arg_int0("a", "ams", "<n>", "[O] Arbitration Mechanism Selected (default: 0)"),
 		css = arg_int0("i", "css", "<n>", "[O] I/O Command Set Selected  (default: 0)"),
 		timeout = arg_int0("t", "timeout", "<n>", "[O] Command timeout in seconds (default: 0 - disabled)"),
@@ -793,7 +812,7 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	/* Set default argument values prior to parsing */
 	arg_intv(iosqes) = 6;
 	arg_intv(iocqes) = 4;
-	arg_intv(mps) = 0;
+	arg_intv(mps) = __builtin_ctz(getpagesize()) - 12;
 	arg_intv(ams) = 0;
 	arg_intv(css) = 0;
 	arg_intv(timeout) = 0;
@@ -934,6 +953,8 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	const int CQE_SIZE = sizeof(struct nvme_cqe);
+	struct iommu_dmabuf cq;
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	struct unvme_cmd *cmd;
@@ -969,11 +990,18 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto usq;
 	}
 
-	if (arg_boolv(qaddr))
-		ucq = unvmed_init_cq_iova(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector), arg_intv(pc), arg_dblv(qaddr));
-	else
-		ucq = unvmed_init_cq(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector), arg_intv(pc));
+	if (!arg_boolv(qaddr)) {
+		if (__unvmed_mem_alloc(u, CQE_SIZE * arg_intv(qsize), &cq,
+					unvmed_pagesize(u))) {
+			unvme_pr_err("failed to allocate CQ buffer\n");
+			ret = ENOMEM;
+			goto out;
+		}
 
+		arg_dblv(qaddr) = cq.iova;
+	}
+
+	ucq = unvmed_init_cq_iova(u, arg_intv(qid), arg_intv(qsize), arg_intv(vector), arg_intv(pc), arg_dblv(qaddr));
 	if (!ucq) {
 		unvme_pr_err("failed to configure and initialize I/O CQ\n");
 		ret = errno;
@@ -1183,6 +1211,8 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		help = arg_lit0("h", "help", "Show help message"),
 		end = arg_end(UNVME_ARG_MAX_ERROR),
 	};
+	const int SQE_SIZE = sizeof(union nvme_cmd);
+	struct iommu_dmabuf sq;
 	struct unvme_sq *usq, *targetq;
 	struct unvme_cq *ucq;
 	struct unvme_cmd *cmd;
@@ -1224,15 +1254,21 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		ret = ENODEV;
 		goto usq;
 	}
-	if (arg_boolv(qaddr))
-		targetq = unvmed_init_sq_iova(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid),
-					      arg_intv(qprio), arg_intv(pc),
-					      arg_intv(nvmsetid), arg_dblv(qaddr));
-	else
-		targetq = unvmed_init_sq(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid),
-					 arg_intv(qprio), arg_intv(pc),
-					 arg_intv(nvmsetid));
 
+	if (!arg_boolv(qaddr)) {
+		if (__unvmed_mem_alloc(u, SQE_SIZE * arg_intv(qsize), &sq,
+					unvmed_pagesize(u))) {
+			unvme_pr_err("failed to allocate SQ buffer\n");
+			ret = ENOMEM;
+			goto out;
+		}
+
+		arg_dblv(qaddr) = sq.iova;
+	}
+
+	targetq = unvmed_init_sq_iova(u, arg_intv(qid), arg_intv(qsize), arg_intv(cqid),
+				      arg_intv(qprio), arg_intv(pc),
+				      arg_intv(nvmsetid), arg_dblv(qaddr));
 	if (!targetq) {
 		unvme_pr_err("failed to configure and initialize io submission queue\n");
 		ret = errno;
@@ -1472,14 +1508,14 @@ int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_intv(prp1_offset) >= getpagesize()) {
+	if (arg_intv(prp1_offset) >= (int)unvmed_pagesize(u)) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
 		goto out;
 	}
 
 	/* allocate a buffer with a consieration of --prp1-offset=<n> */
-	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
+	len = unvmed_pgmap(u, &buf, size + (unvmed_pagesize(u) - arg_intv(prp1_offset)));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate user data buffer\n");
 		ret = errno;
@@ -1558,7 +1594,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf - arg_intv(prp1_offset), len);
+	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1608,14 +1644,14 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_intv(prp1_offset) >= getpagesize()) {
+	if (arg_intv(prp1_offset) >= (int)unvmed_pagesize(u)) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
 		goto out;
 	}
 
 	/* allocate a buffer with a consieration of --prp1-offset=<n> */
-	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
+	len = unvmed_pgmap(u, &buf, size + (unvmed_pagesize(u) - arg_intv(prp1_offset)));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate user data buffer\n");
 		ret = errno;
@@ -1690,7 +1726,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf - arg_intv(prp1_offset), len);
+	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1749,13 +1785,13 @@ int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_intv(prp1_offset) >= getpagesize()) {
+	if (arg_intv(prp1_offset) >= (int)unvmed_pagesize(u)) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
 		goto out;
 	}
 
-	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
+	len = unvmed_pgmap(u, &buf, size + (unvmed_pagesize(u) - arg_intv(prp1_offset)));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -1826,7 +1862,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf - arg_intv(prp1_offset), len);
+	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -1884,13 +1920,13 @@ int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_intv(prp1_offset) >= getpagesize()) {
+	if (arg_intv(prp1_offset) >= (int)unvmed_pagesize(u)) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
 		goto out;
 	}
 
-	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
+	len = unvmed_pgmap(u, &buf, size + (unvmed_pagesize(u) - arg_intv(prp1_offset)));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -1966,7 +2002,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf - arg_intv(prp1_offset), len);
+	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -2038,7 +2074,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 			goto usq;
 		}
 
-		len = pgmap(&buf, arg_intv(data_size));
+		len = unvmed_pgmap(u, &buf, arg_intv(data_size));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
 			unvmed_sq_exit(usq);
@@ -2050,7 +2086,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		if (unvme_read_file(filepath, buf, arg_intv(data_size))) {
 			unvme_pr_err("failed to read file %s\n", filepath);
 
-			pgunmap(buf, len);
+			unvmed_pgunmap(buf);
 			unvmed_sq_exit(usq);
 			ret = ENOENT;
 			goto usq;
@@ -2060,7 +2096,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
-			pgunmap(buf, len);
+			unvmed_pgunmap(buf);
 			unvmed_sq_exit(usq);
 			ret = errno;
 			goto usq;
@@ -2112,7 +2148,7 @@ int unvme_set_features(int argc, char *argv[], struct unvme_msg *msg)
 cmd:
 	unvmed_cmd_put(cmd);
 	if (buf && len)
-		pgunmap(buf, len);
+		unvmed_pgunmap(buf);
 usq:
 	unvmed_sq_put(u, usq);
 out:
@@ -2392,7 +2428,7 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (arg_boolv(data_size)) {
-		len = pgmap(&buf, arg_intv(data_size));
+		len = unvmed_pgmap(u, &buf, arg_intv(data_size));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
 
@@ -2405,7 +2441,7 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 		if (!cmd) {
 			unvme_pr_err("failed to allocate a command instance\n");
 
-			pgunmap(buf, len);
+			unvmed_pgunmap(buf);
 			unvmed_sq_exit(usq);
 			ret = errno;
 			goto usq;
@@ -2467,7 +2503,7 @@ int unvme_get_features(int argc, char *argv[], struct unvme_msg *msg)
 cmd:
 	unvmed_cmd_put(cmd);
 	if (buf && len)
-		pgunmap(buf, len);
+		unvmed_pgunmap(buf);
 usq:
 	unvmed_sq_put(u, usq);
 out:
@@ -2585,7 +2621,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_intv(prp1_offset) >= getpagesize()) {
+	if (arg_intv(prp1_offset) >= (int)unvmed_pagesize(u)) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
 		goto usq;
@@ -2607,7 +2643,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_EXTENDED)
 		size += arg_intv(metadata_size);
 
-	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
+	len = unvmed_pgmap(u, &buf, size + (unvmed_pagesize(u) - arg_intv(prp1_offset)));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -2615,7 +2651,7 @@ int unvme_read(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE) {
-		mlen = pgmap(&mbuf, arg_intv(metadata_size));
+		mlen = unvmed_pgmap(u, &mbuf, arg_intv(metadata_size));
 		if (mlen < 0) {
 			unvme_pr_err("failed to allocate meta buffer\n");
 			ret = errno;
@@ -2725,9 +2761,9 @@ cmd:
 	unvmed_cmd_put(cmd);
 mbuf:
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_SEPARATE)
-		pgunmap(mbuf - arg_intv(prp1_offset), mlen);
+		unvmed_pgunmap(mbuf - arg_intv(prp1_offset));
 buf:
-	pgunmap(buf - arg_intv(prp1_offset), len);
+	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 usq:
 	unvmed_sq_put(u, usq);
 out:
@@ -2848,7 +2884,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (arg_intv(prp1_offset) >= getpagesize()) {
+	if (arg_intv(prp1_offset) >= (int)unvmed_pagesize(u)) {
 		unvme_pr_err("invalid --prp1-offset\n");
 		ret = EINVAL;
 		goto usq;
@@ -2869,7 +2905,7 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 	if (arg_intv(metadata_size) && ns->mset == NVME_FORMAT_MSET_EXTENDED)
 		size += arg_intv(metadata_size);
 
-	len = pgmap(&buf, size + (getpagesize() - arg_intv(prp1_offset)));
+	len = unvmed_pgmap(u, &buf, size + (unvmed_pagesize(u) - arg_intv(prp1_offset)));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate buffer\n");
 		ret = errno;
@@ -2900,8 +2936,8 @@ int unvme_write(int argc, char *argv[], struct unvme_msg *msg)
 		}
 
 		if (ns->mset == NVME_FORMAT_MSET_SEPARATE) {
-			mlen = pgmap(&mbuf, arg_intv(metadata_size) +
-					(getpagesize() - arg_intv(prp1_offset)));
+			mlen = unvmed_pgmap(u, &mbuf, arg_intv(metadata_size) +
+					(unvmed_pagesize(u) - arg_intv(prp1_offset)));
 			if (mlen < 0) {
 				unvme_pr_err("failed to allocate meta buffer\n");
 				ret = errno;
@@ -2985,10 +3021,10 @@ mbuf:
 	if (arg_intv(metadata_size)) {
 		free(wmdata);
 		if (ns->mset == NVME_FORMAT_MSET_SEPARATE)
-			pgunmap(mbuf - arg_intv(prp1_offset), mlen);
+			unvmed_pgunmap(mbuf - arg_intv(prp1_offset));
 	}
 buf:
-	pgunmap(buf - arg_intv(prp1_offset), len);
+	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 	free(wdata);
 usq:
 	unvmed_sq_put(u, usq);
@@ -3180,7 +3216,7 @@ int unvme_passthru(int argc, char *argv[], struct unvme_msg *msg)
 	 * the DMA buffers.
 	 */
 	if ((!arg_boolv(prp1) && !arg_boolv(prp2)) && arg_intv(data_len) > 0) {
-		len = pgmap(&buf, arg_intv(data_len));
+		len = unvmed_pgmap(u, &buf, arg_intv(data_len));
 		if (len < 0) {
 			unvme_pr_err("failed to allocate buffer\n");
 
@@ -3293,7 +3329,7 @@ cmd:
 	unvmed_cmd_put(cmd);
 buf:
 	if (buf && len)
-		pgunmap(buf, len);
+		unvmed_pgunmap(buf);
 usq:
 	unvmed_sq_put(u, usq);
 out:
@@ -3890,7 +3926,7 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, size + getpagesize());
+	len = unvmed_pgmap(u, &buf, size + unvmed_pagesize(u));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate user data buffer\n");
 		ret = errno;
@@ -3958,7 +3994,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf, len);
+	unvmed_pgunmap(buf);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -4005,7 +4041,7 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, size + getpagesize());
+	len = unvmed_pgmap(u, &buf, size + unvmed_pagesize(u));
 	if (len < 0) {
 		unvme_pr_err("failed to allocate user data buffer\n");
 		ret = errno;
@@ -4074,7 +4110,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf, len);
+	unvmed_pgunmap(buf);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -4329,7 +4365,7 @@ int unvme_create_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, size);
+	len = unvmed_pgmap(u, &buf, size);
 	if (len < 0) {
 		unvme_pr_err("failed to allocate data buffer\n");
 		ret = errno;
@@ -4410,7 +4446,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf, len);
+	unvmed_pgunmap(buf);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -4544,7 +4580,7 @@ int unvme_attach_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, size);
+	len = unvmed_pgmap(u, &buf, size);
 	if (len < 0) {
 		unvme_pr_err("failed to allocate data buffer\n");
 		ret = errno;
@@ -4620,7 +4656,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf, len);
+	unvmed_pgunmap(buf);
 out:
 	unvme_free_args(argtable);
 	return ret;
@@ -4661,7 +4697,7 @@ int unvme_detach_ns(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	len = pgmap(&buf, size);
+	len = unvmed_pgmap(u, &buf, size);
 	if (len < 0) {
 		unvme_pr_err("failed to allocate data buffer\n");
 		ret = errno;
@@ -4737,7 +4773,7 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 buf:
-	pgunmap(buf, len);
+	unvmed_pgunmap(buf);
 out:
 	unvme_free_args(argtable);
 	return ret;

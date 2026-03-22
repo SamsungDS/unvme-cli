@@ -700,7 +700,7 @@ static int libunvmed_init_data(struct thread_data *td)
 	 */
 	if (!libunvmed_ns_meta_is_dif(ns) && o->md_per_io_size) {
 		mlen = o->md_per_io_size * td->o.iodepth;
-		ld->meta_iomem_size = pgmap(&ld->meta_iomem, mlen);
+		ld->meta_iomem_size = unvmed_pgmap(u, &ld->meta_iomem, mlen);
 		if (ld->meta_iomem_size < 0) {
 			libunvmed_log("failed to mmap() for meta buffer");
 			return -ENOMEM;
@@ -716,7 +716,7 @@ static int libunvmed_init_data(struct thread_data *td)
 
 	if (td->o.td_ddir == TD_DDIR_TRIM || td->o.td_ddir == TD_DDIR_RANDTRIM) {
 		ld->trim_iomem_size = td->o.iodepth * sizeof(struct nvme_dsm_range) * NVME_DSM_MAX_RANGES;
-		ret = pgmap(&ld->trim_iomem, ld->trim_iomem_size);
+		ret = unvmed_pgmap(u, &ld->trim_iomem, ld->trim_iomem_size);
 		if (ret < 0) {
 			libunvmed_log("failed to mmap() for TRIM buffer\n");
 			return -ENOMEM;
@@ -1064,7 +1064,7 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 
 		size = total_mem;
 	} else {
-		size = pgmap(&ptr, total_mem);
+		size = unvmed_pgmap(u, &ptr, total_mem);
 		if (size < total_mem) {
 			libunvmed_log("failed to allocate memory (size=%ld bytes)\n", total_mem);
 			pthread_mutex_unlock(&g_serialize);
@@ -1077,7 +1077,7 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 
 	if (o->prp1_offset) {
 		ld->prp_iomem_usize = max_bs + unvmed_pagesize(u);
-		ld->prp_iomem_size = pgmap(&ld->prp_iomem,
+		ld->prp_iomem_size = unvmed_pgmap(u, &ld->prp_iomem,
 				ld->prp_iomem_usize * max_units);
 	}
 
@@ -1099,7 +1099,7 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 		int nr_lists = DIV_ROUND_UP((td_max_bs(td) / unvmed_pagesize(u)) * sizeof(uint64_t),
 				unvmed_pagesize(u)) + 1;
 		size_t __size = (size_t)nr_lists * unvmed_pagesize(u) * td->o.iodepth;
-		size = pgmap(&ld->prp_list_iomem, __size);
+		size = unvmed_pgmap(u, &ld->prp_list_iomem, __size);
 		if (size < 0) {
 			libunvmed_log("failed to allocate prplist_iomem\n");
 
