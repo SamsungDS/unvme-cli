@@ -655,7 +655,7 @@ static int libunvmed_init_data(struct thread_data *td)
 
 	max_xfer_size = unvmed_get_max_xfer_size(u);
 	if (max_xfer_size < 0) {
-		libunvmed_log("failed to get maximum transfer size");
+		libunvmed_log("failed to get maximum transfer size\n");
 		return -EINVAL;
 	}
 
