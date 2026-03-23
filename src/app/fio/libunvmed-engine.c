@@ -1861,7 +1861,11 @@ static struct io_u *fio_libunvmed_event(struct thread_data *td, int event)
 	if (nvme_cqe_ok(cqe))
 		io_u->error = 0;
 	else {
-		io_u->error = unvmed_cqe_status(cqe);
+		/*
+		 * Let fio knows about the SCT & SC pair without DNR, M, CRD
+		 * fields in CQE status field.
+		 */
+		io_u->error = unvmed_cqe_status(cqe) & 0x7ff;
 		goto ret;
 	}
 
