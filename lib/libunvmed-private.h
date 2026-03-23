@@ -172,6 +172,14 @@ struct unvme_cq_reaper {
 	int epoll_fd;
 	int efd;
 	pthread_t th;
+
+	struct list_head cq_list;
+	pthread_mutex_t cq_list_lock;
+};
+
+struct unvme_reaper_cq_entry {
+	struct unvme_cq *ucq;
+	struct list_node list;
 };
 
 #include <sys/syscall.h>

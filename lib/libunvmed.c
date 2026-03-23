@@ -563,9 +563,14 @@ static int unvmed_init_irq_reaper(struct unvme *u, int vector)
 	r->u = u;
 	r->vector = vector;
 	r->efd = eventfd(0, EFD_CLOEXEC | EFD_SEMAPHORE);
+
+	list_head_init(&r->cq_list);
+	pthread_mutex_init(&r->cq_list_lock, NULL);
+
 	if (r->efd < 0) {
 		unvmed_log_err("failed to create a eventfd (vector=%d, errno=%d \"%s\")",
 				vector, errno, strerror(errno));
+		pthread_mutex_destroy(&r->cq_list_lock);
 		return -1;
 	}
 
@@ -577,9 +582,9 @@ static int unvmed_init_irq_reaper(struct unvme *u, int vector)
 			unvmed_log_err("check `ulimit -n` for open file limitation");
 
 		close(r->efd);
+		pthread_mutex_destroy(&r->cq_list_lock);
 		return -1;
 	}
-
 
 	e = (struct epoll_event) {
 		.events = EPOLLIN,
@@ -588,6 +593,9 @@ static int unvmed_init_irq_reaper(struct unvme *u, int vector)
 	epoll_ctl(r->epoll_fd, EPOLL_CTL_ADD, r->efd, &e);
 
 	u->efds[r->vector] = r->efd;
+
+	unvmed_log_debug("vector=%d initialized (efd=%d, epoll_fd=%d)",
+			vector, r->efd, r->epoll_fd);
 	return 0;
 }
 
@@ -597,6 +605,17 @@ static void unvmed_free_irq_reaper(struct unvme_cq_reaper *r)
 		.events = EPOLLIN,
 		.data.fd = r->efd,
 	};
+	struct unvme_reaper_cq_entry *entry, *next;
+
+	pthread_mutex_lock(&r->cq_list_lock);
+	list_for_each_safe(&r->cq_list, entry, next, list) {
+		unvmed_log_debug("free irq vector=%d, cqid=%d in list",
+				r->vector, unvmed_cq_id(entry->ucq));
+		list_del(&entry->list);
+		free(entry);
+	}
+	pthread_mutex_unlock(&r->cq_list_lock);
+	pthread_mutex_destroy(&r->cq_list_lock);
 
 	epoll_ctl(r->epoll_fd, EPOLL_CTL_DEL, r->efd, &e);
 
@@ -604,6 +623,68 @@ static void unvmed_free_irq_reaper(struct unvme_cq_reaper *r)
 	close(r->efd);
 	close(r->epoll_fd);
 	memset(r, 0, sizeof(*r));
+}
+
+static int unvmed_reaper_add_cq(struct unvme *u, struct unvme_cq *ucq)
+{
+	int vector = unvmed_cq_iv(ucq);
+	struct unvme_cq_reaper *r;
+	struct unvme_reaper_cq_entry *entry;
+
+	if (vector < 0 || vector >= u->nr_efds)
+		return 0;
+
+	r = &u->reapers[vector];
+	if (!atomic_load_acquire(&r->refcnt))
+		return 0;
+
+	entry = calloc(1, sizeof(*entry));
+	if (!entry)
+		return -1;
+
+	entry->ucq = ucq;
+
+	pthread_mutex_lock(&r->cq_list_lock);
+	list_add_tail(&r->cq_list, &entry->list);
+	pthread_mutex_unlock(&r->cq_list_lock);
+
+	unvmed_log_debug("register cqid=%d to reaper vector=%d ",
+			unvmed_cq_id(ucq), vector);
+
+	return 0;
+}
+
+static void unvmed_reaper_del_cq(struct unvme *u,
+		struct unvme_cq *ucq)
+{
+	int vector = unvmed_cq_iv(ucq);
+	struct unvme_cq_reaper *r;
+	struct unvme_reaper_cq_entry *entry, *next;
+	bool found = false;
+
+	if (vector < 0 || vector >= u->nr_efds)
+		return;
+
+	r = &u->reapers[vector];
+
+	pthread_mutex_lock(&r->cq_list_lock);
+	list_for_each_safe(&r->cq_list, entry, next, list) {
+		if (entry->ucq == ucq) {
+			list_del(&entry->list);
+			free(entry);
+			found = true;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&r->cq_list_lock);
+
+	if (found) {
+		unvmed_log_debug("remove cqid=%d from reaper vector=%d",
+				unvmed_cq_id(ucq), vector);
+	} else {
+		unvmed_log_err("cqid=%d NOT found in reaper vector=%d list",
+				unvmed_cq_id(ucq), vector);
+	}
 }
 
 static int unvmed_free_irq(struct unvme *u, int vector)
@@ -2235,13 +2316,12 @@ static void *unvmed_reaper_run(void *opaque)
 	struct unvme_cq_reaper *r = opaque;
 	struct unvme *u = r->u;
 	int vector = r->vector;
-	int qid;
 
 	unvmed_log_info("%s: reaped CQ thread started (vector=%d, tid=%d)",
 			unvmed_bdf(u), vector, gettid());
 
 	while (true) {
-		struct unvme_cq *ucq;
+		struct unvme_reaper_cq_entry *entry;
 
 		if (unvmed_cq_wait_irq(u, vector))
 			goto out;
@@ -2264,19 +2344,10 @@ static void *unvmed_reaper_run(void *opaque)
 		 * prevent use-after-free, but for now, other reset context
 		 * considers reaper thread properly, so will implement later.
 		 */
-		for (qid = 0; qid < u->nr_cqs; qid++) {
-			pthread_rwlock_rdlock(&u->cqs_lock);
-			ucq = u->cqs[qid];
-			/*
-			 * The reason why we should check unvmed_cq_size(ucq)
-			 * is that @ucq->q will never be NULL if @ucq instance
-			 * is still alive, but the contents of @ucq->q can be
-			 * all-zero.  So skip the removed queue.
-			 */
-			if (ucq && unvmed_cq_iv(ucq) == r->vector)
-				__unvmed_reap_cqe(ucq);
-			pthread_rwlock_unlock(&u->cqs_lock);
-		}
+		pthread_mutex_lock(&r->cq_list_lock);
+		list_for_each(&r->cq_list, entry, list)
+			__unvmed_reap_cqe(entry->ucq);
+		pthread_mutex_unlock(&r->cq_list_lock);
 	}
 
 out:
@@ -2460,6 +2531,11 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 		return -1;
 	}
 
+	if (vector >= 0 && unvmed_reaper_add_cq(u, ucq)) {
+		unvmed_log_err("failed to register ucq to reaper");
+		return -1;
+	}
+
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
 		unvmed_log_err("failed to find adminq");
@@ -2559,11 +2635,15 @@ static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 	int vector = unvmed_cq_iv(ucq);
 	bool irq = unvmed_cq_irq_enabled(ucq);
 
+	if (irq)
+		unvmed_reaper_del_cq(u, ucq);
+
 	unvmed_discard_cq(u, qid);
 	unvmed_cq_put(u, ucq);
 
 	if (irq)
-		unvmed_free_irq(u, vector);
+	        unvmed_free_irq(u, vector);
+
 }
 
 static void __unvmed_delete_cq_all(struct unvme *u)
@@ -2572,12 +2652,12 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 	int refcnt;
 	int qid;
 
-	unvmed_free_irq_all(u);
-
 	for (qid = 0; qid < u->nr_cqs; qid++) {
 		ucq = unvmed_cq_get(u, qid);
 		if (!ucq)
 			continue;
+
+		unvmed_reaper_del_cq(u, ucq);
 
 		unvmed_log_info("Deleting ucq (qid=%d)", unvmed_cq_id(ucq));
 
@@ -2592,6 +2672,8 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 		unvmed_discard_cq(u, qid);
 		unvmed_cq_put(u, ucq);
 	}
+
+	unvmed_free_irq_all(u);
 }
 
 static int unvmed_delete_sq(struct unvme *u, uint32_t qid);
@@ -4145,6 +4227,11 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 	 */
 	if (vector < 0)
 		unvmed_cq_iv(ucq) = -1;
+
+	if (vector >= 0 && unvmed_reaper_add_cq(u, ucq)) {
+		unvmed_log_err("failed to register ucq to reaper");
+		return NULL;
+	}
 
 	return ucq;
 err:
