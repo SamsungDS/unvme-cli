@@ -2433,6 +2433,7 @@ int __unvmed_mem_alloc(struct unvme *u, size_t size,
  * @u: pointer to struct unvme controller
  * @size: size of the buffer to allocate
  * @buf: output buffer allocated
+ * @pagesize: pagesize in bytes to align
  *
  * Allocates a physically contiguous DMA buffer of the given size, maps it to
  * the IOMMU, and returns a pointer to the associated struct iommu_dmabuf.
@@ -2441,7 +2442,8 @@ int __unvmed_mem_alloc(struct unvme *u, size_t size,
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
-int unvmed_mem_alloc(struct unvme *u, size_t size, struct iommu_dmabuf *buf);
+int unvmed_mem_alloc(struct unvme *u, size_t size, struct iommu_dmabuf *buf,
+		     size_t pagesize);
 
 /**
  * unvmed_mem_get - Find a mapped DMA buffer by IOVA

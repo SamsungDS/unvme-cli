@@ -3963,10 +3963,9 @@ static int unvmed_mem_add(struct unvme *u, struct iommu_dmabuf *buf)
 	return 0;
 }
 
-int unvmed_mem_alloc(struct unvme *u, size_t size, struct iommu_dmabuf *buf)
+int unvmed_mem_alloc(struct unvme *u, size_t size, struct iommu_dmabuf *buf,
+		     size_t pagesize)
 {
-	size_t pagesize = getpagesize();
-
 	if (__unvmed_mem_alloc(u, size, buf, pagesize))
 		return -1;
 

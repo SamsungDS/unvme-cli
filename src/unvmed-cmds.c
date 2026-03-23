@@ -4158,7 +4158,7 @@ int unvme_malloc(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 
-	if (unvmed_mem_alloc(u, arg_intv(size), &buf)) {
+	if (unvmed_mem_alloc(u, arg_intv(size), &buf, unvmed_pagesize(u))) {
 		unvme_pr_err("failed to allocate an I/O memory buffer\n");
 		ret = errno;
 		goto out;
