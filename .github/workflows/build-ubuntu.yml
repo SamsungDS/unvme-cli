@@ -1,0 +1,70 @@
+name: build-ubuntu
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: apt-get
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y meson ninja-build pkg-config libdbus-1-dev libjson-c-dev
+
+    - name: libnvme
+      run: |
+        git clone https://github.com/linux-nvme/libnvme.git /tmp/libnvme
+        cd /tmp/libnvme
+        git checkout v1.16.1
+        make -j`nproc`
+        sudo make install
+        cd -
+
+    - name: libvfn
+      run: |
+        git clone https://github.com/SamsungDS/libvfn.git /tmp/libvfn
+        cd /tmp/libvfn
+        git checkout d7f09586a782326017928cb1c14fa5282d9e3b9c
+        meson build -Dbuildtype=release -Diommufd=disabled
+        ninja -C build
+        sudo meson install -C build
+        cd -
+
+    - name: fio
+      id: fio
+      run: |
+        git clone https://github.com/axboe/fio.git /tmp/fio
+        cd /tmp/fio
+        git checkout 698fa8f0682b809b3f85f50c593067e90108f92e
+        LDFLAGS="-shared" ./configure --extra-cflags='-fPIC' \
+          --disable-numa \
+          --disable-rdma \
+          --disable-rados \
+          --disable-rbd \
+          --disable-http \
+          --disable-gfapi \
+          --disable-libnfs \
+          --disable-lex \
+          --disable-pmem \
+          --disable-native \
+          --disable-xnvme \
+          --disable-libblkio \
+          --disable-libzbc \
+          --disable-tcmalloc \
+          --dynamic-libengines \
+          --disable-dfs
+        make -j`nproc`
+        cd -
+
+    - name: unvme-cli
+      run: |
+        meson build -Dbuildtype=release -Dwith-fio=/tmp/fio
+        ninja -C build
