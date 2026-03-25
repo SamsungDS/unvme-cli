@@ -2531,11 +2531,6 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 		return -1;
 	}
 
-	if (vector >= 0 && unvmed_reaper_add_cq(u, ucq)) {
-		unvmed_log_err("failed to register ucq to reaper");
-		return -1;
-	}
-
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
 		unvmed_log_err("failed to find adminq");
@@ -2620,6 +2615,9 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 	if (vector < 0) {
 		ucq->q->vector = -1;
 		unvmed_cq_iv(ucq) = -1;
+	} else if (vector >= 0 && unvmed_reaper_add_cq(u, ucq)) {
+		unvmed_log_err("failed to register ucq to reaper");
+		return -1;
 	}
 
 	unvmed_enable_cq(ucq);
