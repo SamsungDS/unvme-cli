@@ -413,7 +413,11 @@ int main(int argc, char *argv[])
 {
 	struct unvme_msg msg = {0, };
 	const char *name = argv[1];
-	char bdf[UNVME_BDF_STRLEN];
+	/*
+	 * @argv[2] will be replaced with @bdf with different
+	 * length in ``unvme_check_args_devcmd()``, so static it.
+	 */
+	static char bdf[UNVME_BDF_STRLEN];
 	int ret;
 
 	/* 'man msgsnd' says msg size should be <= 8192 bytes */
