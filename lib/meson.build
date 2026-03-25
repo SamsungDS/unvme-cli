@@ -10,11 +10,12 @@ libunvmed_hdr = [
   'libunvmed-logs.h',
 ]
 
-ver = '0.0.1'
+ver = '1.0.0'
 libunvmed_so = shared_library(
   'unvmed',
   libunvmed_src,
   version: ver,
+  soversion: '1',
   dependencies: [vfn_lib, nvme_lib, jsonc_lib],
   link_with: [ccan_lib],
   include_directories: [ccan_inc, libunvmed_inc],
