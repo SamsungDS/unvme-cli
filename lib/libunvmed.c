@@ -2616,7 +2616,11 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 		ucq->q->vector = -1;
 		unvmed_cq_iv(ucq) = -1;
 	} else if (vector >= 0 && unvmed_reaper_add_cq(u, ucq)) {
-		unvmed_log_err("failed to register ucq to reaper");
+		unvmed_log_err("%s: failed to register ucq to reaper (qid=%d)",
+				unvmed_bdf(u), qid);
+		unvmed_cmd_put(cmd);
+		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+		unvmed_sq_put(u, asq);
 		return -1;
 	}
 
