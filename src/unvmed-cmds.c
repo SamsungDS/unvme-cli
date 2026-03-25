@@ -991,7 +991,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (!arg_boolv(qaddr)) {
-		if (__unvmed_mem_alloc(u, CQE_SIZE * arg_intv(qsize), &cq,
+		if (unvmed_mem_alloc(u, CQE_SIZE * arg_intv(qsize), &cq,
 					unvmed_pagesize(u))) {
 			unvme_pr_err("failed to allocate CQ buffer\n");
 			ret = ENOMEM;
@@ -1091,6 +1091,7 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 	struct unvme_cmd *cmd;
+	uint64_t iova;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -1116,6 +1117,8 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		ret = ENOMEDIUM;
 		goto usq;
 	}
+
+	iova = ucq->q->mem.iova;
 
 	unvmed_sq_enter(usq);
 	if (!unvmed_sq_ready(usq)) {
@@ -1163,6 +1166,11 @@ int unvme_delete_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	} else {
 		if (unvmed_free_cq(u, arg_intv(qid))) {
 			unvme_pr_err("failed to delete iocq in libunvmed\n");
+			ret = errno;
+		}
+
+		if (unvmed_mem_free(u, iova)) {
+			unvme_pr_err("failed to free cq buffer (iova=%#lx)\n", iova);
 			ret = errno;
 		}
 	}
@@ -1256,7 +1264,7 @@ int unvme_create_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 	if (!arg_boolv(qaddr)) {
-		if (__unvmed_mem_alloc(u, SQE_SIZE * arg_intv(qsize), &sq,
+		if (unvmed_mem_alloc(u, SQE_SIZE * arg_intv(qsize), &sq,
 					unvmed_pagesize(u))) {
 			unvme_pr_err("failed to allocate SQ buffer\n");
 			ret = ENOMEM;
@@ -1364,6 +1372,7 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	};
 	struct unvme_sq *usq, *targetq;
 	struct unvme_cmd *cmd;
+	uint64_t iova;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -1388,6 +1397,8 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 		ret = ENOMEDIUM;
 		goto usq;
 	}
+
+	iova = targetq->q->mem.iova;
 
 	unvmed_sq_enter(usq);
 	if (!unvmed_sq_ready(usq)) {
@@ -1440,6 +1451,11 @@ int unvme_delete_iosq(int argc, char *argv[], struct unvme_msg *msg)
 	} else {
 		if (unvmed_free_sq(u, arg_intv(qid))) {
 			unvme_pr_err("failed to delete iosq in libunvmed\n");
+			ret = errno;
+		}
+
+		if (unvmed_mem_free(u, iova)) {
+			unvme_pr_err("failed to free sq buffer (iova=%#lx)\n", iova);
 			ret = errno;
 		}
 	}
