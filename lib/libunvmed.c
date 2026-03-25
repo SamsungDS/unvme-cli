@@ -921,6 +921,7 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	opts.ncqr = max_nr_ioqs - 1;
 
 	if (nvme_ctrl_init(&u->ctrl, bdf, &opts)) {
+		unvmed_log_err("failed to init nvme_ctrl");
 		free(u);
 		return NULL;
 	}
@@ -972,6 +973,9 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 
 	list_head_init(&u->mem_list);
 	pthread_rwlock_init(&u->mem_list_lock, NULL);
+
+	unvmed_log_info("controller initialized (nr_sqs=%u, nr_cqs=%u)",
+			u->nr_sqs, u->nr_cqs);
 
 	return u;
 }
@@ -1116,6 +1120,9 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 
 	if (id_ns != identify)
 		unvmed_pgunmap(id_ns);
+
+	unvmed_log_info("namespace initialized (nsid=%u, lba_size=%u, nr_lbas=%lu)",
+			nsid, ns->lba_size, ns->nr_lbas);
 	return 0;
 }
 
@@ -1853,6 +1860,8 @@ static int __unvme_reset_ctrl(struct unvme *u)
 	uint32_t cc;
 	uint32_t csts;
 
+	unvmed_log_debug("resetting controller");
+
 	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
 		return -1;
@@ -1865,6 +1874,7 @@ static int __unvme_reset_ctrl(struct unvme *u)
 		if (!NVME_CSTS_RDY(csts))
 			break;
 	}
+	unvmed_log_info("controller reset complete");
 
 	return 0;
 }
@@ -2475,6 +2485,7 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	uint32_t csts;
 
 	if (!unvmed_ctrl_set_state(u, UNVME_ENABLING)) {
+		unvmed_log_err("failed to set ENABLING state");
 		errno = EBUSY;
 		return -1;
 	}
@@ -2512,6 +2523,12 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 		unvmed_enable_sq(u->asq);
 
 	unvmed_ctrl_set_state(u, UNVME_ENABLED);
+
+	unvmed_log_info("controller enabled (iosqes=%u, iocqes=%u, mps=%u, "
+			"ams=%u, css=%u, timeout=%d)",
+			iosqes, iocqes, mps, ams, css, timeout);
+
+
 	return 0;
 }
 
@@ -2645,6 +2662,8 @@ static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 
 	if (irq)
 	        unvmed_free_irq(u, vector);
+
+	unvmed_log_info("deleted cq (qid=%u, vector=%d)", qid, vector);
 
 }
 
@@ -2856,6 +2875,8 @@ static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq)
 
 	unvmed_discard_sq(u, qid);
 	unvmed_sq_put(u, usq);
+
+	unvmed_log_info("deleted sq (qid=%u)", qid);
 }
 
 static void unvmed_delete_iosq_all(struct unvme *u)
