@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later OR MIT
 
+#include <sys/uio.h>
 #include <vfn/nvme.h>
 #include <vfn/support/atomic.h>
 
