@@ -15,7 +15,7 @@ fio_lib = static_library(
   include_directories: fio_inc,
 )
 
-ver = '0.0.1'
+ver = '1.0.0'
 ioengine_lib = shared_library(
   'unvmed-ioengine',
   ['libunvmed-engine.c'],
