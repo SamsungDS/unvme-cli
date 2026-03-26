@@ -109,11 +109,11 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 
 	if (change) {
 		STORE(u->state, state);
-		unvmed_log_info("set controller state (%s -> %s)",
-				unvmed_state_str(old), unvmed_state_str(state));
+		unvmed_log_info("%s: set controller state (%s -> %s)",
+				unvmed_bdf(u), unvmed_state_str(old), unvmed_state_str(state));
 	} else
-		unvmed_log_err("failed to set controller state (%s -> %s)",
-				unvmed_state_str(old), unvmed_state_str(state));
+		unvmed_log_err("%s: failed to set controller state (%s -> %s)",
+				unvmed_bdf(u), unvmed_state_str(old), unvmed_state_str(state));
 
 	pthread_spin_unlock(&u->lock);
 	return change;
@@ -130,14 +130,14 @@ int __unvmed_mem_alloc(struct unvme *u, size_t size,
 	buf->ctx = __iommu_ctx(&u->ctrl);
 	buf->len = unvmed_pgmap_aligned(u, &buf->vaddr, size, pagesize);
 	if (buf->len < 0) {
-		unvmed_log_err("failed to allocate a buffer");
+		unvmed_log_err("%s: failed to allocate a buffer", unvmed_bdf(u));
 		return -1;
 	}
 
 	if (iommu_map_vaddr_align(buf->ctx, buf->vaddr, buf->len,
 				unvmed_pagesize(u), &buf->iova, 0)) {
 		unvmed_pgunmap(buf->vaddr);
-		unvmed_log_err("failed to map a buffer to IOMMU");
+		unvmed_log_err("%s: failed to map a buffer to IOMMU", unvmed_bdf(u));
 		return -1;
 	}
 
@@ -405,8 +405,8 @@ int unvmed_cq_wait_irq(struct unvme *u, int vector)
 	} while (ret < 0 && errno == EINTR);
 
 	if (ret < 0) {
-		unvmed_log_err("failed to epoll_wait() for vector=%d, errno=%d",
-				vector, errno);
+		unvmed_log_err("%s: failed to epoll_wait() for vector=%d, errno=%d",
+				unvmed_bdf(u), vector, errno);
 		return -1;
 	}
 
@@ -534,7 +534,7 @@ int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl)
 	if (!u->id_ctrl) {
 		u->id_ctrl = malloc(sizeof(*u->id_ctrl));
 		if (!u->id_ctrl) {
-			unvmed_log_err("failed to malloc()");
+			unvmed_log_err("%s: failed to malloc()", unvmed_bdf(u));
 			return -1;
 		}
 	}
@@ -547,7 +547,7 @@ int unvmed_init_id_ctrl(struct unvme *u, void *id_ctrl)
 ssize_t unvmed_get_max_xfer_size(struct unvme *u)
 {
 	if (!u->id_ctrl) {
-		unvmed_log_err("failed to get id-ctrl context");
+		unvmed_log_err("%s: failed to get id-ctrl context", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
@@ -568,18 +568,18 @@ static int unvmed_init_irq_reaper(struct unvme *u, int vector)
 	pthread_mutex_init(&r->cq_list_lock, NULL);
 
 	if (r->efd < 0) {
-		unvmed_log_err("failed to create a eventfd (vector=%d, errno=%d \"%s\")",
-				vector, errno, strerror(errno));
+		unvmed_log_err("%s: failed to create a eventfd (vector=%d, errno=%d \"%s\")",
+				unvmed_bdf(u), vector, errno, strerror(errno));
 		pthread_mutex_destroy(&r->cq_list_lock);
 		return -1;
 	}
 
 	r->epoll_fd = epoll_create1(0);
 	if (r->epoll_fd < 0) {
-		unvmed_log_err("failed to create a epoll_fd (vector=%d, errno=%d \"%s\")",
-				vector, errno, strerror(errno));
+		unvmed_log_err("%s: failed to create a epoll_fd (vector=%d, errno=%d \"%s\")",
+				unvmed_bdf(u), vector, errno, strerror(errno));
 		if (errno == EMFILE)  /* Too many open files */
-			unvmed_log_err("check `ulimit -n` for open file limitation");
+			unvmed_log_err("%s: check `ulimit -n` for open file limitation", unvmed_bdf(u));
 
 		close(r->efd);
 		pthread_mutex_destroy(&r->cq_list_lock);
@@ -594,8 +594,8 @@ static int unvmed_init_irq_reaper(struct unvme *u, int vector)
 
 	u->efds[r->vector] = r->efd;
 
-	unvmed_log_debug("vector=%d initialized (efd=%d, epoll_fd=%d)",
-			vector, r->efd, r->epoll_fd);
+	unvmed_log_debug("%s: vector=%d initialized (efd=%d, epoll_fd=%d)",
+			unvmed_bdf(u), vector, r->efd, r->epoll_fd);
 	return 0;
 }
 
@@ -609,8 +609,8 @@ static void unvmed_free_irq_reaper(struct unvme_cq_reaper *r)
 
 	pthread_mutex_lock(&r->cq_list_lock);
 	list_for_each_safe(&r->cq_list, entry, next, list) {
-		unvmed_log_debug("free irq vector=%d, cqid=%d in list",
-				r->vector, unvmed_cq_id(entry->ucq));
+		unvmed_log_debug("%s: free irq vector=%d, cqid=%d in list",
+				unvmed_bdf(r->u), r->vector, unvmed_cq_id(entry->ucq));
 		list_del(&entry->list);
 		free(entry);
 	}
@@ -648,8 +648,8 @@ static int unvmed_reaper_add_cq(struct unvme *u, struct unvme_cq *ucq)
 	list_add_tail(&r->cq_list, &entry->list);
 	pthread_mutex_unlock(&r->cq_list_lock);
 
-	unvmed_log_debug("register cqid=%d to reaper vector=%d ",
-			unvmed_cq_id(ucq), vector);
+	unvmed_log_debug("%s: register cqid=%d to reaper vector=%d ",
+			unvmed_bdf(u), unvmed_cq_id(ucq), vector);
 
 	return 0;
 }
@@ -679,11 +679,11 @@ static void unvmed_reaper_del_cq(struct unvme *u,
 	pthread_mutex_unlock(&r->cq_list_lock);
 
 	if (found) {
-		unvmed_log_debug("remove cqid=%d from reaper vector=%d",
-				unvmed_cq_id(ucq), vector);
+		unvmed_log_debug("%s: remove cqid=%d from reaper vector=%d",
+				unvmed_bdf(u), unvmed_cq_id(ucq), vector);
 	} else {
-		unvmed_log_err("cqid=%d NOT found in reaper vector=%d list",
-				unvmed_cq_id(ucq), vector);
+		unvmed_log_err("%s: cqid=%d NOT found in reaper vector=%d list",
+				unvmed_bdf(u), unvmed_cq_id(ucq), vector);
 	}
 }
 
@@ -707,7 +707,7 @@ static int unvmed_free_irq(struct unvme *u, int vector)
 
 	ret = vfio_disable_irq(&u->ctrl.pci.dev, vector, 1);
 	if (ret) {
-		unvmed_log_err("failed to disable irq %d", vector);
+		unvmed_log_err("%s: failed to disable irq %d", unvmed_bdf(u), vector);
 		return -1;
 	}
 
@@ -721,7 +721,7 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 	int nr_irqs = u->nr_irqs;
 
 	if (vector >= nr_irqs) {
-		unvmed_log_err("invalid vector %d", vector);
+		unvmed_log_err("%s: invalid vector %d", unvmed_bdf(u), vector);
 		errno = EINVAL;
 		return -1;
 	}
@@ -730,7 +730,7 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 		return 0;
 
 	if (unvmed_init_irq_reaper(u, vector)) {
-		unvmed_log_err("failed to initialize IRQ reaper (vector=%d)", vector);
+		unvmed_log_err("%s: failed to initialize IRQ reaper (vector=%d)", unvmed_bdf(u), vector);
 		return -1;
 	}
 
@@ -740,14 +740,14 @@ static int unvmed_init_irq(struct unvme *u, int vector)
 	 * support dynamic MSI-X interrupt assignment.
 	 */
 	if (vfio_disable_irq(&u->ctrl.pci.dev, 0, u->nr_irqs)) {
-		unvmed_log_err("failed to disable all irq vectors");
+		unvmed_log_err("%s: failed to disable all irq vectors", unvmed_bdf(u));
 
 		unvmed_free_irq_reaper(r);
 		return -1;
 	}
 
 	if (vfio_set_irq(&u->ctrl.pci.dev, &u->efds[0], 0, nr_irqs)) {
-		unvmed_log_err("failed to set IRQ for vector %d", vector);
+		unvmed_log_err("%s: failed to set IRQ for vector %d", unvmed_bdf(u), vector);
 
 		unvmed_free_irq_reaper(r);
 		return -1;
@@ -778,7 +778,7 @@ static int unvmed_alloc_irqs(struct unvme *u)
 	int nr_irqs;
 
 	if (vfio_pci_get_irq_info(&u->ctrl.pci, &u->irq_info)) {
-		unvmed_log_err("failed to get &struct vfio_irq_info from libvfn");
+		unvmed_log_err("%s: failed to get &struct vfio_irq_info from libvfn", unvmed_bdf(u));
 		return -1;
 	}
 
@@ -795,14 +795,14 @@ static int unvmed_alloc_irqs(struct unvme *u)
 		nr_irqs = unvmed_lower_pow2(nr_irqs);  /* Retry with lower pow-of-2 */
 
 	if (!nr_irqs) {
-		unvmed_log_err("failed to adjust number of IRQs (supported=%d)",
-				u->irq_info.count);
+		unvmed_log_err("%s: failed to adjust number of IRQs (supported=%d)",
+				unvmed_bdf(u), u->irq_info.count);
 		return -1;
 	}
 
 	if (nr_irqs < u->irq_info.count)
-		unvmed_log_info("adjusted number of IRQ to be used in unvmed, %d -> %d",
-				u->irq_info.count, nr_irqs);
+		unvmed_log_info("%s: adjusted number of IRQ to be used in unvmed, %d -> %d",
+				unvmed_bdf(u), u->irq_info.count, nr_irqs);
 
 	u->nr_irqs = nr_irqs;
 	u->efds = malloc(sizeof(int) * u->nr_irqs);
@@ -819,8 +819,8 @@ static int unvmed_alloc_irqs(struct unvme *u)
 
 	u->nr_efds = u->nr_irqs;
 	u->reapers = calloc(u->nr_efds, sizeof(struct unvme_cq_reaper));
-	unvmed_log_info("%d IRQ vectors are allocated (supported=%d)",
-			u->nr_irqs, u->irq_info.count);
+	unvmed_log_info("%s: %d IRQ vectors are allocated (supported=%d)",
+			unvmed_bdf(u), u->nr_irqs, u->irq_info.count);
 	return 0;
 }
 
@@ -854,8 +854,8 @@ int unvmed_cmb_init(struct unvme *u)
 	if (nvme_configure_cmb(&u->ctrl))
 		return -1;
 
-	unvmed_log_info("CMB enabled (bar=%d, vaddr=%p, iova=%#lx, size=%#lx)",
-			u->ctrl.cmb.bar, u->ctrl.cmb.vaddr, u->ctrl.cmb.iova, u->ctrl.cmb.size);
+	unvmed_log_info("%s: CMB enabled (bar=%d, vaddr=%p, iova=%#lx, size=%#lx)",
+			unvmed_bdf(u), u->ctrl.cmb.bar, u->ctrl.cmb.vaddr, u->ctrl.cmb.iova, u->ctrl.cmb.size);
 	return 0;
 }
 
@@ -921,13 +921,13 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	opts.ncqr = max_nr_ioqs - 1;
 
 	if (nvme_ctrl_init(&u->ctrl, bdf, &opts)) {
-		unvmed_log_err("failed to init nvme_ctrl");
+		unvmed_log_err("%s: failed to init nvme_ctrl", unvmed_bdf(u));
 		free(u);
 		return NULL;
 	}
 
 	if (unvmed_alloc_irqs(u)) {
-		unvmed_log_err("failed to initialize IRQs");
+		unvmed_log_err("%s: failed to initialize IRQs", unvmed_bdf(u));
 
 		nvme_close(&u->ctrl);
 		free(u);
@@ -974,8 +974,8 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	list_head_init(&u->mem_list);
 	pthread_rwlock_init(&u->mem_list_lock, NULL);
 
-	unvmed_log_info("controller initialized (nr_sqs=%u, nr_cqs=%u)",
-			u->nr_sqs, u->nr_cqs);
+	unvmed_log_info("%s: controller initialized (nr_sqs=%u, nr_cqs=%u)",
+			unvmed_bdf(u), u->nr_sqs, u->nr_cqs);
 
 	return u;
 }
@@ -1002,14 +1002,14 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
-		unvmed_log_err("failed to find adminq");
+		unvmed_log_err("%s: failed to find adminq", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
 
 	unvmed_sq_enter(asq);
 	if (!unvmed_sq_ready(asq)) {
-		unvmed_log_err("failed to find enabled adminq");
+		unvmed_log_err("%s: failed to find enabled adminq", unvmed_bdf(u));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -1027,8 +1027,8 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 	} while (!cmd && errno == EBUSY);
 
 	if (!cmd) {
-		unvmed_log_err("failed to allocate a command instance "
-				"(errno=%d \"%s\")", errno, strerror(errno));
+		unvmed_log_err("%s: failed to allocate a command instance "
+				"(errno=%d \"%s\")", unvmed_bdf(u), errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -1042,7 +1042,7 @@ static int __unvmed_id_ns(struct unvme *u, uint32_t nsid,
 
 	ret = unvmed_id_ns(cmd, nsid, &iov, 1);
 	if (ret) {
-		unvmed_log_err("failed to identify namespace");
+		unvmed_log_err("%s: failed to identify namespace", unvmed_bdf(u));
 
 		unvmed_cmd_put(cmd);
 		unvmed_sq_exit(asq);
@@ -1066,7 +1066,7 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	if (!id_ns) {
 		unvmed_pgmap(u, (void **)&id_ns, sizeof(struct nvme_id_ns));
 		if (!id_ns) {
-			unvmed_log_err("failed to allocate a buffer");
+			unvmed_log_err("%s: failed to allocate a buffer", unvmed_bdf(u));
 			return -1;
 		}
 
@@ -1121,8 +1121,8 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	if (id_ns != identify)
 		unvmed_pgunmap(id_ns);
 
-	unvmed_log_info("namespace initialized (nsid=%u, lba_size=%u, nr_lbas=%lu)",
-			nsid, ns->lba_size, ns->nr_lbas);
+	unvmed_log_info("%s: namespace initialized (nsid=%u, lba_size=%u, nr_lbas=%lu)",
+			unvmed_bdf(u), nsid, ns->lba_size, ns->nr_lbas);
 	return 0;
 }
 
@@ -1142,14 +1142,14 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
-		unvmed_log_err("failed to find adminq");
+		unvmed_log_err("%s: failed to find adminq", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
 
 	unvmed_sq_enter(asq);
 	if (!unvmed_sq_ready(asq)) {
-		unvmed_log_err("failed to find enabled adminq");
+		unvmed_log_err("%s: failed to find enabled adminq", unvmed_bdf(u));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -1168,8 +1168,8 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 	} while (!cmd && errno == EBUSY);
 
 	if (!cmd) {
-		unvmed_log_err("failed to allocate a command instance "
-				"(errno=%d \"%s\")", errno, strerror(errno));
+		unvmed_log_err("%s: failed to allocate a command instance "
+				"(errno=%d \"%s\")", unvmed_bdf(u), errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -1183,7 +1183,7 @@ static int __unvmed_nvm_id_ns(struct unvme *u, uint32_t nsid,
 
 	ret = unvmed_nvm_id_ns(cmd, nsid, &iov, 1);
 	if (ret) {
-		unvmed_log_err("failed to identify namespace");
+		unvmed_log_err("%s: failed to identify namespace", unvmed_bdf(u));
 
 		unvmed_cmd_put(cmd);
 		unvmed_sq_exit(asq);
@@ -1216,14 +1216,14 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
-		unvmed_log_err("failed to find adminq");
+		unvmed_log_err("%s: failed to find adminq", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
 
 	unvmed_sq_enter(asq);
 	if (!unvmed_sq_ready(asq)) {
-		unvmed_log_err("failed to find enabled adminq");
+		unvmed_log_err("%s: failed to find enabled adminq", unvmed_bdf(u));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -1241,8 +1241,8 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 	} while (!cmd && errno == EBUSY);
 
 	if (!cmd) {
-		unvmed_log_err("failed to allocate a command instance "
-				"(errno=%d \"%s\")", errno, strerror(errno));
+		unvmed_log_err("%s: failed to allocate a command instance "
+				"(errno=%d \"%s\")", unvmed_bdf(u), errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -1256,7 +1256,7 @@ static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl)
 
 	ret = unvmed_id_ctrl(cmd, &iov, 1);
 	if (ret) {
-		unvmed_log_err("failed to identify controller");
+		unvmed_log_err("%s: failed to identify controller", unvmed_bdf(u));
 
 		unvmed_cmd_put(cmd);
 		unvmed_sq_exit(asq);
@@ -1293,13 +1293,13 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 	if (!u->id_ctrl) {
 		unvmed_pgmap(u, (void **)&id_ctrl, sizeof(struct nvme_id_ctrl));
 		if (!id_ctrl) {
-			unvmed_log_err("failed to allocate a buffer");
+			unvmed_log_err("%s: failed to allocate a buffer", unvmed_bdf(u));
 			ret = -1;
 			goto out;
 		}
 
 		if (__unvmed_id_ctrl(u, id_ctrl)) {
-			unvmed_log_err("failed to identify controller");
+			unvmed_log_err("%s: failed to identify controller", unvmed_bdf(u));
 			unvmed_pgunmap(id_ctrl);
 			ret = -1;
 			goto out;
@@ -1319,7 +1319,7 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns)
 	if (!__nvm_id_ns) {
 		unvmed_pgmap(u, (void **)&__nvm_id_ns, sizeof(struct nvme_nvm_id_ns));
 		if (!__nvm_id_ns) {
-			unvmed_log_err("failed to allocate a buffer");
+			unvmed_log_err("%s: failed to allocate a buffer", unvmed_bdf(u));
 			ret = -1;
 			goto out;
 		}
@@ -1384,12 +1384,13 @@ static int unvmed_timer_update(struct unvme_sq *usq, int sec)
 		.it_interval.tv_nsec = 0,
 	};
 	struct timespec now;
+	struct unvme *u = usq->ucq->u;
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	timer->expire.tv_sec = now.tv_sec + delta.it_value.tv_sec;
 
 	if (timer_settime(timer->t, 0, &delta, NULL) < 0) {
-		unvmed_log_err("failed to update timer expiration time");
+		unvmed_log_err("%s: failed to update timer expiration time", unvmed_bdf(u));
 		return -1;
 	}
 
@@ -1525,8 +1526,8 @@ static void unvmed_timer_handler(union sigval sv)
 		}
 
 		atomic_store_release(&usq->timer.active, false);
-		unvmed_log_debug("sq%d: command timedout detected, terminated.",
-				unvmed_sq_id(usq));
+		unvmed_log_debug("%s: sq%d: command timedout detected, terminated.",
+				unvmed_bdf(usq->ucq->u), unvmed_sq_id(usq));
 		return;
 	}
 
@@ -1549,9 +1550,10 @@ static int unvmed_timer_init(struct unvme_timer *timer, void *opaque)
 		.sigev_notify_attributes = NULL,
 		.sigev_value.sival_ptr = opaque,
 	};
+	struct unvme_sq *usq = (struct unvme_sq *)opaque;
 
 	if (timer_create(CLOCK_MONOTONIC, &sev, &timer->t) < 0) {
-		unvmed_log_err("failed to create timer");
+		unvmed_log_err("%s: failed to create timer", unvmed_bdf(usq->ucq->u));
 		return -1;
 	}
 
@@ -1597,7 +1599,7 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	}
 
 	if (usq->enabled) {
-		unvmed_log_err("usq is already enabled");
+		unvmed_log_err("%s: usq is already enabled", unvmed_bdf(u));
 		if (!alloc)
 			unvmed_sq_put(u, usq);
 		return NULL;
@@ -1716,7 +1718,7 @@ static struct unvme_cq *unvmed_init_ucq(struct unvme *u, uint32_t qid,
 	}
 
 	if (ucq->enabled) {
-		unvmed_log_err("ucq is already enabled");
+		unvmed_log_err("%s: ucq is already enabled", unvmed_bdf(u));
 		if (!alloc)
 			unvmed_cq_put(u, ucq);
 		return NULL;
@@ -1860,7 +1862,7 @@ static int __unvme_reset_ctrl(struct unvme *u)
 	uint32_t cc;
 	uint32_t csts;
 
-	unvmed_log_debug("resetting controller");
+	unvmed_log_debug("%s: resetting controller", unvmed_bdf(u));
 
 	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
@@ -1874,7 +1876,7 @@ static int __unvme_reset_ctrl(struct unvme *u)
 		if (!NVME_CSTS_RDY(csts))
 			break;
 	}
-	unvmed_log_info("controller reset complete");
+	unvmed_log_info("%s: controller reset complete", unvmed_bdf(u));
 
 	return 0;
 }
@@ -1951,7 +1953,7 @@ int unvmed_quiesce_sq(struct unvme *u, uint16_t qid)
 
 	usq = unvmed_sq_get(u, qid);
 	if (!usq) {
-		unvmed_log_err("failed to get sq instance (qid=%d)", qid);
+		unvmed_log_err("%s: failed to get sq instance (qid=%d)", unvmed_bdf(u), qid);
 		return -1;
 	}
 	unvmed_sq_enter(usq);
@@ -1966,7 +1968,7 @@ int unvmed_unquiesce_sq(struct unvme *u, uint16_t qid)
 
 	usq = unvmed_sq_get(u, qid);
 	if (!usq) {
-		unvmed_log_err("failed to get sq instance (qid=%d)", qid);
+		unvmed_log_err("%s: failed to get sq instance (qid=%d)", unvmed_bdf(u), qid);
 		return -1;
 	}
 	unvmed_sq_exit(usq);
@@ -2033,7 +2035,7 @@ static inline void unvmed_put_cqe(struct unvme *u, struct unvme_cq *ucq,
 	cqe.sfp = cpu_to_le16((status << 1));
 
 	unvmed_cmd_cmpl(cmd, &cqe);
-	unvmed_log_info("canceled command (sqid=%u, cid=%u)", cqe.sqid, cqe.cid);
+	unvmed_log_info("%s: canceled command (sqid=%u, cid=%u)", unvmed_bdf(u), cqe.sqid, cqe.cid);
 }
 
 static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
@@ -2066,8 +2068,8 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 		if ((le16_to_cpu(cqe->sfp) & 0x1) != phase) {
 			cmd = unvmed_get_cmd_from_cqe(u, cqe);
 			if (!cmd) {
-				unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
-						le16_to_cpu(cqe->sqid), cqe->cid);
+				unvmed_log_err("%s: invalid cqe (sqid=%d, cid=%d)",
+						unvmed_bdf(u), le16_to_cpu(cqe->sqid), cqe->cid);
 				goto update;
 			}
 
@@ -2214,7 +2216,7 @@ void unvmed_reset_ctx(struct unvme *u)
 void unvmed_reset_ctrl(struct unvme *u)
 {
 	if (__unvme_reset_ctrl(u)) {
-		unvmed_log_err("failed to reset the controller");
+		unvmed_log_err("%s: failed to reset the controller", unvmed_bdf(u));
 		return;
 	}
 
@@ -2309,8 +2311,8 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 
 		cmd = unvmed_get_cmd_from_cqe(u, cqe);
 		if (!cmd) {
-			unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
-					le16_to_cpu(cqe->sqid), cqe->cid);
+			unvmed_log_err("%s: invalid cqe (sqid=%d, cid=%d)",
+					unvmed_bdf(u), le16_to_cpu(cqe->sqid), cqe->cid);
 			nvme_cq_update_head(ucq->q);
 			continue;
 		}
@@ -2405,7 +2407,7 @@ int unvmed_configure_adminq(struct unvme *u, struct unvme_sq *usq,
 	uint32_t aqa = unvmed_read32(u, NVME_REG_AQA);
 
 	if (!usq || !ucq) {
-		unvmed_log_err("@usq or @ucq is NULL");
+		unvmed_log_err("%s: @usq or @ucq is NULL", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
@@ -2434,18 +2436,18 @@ int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
 
 	ucq = unvmed_init_cq(u, qid, cq_size, 0, 1);
 	if (!ucq) {
-		unvmed_log_err("failed to allocate cq memory");
+		unvmed_log_err("%s: failed to allocate cq memory", unvmed_bdf(u));
 		goto out;
 	}
 
 	usq = unvmed_init_sq(u, qid, sq_size, qid, 0, 1, 0);
 	if (!usq) {
-		unvmed_log_err("failed to allocate sq memory");
+		unvmed_log_err("%s: failed to allocate sq memory", unvmed_bdf(u));
 		goto free_cq;
 	}
 
 	if (unvmed_configure_adminq(u, usq, ucq)) {
-		unvmed_log_err("failed to configure adminq");
+		unvmed_log_err("%s: failed to configure adminq", unvmed_bdf(u));
 		goto free_sq;
 	}
 
@@ -2485,15 +2487,15 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	uint32_t csts;
 
 	if (!unvmed_ctrl_set_state(u, UNVME_ENABLING)) {
-		unvmed_log_err("failed to set ENABLING state");
+		unvmed_log_err("%s: failed to set ENABLING state", unvmed_bdf(u));
 		errno = EBUSY;
 		return -1;
 	}
 
 	cc = unvmed_read32(u, NVME_REG_CC);
 	if (NVME_CC_EN(cc)) {
-		unvmed_log_err("Controller (%s) has already been enabled (CC.EN=1)",
-			       unvmed_bdf(u));
+		unvmed_log_err("%s: Controller (%s) has already been enabled (CC.EN=1)",
+		       unvmed_bdf(u), unvmed_bdf(u));
 		errno = EEXIST;
 		return -1;
 	}
@@ -2524,9 +2526,9 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 
 	unvmed_ctrl_set_state(u, UNVME_ENABLED);
 
-	unvmed_log_info("controller enabled (iosqes=%u, iocqes=%u, mps=%u, "
+	unvmed_log_info("%s: controller enabled (iosqes=%u, iocqes=%u, mps=%u, "
 			"ams=%u, css=%u, timeout=%d)",
-			iosqes, iocqes, mps, ams, css, timeout);
+			unvmed_bdf(u), iosqes, iocqes, mps, ams, css, timeout);
 
 
 	return 0;
@@ -2543,20 +2545,20 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 	uint16_t iv = 0;
 
 	if (vector >= 0 && unvmed_init_irq(u, vector)) {
-		unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=%d, errno=%d \"%s\")",
-				u->nr_irqs, vector, errno, strerror(errno));
+		unvmed_log_err("%s: failed to initialize irq (nr_irqs=%d, vector=%d, errno=%d \"%s\")",
+				unvmed_bdf(u), u->nr_irqs, vector, errno, strerror(errno));
 		return -1;
 	}
 
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
-		unvmed_log_err("failed to find adminq");
+		unvmed_log_err("%s: failed to find adminq", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
 
 	if (nvme_configure_cq(&u->ctrl, qid, qsize, vector)) {
-		unvmed_log_err("could not configure io completion queue");
+		unvmed_log_err("%s: could not configure io completion queue", unvmed_bdf(u));
 
 		unvmed_sq_put(u, asq);
 		return -1;
@@ -2574,8 +2576,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 	} while (!cmd && errno == EBUSY);
 
 	if (!cmd) {
-		unvmed_log_err("failed to allocate command instance "
-				"(errno=%d \"%s\")", errno, strerror(errno));
+		unvmed_log_err("%s: failed to allocate command instance "
+				"(errno=%d \"%s\")", unvmed_bdf(u), errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
@@ -2607,8 +2609,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 	unvmed_cmd_wait(cmd);
 
 	if (!nvme_cqe_ok(&cmd->cqe)) {
-		unvmed_log_err("failed to create iosq with cqe.status=%#x",
-				unvmed_cqe_status(&cmd->cqe));
+		unvmed_log_err("%s: failed to create iosq with cqe.status=%#x",
+				unvmed_bdf(u), unvmed_cqe_status(&cmd->cqe));
 
 		unvmed_cmd_put(cmd);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
@@ -2619,9 +2621,9 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 
 	ucq = unvmed_init_ucq(u, qid, qsize, vector, pc);
 	if (!ucq) {
-		unvmed_log_err("failed to initialize ucq instance. "
+		unvmed_log_err("%s: failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
-				qid);
+				unvmed_bdf(u), qid);
 
 		unvmed_cmd_put(cmd);
 		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
@@ -2663,7 +2665,7 @@ static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
 	if (irq)
 	        unvmed_free_irq(u, vector);
 
-	unvmed_log_info("deleted cq (qid=%u, vector=%d)", qid, vector);
+	unvmed_log_info("%s: deleted cq (qid=%u, vector=%d)", unvmed_bdf(u), qid, vector);
 
 }
 
@@ -2680,7 +2682,7 @@ static void __unvmed_delete_cq_all(struct unvme *u)
 
 		unvmed_reaper_del_cq(u, ucq);
 
-		unvmed_log_info("Deleting ucq (qid=%d)", unvmed_cq_id(ucq));
+		unvmed_log_info("%s: Deleting ucq (qid=%d)", unvmed_bdf(u), unvmed_cq_id(ucq));
 
 		/*
 		 * @usq has been acquired in the current function, meaning that
@@ -2707,7 +2709,7 @@ static int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
-		unvmed_log_err("failed to find adminq");
+		unvmed_log_err("%s: failed to find adminq", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
@@ -2724,8 +2726,8 @@ static int unvmed_delete_cq(struct unvme *u, uint32_t qid)
 	} while (!cmd && errno == EBUSY);
 
 	if (!cmd) {
-		unvmed_log_err("failed to allocate a command instance "
-				"(errno=%d \"%s\")", errno, strerror(errno));
+		unvmed_log_err("%s: failed to allocate a command instance "
+				"(errno=%d \"%s\")", unvmed_bdf(u), errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		return -1;
@@ -2774,14 +2776,14 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
-		unvmed_log_err("failed to find adminq");
+		unvmed_log_err("%s: failed to find adminq", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
 
 	ucq = unvmed_cq_get(u, cqid);
 	if (!ucq) {
-		unvmed_log_err("failed to get cq instance (qid=%d)", cqid);
+		unvmed_log_err("%s: failed to get cq instance (qid=%d)", unvmed_bdf(u), cqid);
 
 		unvmed_sq_put(u, asq);
 		errno = ENODEV;
@@ -2789,7 +2791,7 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	}
 
 	if (nvme_configure_sq(&u->ctrl, qid, qsize, ucq->q, 0)) {
-		unvmed_log_err("could not configure io submission queue");
+		unvmed_log_err("%s: could not configure io submission queue", unvmed_bdf(u));
 
 		unvmed_cq_put(u, ucq);
 		unvmed_sq_put(u, asq);
@@ -2808,8 +2810,8 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	} while (!cmd && errno == EBUSY);
 
 	if (!cmd) {
-		unvmed_log_err("failed to allocate command instance "
-				"(errno=%d \"%s\")", errno, strerror(errno));
+		unvmed_log_err("%s: failed to allocate command instance "
+				"(errno=%d \"%s\")", unvmed_bdf(u), errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
@@ -2839,8 +2841,8 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 	unvmed_cmd_wait(cmd);
 
 	if (!nvme_cqe_ok(&cmd->cqe)) {
-		unvmed_log_err("failed to create iosq with cqe.status=%#x",
-				unvmed_cqe_status(&cmd->cqe));
+		unvmed_log_err("%s: failed to create iosq with cqe.status=%#x",
+				unvmed_bdf(u), unvmed_cqe_status(&cmd->cqe));
 
 		unvmed_cmd_put(cmd);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
@@ -2852,9 +2854,9 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 
 	usq = unvmed_init_usq(u, qid, qsize, ucq, qprio, pc, nvmsetid);
 	if (!usq) {
-		unvmed_log_err("failed to initialize usq instance. "
+		unvmed_log_err("%s: failed to initialize usq instance. "
 				"discard sq instance from libvfn (qid=%d)",
-				qid);
+				unvmed_bdf(u), qid);
 		unvmed_cmd_put(cmd);
 		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
 		unvmed_cq_put(u, ucq);
@@ -2876,7 +2878,7 @@ static void __unvmed_delete_sq(struct unvme *u, struct unvme_sq *usq)
 	unvmed_discard_sq(u, qid);
 	unvmed_sq_put(u, usq);
 
-	unvmed_log_info("deleted sq (qid=%u)", qid);
+	unvmed_log_info("%s: deleted sq (qid=%u)", unvmed_bdf(u), qid);
 }
 
 static void unvmed_delete_iosq_all(struct unvme *u)
@@ -2888,7 +2890,7 @@ static void unvmed_delete_iosq_all(struct unvme *u)
 
 		if (usq && atomic_load_acquire(&usq->refcnt) > 0) {
 			if (unvmed_delete_sq(u, qid) < 0) {
-				unvmed_log_err("failed to delete I/O SQ (qid=%d)", qid);
+				unvmed_log_err("%s: failed to delete I/O SQ (qid=%d)", unvmed_bdf(u), qid);
 				return;
 			}
 		}
@@ -2904,7 +2906,7 @@ static void unvmed_delete_iocq_all(struct unvme *u)
 
 		if (ucq && atomic_load_acquire(&ucq->refcnt) > 0) {
 			if (unvmed_delete_cq(u, qid) < 0) {
-				unvmed_log_err("failed to delete I/O CQ (qid=%d)", qid);
+				unvmed_log_err("%s: failed to delete I/O CQ (qid=%d)", unvmed_bdf(u), qid);
 				return;
 			}
 		}
@@ -2922,7 +2924,7 @@ static void __unvmed_delete_sq_all(struct unvme *u)
 		if (!usq)
 			continue;
 
-		unvmed_log_info("Deleting usq (qid=%d)", unvmed_sq_id(usq));
+		unvmed_log_info("%s: Deleting usq (qid=%d)", unvmed_bdf(u), unvmed_sq_id(usq));
 
 		/*
 		 * @usq has been acquired in the current function, meaning that
@@ -2946,7 +2948,7 @@ static int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 
 	asq = unvmed_sq_get(u, 0);
 	if (!asq) {
-		unvmed_log_err("failed to find adminq");
+		unvmed_log_err("%s: failed to find adminq", unvmed_bdf(u));
 		errno = EINVAL;
 		return -1;
 	}
@@ -2963,8 +2965,8 @@ static int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	} while (!cmd && errno == EBUSY);
 
 	if (!cmd) {
-		unvmed_log_err("failed to allocate command instance "
-				"(errno=%d \"%s\")", errno, strerror(errno));
+		unvmed_log_err("%s: failed to allocate command instance "
+				"(errno=%d \"%s\")", unvmed_bdf(u), errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
 		unvmed_sq_put(u, asq);
@@ -3119,8 +3121,8 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 			__unvmed_cmd_cmpl(cmd, cqe);
 			return cqe;
 		} else {
-			unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
-					le16_to_cpu(cqe->sqid), cqe->cid);
+			unvmed_log_err("%s: invalid cqe (sqid=%d, cid=%d)",
+					unvmed_bdf(u), le16_to_cpu(cqe->sqid), cqe->cid);
 			return NULL;
 		}
 	}
@@ -3165,8 +3167,8 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 			if (cmd)
 				__unvmed_cmd_cmpl(cmd, cqe);
 			else {
-				unvmed_log_err("invalid cqe (sqid=%d, cid=%d)",
-						le16_to_cpu(cqe->sqid), cqe->cid);
+				unvmed_log_err("%s: invalid cqe (sqid=%d, cid=%d)",
+						unvmed_bdf(u), le16_to_cpu(cqe->sqid), cqe->cid);
 				continue;
 			}
 		} else {
@@ -3364,21 +3366,21 @@ static int unvmed_pci_wait_reset(struct unvme *u)
 	char dsp[13];
 
 	if (unvmed_get_downstream_port(u, dsp) < 0) {
-		unvmed_log_err("failed to get downstream port while waiting to be reset");
+		unvmed_log_err("%s: failed to get downstream port while waiting to be reset", unvmed_bdf(u));
 		return -1;
 	}
 
 	pcie_offset = unvmed_get_pcie_cap_offset(dsp);
 	if (pcie_offset == -1) {
-		unvmed_log_err("failed to get PCIe Cap. register offset (0xffff)");
+		unvmed_log_err("%s: failed to get PCIe Cap. register offset (0xffff)", unvmed_bdf(u));
 		return -1;
 	}
 
-	unvmed_log_debug("waiting for DSP(%s) link to be up ...", dsp);
+	unvmed_log_debug("%s: waiting for DSP(%s) link to be up ...", unvmed_bdf(u), dsp);
 	while (true) {
 		if (unvmed_pci_get_config(dsp, &link_status, pcie_offset + 0x12, 2)) {
-			unvmed_log_err("failed to CfgRd (offset=%#x, size=%d)",
-					pcie_offset + 0x12, 2);
+			unvmed_log_err("%s: failed to CfgRd (offset=%#x, size=%d)",
+					unvmed_bdf(u), pcie_offset + 0x12, 2);
 			return -1;
 		}
 
@@ -3391,12 +3393,12 @@ static int unvmed_pci_wait_reset(struct unvme *u)
 
 	}
 
-	unvmed_log_debug("waiting for USP(%s) link to be reset ...",
-			unvmed_bdf(u));
+	unvmed_log_debug("%s: waiting for USP(%s) link to be reset ...",
+			unvmed_bdf(u), unvmed_bdf(u));
 	while (true) {
 		if (unvmed_pci_get_config(unvmed_bdf(u), &bar0, 0x10, 8)) {
-			unvmed_log_err("failed to CfgRd (offset=%#x, size=%d)",
-					0x10, 8);
+			unvmed_log_err("%s: failed to CfgRd (offset=%#x, size=%d)",
+					unvmed_bdf(u), 0x10, 8);
 			return -1;
 		}
 
@@ -3411,8 +3413,8 @@ static int unvmed_pci_wait_reset(struct unvme *u)
 
 	unvmed_quirk_dsp_sleep_after_reset(u);
 
-	unvmed_log_debug("DSP(%s) <-> USP(%s) has been reset successfully",
-			dsp, unvmed_bdf(u));
+	unvmed_log_debug("%s: DSP(%s) <-> USP(%s) has been reset successfully",
+			unvmed_bdf(u), dsp, unvmed_bdf(u));
 	return 0;
 }
 
@@ -3427,7 +3429,7 @@ int unvmed_subsystem_reset(struct unvme *u)
 	}
 
 	if (unvmed_pci_backup_state(u, config) < 0) {
-		unvmed_log_err("failed to read pci config register");
+		unvmed_log_err("%s: failed to read pci config register", unvmed_bdf(u));
 		return -1;
 	}
 
@@ -3439,12 +3441,12 @@ int unvmed_subsystem_reset(struct unvme *u)
 	 * device before preceeding.
 	 */
 	if (unvmed_pci_wait_reset(u) < 0) {
-		unvmed_log_err("failed to wait for PCI to be reset");
+		unvmed_log_err("%s: failed to wait for PCI to be reset", unvmed_bdf(u));
 		return -1;
 	}
 
 	if (unvmed_pci_restore_state(u, config) < 0) {
-		unvmed_log_err("failed to write pci config register");
+		unvmed_log_err("%s: failed to write pci config register", unvmed_bdf(u));
 		return -1;
 	}
 
@@ -3487,20 +3489,20 @@ int unvmed_flr(struct unvme *u)
 
 	uint16_t pcie_offset = unvmed_get_pcie_cap_offset(unvmed_bdf(u));
 	if (pcie_offset == -1) {
-		unvmed_log_err("failed to get PCIe Cap. register offset (0xffff)");
+		unvmed_log_err("%s: failed to get PCIe Cap. register offset (0xffff)", unvmed_bdf(u));
 		ret = -1;
 		goto close;
 	}
 
 	if (unvmed_pci_get_config(unvmed_bdf(u), &cap, pcie_offset + 0x4, 4)) {
-		unvmed_log_err("failed to CfgRd (offset=%#x, size=%d)",
-				pcie_offset + 0x4, 4);
+		unvmed_log_err("%s: failed to CfgRd (offset=%#x, size=%d)",
+				unvmed_bdf(u), pcie_offset + 0x4, 4);
 		ret = -1;
 		goto close;
 	}
 
 	if (!(cap & (1 << 28))) {
-		unvmed_log_err("flr not supported");
+		unvmed_log_err("%s: flr not supported", unvmed_bdf(u));
 		errno = ENOTSUP;
 		ret = -1;
 		goto close;
@@ -3514,13 +3516,13 @@ int unvmed_flr(struct unvme *u)
 
 	ret = unvmed_pci_backup_state(u, config);
 	if (ret < 0) {
-		unvmed_log_err("failed to read pci config register");
+		unvmed_log_err("%s: failed to read pci config register", unvmed_bdf(u));
 		goto close;
 	}
 
 	if (unvmed_pci_get_config(unvmed_bdf(u), &control, pcie_offset + 0x8, 2)) {
-		unvmed_log_err("failed to CfgRd (offset=%#x, size=%d)",
-				pcie_offset + 0x8, 2);
+		unvmed_log_err("%s: failed to CfgRd (offset=%#x, size=%d)",
+				unvmed_bdf(u), pcie_offset + 0x8, 2);
 		ret = -1;
 		goto close;
 	}
@@ -3533,14 +3535,14 @@ int unvmed_flr(struct unvme *u)
 	/* Function must complete the FLR within 100ms (PCIe Base Spec. 6.0) */
 	usleep(100 * 1000);
 	if (unvmed_pci_wait_reset(u) < 0) {
-		unvmed_log_err("failed to wait for PCI to be reset");
+		unvmed_log_err("%s: failed to wait for PCI to be reset", unvmed_bdf(u));
 		ret = -1;
 		goto close;
 	}
 
 	ret = unvmed_pci_restore_state(u, config);
 	if (ret < 0) {
-		unvmed_log_err("failed to write pci config register");
+		unvmed_log_err("%s: failed to write pci config register", unvmed_bdf(u));
 		goto close;
 	}
 
@@ -3671,7 +3673,7 @@ int unvmed_hot_reset(struct unvme *u)
 
 	ret = unvmed_pci_backup_state(u, config);
 	if (ret < 0) {
-		unvmed_log_err("failed to read pci config register");
+		unvmed_log_err("%s: failed to read pci config register", unvmed_bdf(u));
 		goto close;
 	}
 
@@ -3689,14 +3691,14 @@ int unvmed_hot_reset(struct unvme *u)
 
 	usleep(100 * 1000);
 	if (unvmed_pci_wait_reset(u) < 0) {
-		unvmed_log_err("failed to wait for PCI to be reset");
+		unvmed_log_err("%s: failed to wait for PCI to be reset", unvmed_bdf(u));
 		ret = -1;
 		goto close;
 	}
 
 	ret = unvmed_pci_restore_state(u, config);
 	if (ret < 0) {
-		unvmed_log_err("failed to write pci config register");
+		unvmed_log_err("%s: failed to write pci config register", unvmed_bdf(u));
 		goto close;
 	}
 
@@ -3749,7 +3751,7 @@ int unvmed_link_disable(struct unvme *u)
 
 	ret = unvmed_pci_backup_state(u, config);
 	if (ret < 0) {
-		unvmed_log_err("failed to read pci config register");
+		unvmed_log_err("%s: failed to read pci config register", unvmed_bdf(u));
 		goto close;
 	}
 
@@ -3767,14 +3769,14 @@ int unvmed_link_disable(struct unvme *u)
 
 	usleep(100 * 1000);
 	if (unvmed_pci_wait_reset(u) < 0) {
-		unvmed_log_err("failed to wait for PCI to be reset");
+		unvmed_log_err("%s: failed to wait for PCI to be reset", unvmed_bdf(u));
 		ret = -1;
 		goto close;
 	}
 
 	ret = unvmed_pci_restore_state(u, config);
 	if (ret < 0) {
-		unvmed_log_err("failed to write pci config register");
+		unvmed_log_err("%s: failed to write pci config register", unvmed_bdf(u));
 		goto close;
 	}
 
@@ -3796,7 +3798,7 @@ int unvmed_ctx_init(struct unvme *u)
 	int qid;
 
 	if (!list_empty(&u->ctx_list)) {
-		unvmed_log_err("driver context has already been initialized");
+		unvmed_log_err("%s: driver context has already been initialized", unvmed_bdf(u));
 		errno = EEXIST;
 		return -1;
 	}
@@ -3946,25 +3948,25 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 	int i;
 
 	if (u->hmb.descs) {
-		unvmed_log_err("failed to initialize HMB (already exists)");
+		unvmed_log_err("%s: failed to initialize HMB (already exists)", unvmed_bdf(u));
 		errno = EEXIST;
 		return -1;
 	}
 
 	ret = unvmed_pgmap(u, &descs, nr_bsize * sizeof(*u->hmb.descs));
 	if (ret < 0) {
-		unvmed_log_err("failed to allocate HMB buffer descriptors");
+		unvmed_log_err("%s: failed to allocate HMB buffer descriptors", unvmed_bdf(u));
 		return -1;
 	}
 
 	if (unvmed_map_vaddr(u, descs, ret, &iova, 0x0) < 0) {
-		unvmed_log_err("failed to map HMB buffer descriptors to IOMMU");
+		unvmed_log_err("%s: failed to map HMB buffer descriptors to IOMMU", unvmed_bdf(u));
 		goto free;
 	}
 
 	u->hmb.descs_vaddr = calloc(nr_bsize, sizeof(uint64_t));
 	if (!u->hmb.descs_vaddr) {
-		unvmed_log_err("failed to allocate HMB buffer descriptors");
+		unvmed_log_err("%s: failed to allocate HMB buffer descriptors", unvmed_bdf(u));
 		goto free;
 	}
 
@@ -3973,8 +3975,8 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 	u->hmb.descs_size = ret;
 	u->hmb.nr_descs = nr_bsize;
 
-	unvmed_log_info("HMB descriptors (vaddr=%p, iova=%#lx, size=%ldbytes)",
-			descs, iova, ret);
+	unvmed_log_info("%s: HMB descriptors (vaddr=%p, iova=%#lx, size=%ldbytes)",
+		unvmed_bdf(u), descs, iova, ret);
 
 	for (i = 0; i < nr_bsize; i++) {
 		size_t size = bsize[i] * page_size;
@@ -3982,12 +3984,12 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 
 		ret = unvmed_pgmap(u, &buf, size);
 		if (ret < 0) {
-			unvmed_log_err("failed to allocate HMB buffer");
+			unvmed_log_err("%s: failed to allocate HMB buffer", unvmed_bdf(u));
 			goto free;
 		}
 
 		if (unvmed_map_vaddr(u, buf, ret, &iova, 0x0) < 0) {
-			unvmed_log_err("failed to map HMB buffer to IOMMU");
+			unvmed_log_err("%s: failed to map HMB buffer to IOMMU", unvmed_bdf(u));
 			goto free;
 		}
 
@@ -3996,8 +3998,8 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 		u->hmb.descs[i].bsize = cpu_to_le32(bsize[i]);
 
 		hsize += bsize[i];
-		unvmed_log_info("HMB descriptor #%d (vaddr=%p, iova=%#lx, size=%ldbytes)",
-				i, buf, iova, ret);
+		unvmed_log_info("%s: HMB descriptor #%d (vaddr=%p, iova=%#lx, size=%ldbytes)",
+				unvmed_bdf(u), i, buf, iova, ret);
 	}
 
 	u->hmb.hsize = hsize;
@@ -4034,12 +4036,12 @@ int unvmed_hmb_free(struct unvme *u)
 		if (u->hmb.descs[i].badd) {
 			unvmed_unmap_vaddr(u, (void *)u->hmb.descs_vaddr[i]);
 			unvmed_pgunmap((void *)u->hmb.descs_vaddr[i]);
-			unvmed_log_info("HMB descriptor #%d freed", i);
+			unvmed_log_info("%s: HMB descriptor #%d freed", unvmed_bdf(u), i);
 		}
 	}
 
 	if (unvmed_unmap_vaddr(u, u->hmb.descs) < 0)
-		unvmed_log_err("failed to unmap HMB buffer descriptors from IOMMU");
+		unvmed_log_err("%s: failed to unmap HMB buffer descriptors from IOMMU", unvmed_bdf(u));
 
 	unvmed_pgunmap(u->hmb.descs);
 
@@ -4143,8 +4145,8 @@ static struct unvme_sq *__unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t
 
 	ucq = unvmed_cq_find(u, cqid);
 	if (!ucq) {
-		unvmed_log_err("failed to find corresponding I/O CQ (qid=%d)",
-				cqid);
+		unvmed_log_err("%s: failed to find corresponding I/O CQ (qid=%d)",
+				unvmed_bdf(u), cqid);
 		errno = ENODEV;
 		return NULL;
 	}
@@ -4159,16 +4161,16 @@ static struct unvme_sq *__unvmed_init_sq(struct unvme *u, uint32_t qid, uint32_t
 
 	usq = unvmed_init_usq(u, qid, qsize, ucq, qprio, pc, nvmsetid);
 	if (!usq) {
-		unvmed_log_err("failed to initialize usq instance. "
+		unvmed_log_err("%s: failed to initialize usq instance. "
 				"discard sq instance from libvfn (qid=%d)",
-				qid);
+				unvmed_bdf(u), qid);
 		unvmed_discard_sq(u, qid);
 		return NULL;
 	}
 
 	return usq;
 err:
-	unvmed_log_err("failed to configure I/O SQ in libvfn");
+	unvmed_log_err("%s: failed to configure I/O SQ in libvfn", unvmed_bdf(u));
 	return NULL;
 }
 
@@ -4193,7 +4195,7 @@ static int unvmed_map_iova_to_mem(struct unvme *u, uint64_t iova, size_t size,
 		return 0;
 	}
 
-	unvmed_log_err("failed to map iova 0x%lx to vaddr", iova);
+	unvmed_log_err("%s: failed to map iova 0x%lx to vaddr", unvmed_bdf(u), iova);
 	errno = EINVAL;
 	return -1;
 }
@@ -4223,8 +4225,8 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 	struct unvme_cq *ucq;
 
 	if (vector >= 0 && unvmed_init_irq(u, vector)) {
-		unvmed_log_err("failed to initialize irq (nr_irqs=%d, vector=%d, errno=%d \"%s\")",
-				u->nr_irqs, vector, errno, strerror(errno));
+		unvmed_log_err("%s: failed to initialize irq (nr_irqs=%d, vector=%d, errno=%d \"%s\")",
+				unvmed_bdf(u), u->nr_irqs, vector, errno, strerror(errno));
 		return NULL;
 	}
 
@@ -4238,9 +4240,9 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 
 	ucq = unvmed_init_ucq(u, qid, qsize, vector, pc);
 	if (!ucq) {
-		unvmed_log_err("failed to initialize ucq instance. "
+		unvmed_log_err("%s: failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
-				qid);
+				unvmed_bdf(u), qid);
 		unvmed_discard_cq(u, qid);
 		return NULL;
 	}
@@ -4252,13 +4254,13 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 		unvmed_cq_iv(ucq) = -1;
 
 	if (vector >= 0 && unvmed_reaper_add_cq(u, ucq)) {
-		unvmed_log_err("failed to register ucq to reaper");
+		unvmed_log_err("%s: failed to register ucq to reaper", unvmed_bdf(u));
 		return NULL;
 	}
 
 	return ucq;
 err:
-	unvmed_log_err("failed to configure I/O CQ in libvfn");
+	unvmed_log_err("%s: failed to configure I/O CQ in libvfn", unvmed_bdf(u));
 	return NULL;
 }
 
