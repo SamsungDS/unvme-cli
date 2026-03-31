@@ -2108,12 +2108,31 @@ update:
 	}
 
 	for (int i = 0; i < usq->qsize; i++) {
-		cmd = unvmed_get_cmd(usq, i);
-		if (!cmd)
+		struct unvme_cmd *cmd_ref;
+
+		cmd = &usq->cmds[i];
+
+		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED) {
+			unvmed_put_cqe(u, cmd);
+			continue;
+		}
+
+		/*
+		 * For commands in INIT state (CID allocated but not yet pushed
+		 * to SQ), use unvmed_cmd_get() to atomically acquire a
+		 * reference.  This prevents a TOCTOU race where a concurrent
+		 * thread (e.g. fio without SQ lock) could free the command
+		 * between our refcnt check and unvmed_put_cqe(), which would
+		 * result in a NULL dereference on cmd->rq.
+		 */
+		cmd_ref = unvmed_cmd_get(usq, i);
+		if (!cmd_ref)
 			continue;
 
-		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED)
-			unvmed_put_cqe(u, cmd);
+		if (LOAD(cmd_ref->state) == UNVME_CMD_S_INIT)
+			unvmed_put_cqe(u, cmd_ref);
+
+		unvmed_cmd_put(cmd_ref);
 	}
 
 	unvmed_cq_exit(ucq);
