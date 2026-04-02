@@ -469,7 +469,7 @@ static inline bool unvmed_sq_ready(struct unvme_sq *usq)
  */
 static inline union nvme_cmd *unvmed_sq_entry(struct unvme_sq *usq, uint16_t db)
 {
-	return usq->q->mem.vaddr + db * sizeof(union nvme_cmd);
+	return (union nvme_cmd *)(usq->q->mem.vaddr + db * sizeof(union nvme_cmd));
 }
 
 /**
