@@ -708,7 +708,7 @@ static int libunvmed_init_data(struct thread_data *td)
 
 		if (unvmed_map_vaddr(u, ld->meta_iomem, ld->meta_iomem_size, &ld->meta_iomem_iova, 0)) {
 			libunvmed_log("failed to map vaddr for metadata\n");
-			pgunmap(ld->meta_iomem, ld->meta_iomem_size);
+			unvmed_pgunmap(ld->meta_iomem);
 			return -EINVAL;
 		}
 	} else if (o->md_per_io_size)
@@ -727,7 +727,7 @@ static int libunvmed_init_data(struct thread_data *td)
 		if (unvmed_map_vaddr(u, ld->trim_iomem, ld->trim_iomem_size,
 					&ld->trim_iomem_iova, 0)) {
 			libunvmed_log("failed to map vaddr for TRIM buffer\n");
-			pgunmap(ld->trim_iomem, ld->trim_iomem_size);
+			unvmed_pgunmap(ld->trim_iomem);
 			return -EINVAL;
 		}
 	}
@@ -825,7 +825,7 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 
 	if (td->o.td_ddir == TD_DDIR_TRIM || td->o.td_ddir == TD_DDIR_RANDTRIM) {
 		unvmed_unmap_vaddr(ld->u, ld->trim_iomem);
-		pgunmap(ld->trim_iomem, ld->trim_iomem_size);
+		unvmed_pgunmap(ld->trim_iomem);
 	}
 
 	refcnt = unvmed_ns_put(ld->u, ld->ns);
@@ -833,7 +833,7 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 
 	if (ld->meta_iomem) {
 		unvmed_unmap_vaddr(ld->u, ld->meta_iomem);
-		pgunmap(ld->meta_iomem, ld->meta_iomem_size);
+		unvmed_pgunmap(ld->meta_iomem);
 	}
 
 	free(ld->cqes);
@@ -1104,9 +1104,9 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 			libunvmed_log("failed to allocate prplist_iomem\n");
 
 			if (ld->prp_iomem)
-				pgunmap(ld->prp_iomem, ld->prp_iomem_size);
+				unvmed_pgunmap(ld->prp_iomem);
 			if (td->orig_buffer)
-				pgunmap(td->orig_buffer, ld->orig_buffer_size);
+				unvmed_pgunmap(td->orig_buffer);
 
 			pthread_mutex_unlock(&g_serialize);
 			return 1;
@@ -1128,13 +1128,13 @@ static void fio_libunvmed_iomem_free(struct thread_data *td)
 	pthread_mutex_lock(&g_serialize);
 
 	if (ld->prp_list_iomem)
-		pgunmap(ld->prp_list_iomem, ld->prp_list_iomem_size);
+		unvmed_pgunmap(ld->prp_list_iomem);
 
 	if (ld->prp_iomem)
-		pgunmap(ld->prp_iomem, ld->prp_iomem_size);
+		unvmed_pgunmap(ld->prp_iomem);
 
 	if (td->orig_buffer && !o->cmb_data)
-		pgunmap(td->orig_buffer, ld->orig_buffer_size);
+		unvmed_pgunmap(td->orig_buffer);
 	else if (o->cmb_data)
 		libunvmed_cmb_free_all(td);
 
