@@ -92,9 +92,9 @@ int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize, uint32_t *qid)
 	vcq->tail = 0;
 	vcq->qsize = qsize;
 	pthread_spin_init(&vcq->tail_lock, 0);
-	vcq->cqe = malloc(sizeof(struct nvme_cqe) * qsize);
+	vcq->vcqe = malloc(sizeof(struct unvme_vcqe) * qsize);
 
-	if (!vcq->cqe) {
+	if (!vcq->vcqe) {
 		unvmed_vcq_release(id);
 		errno = ENOMEM;
 		return -1;
@@ -104,7 +104,7 @@ int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize, uint32_t *qid)
 	*qid = id;
 
 	unvmed_log_info("vcq initialized (qid=%u, qsize=%u, qaddr=%p)",
-			vcq->qid, vcq->qsize, vcq->cqe);
+			vcq->qid, vcq->qsize, vcq->vcqe);
 	return 0;
 }
 
@@ -116,9 +116,9 @@ void unvmed_vcq_free(struct unvme_vcq *vcq)
 	unvmed_vcq_release(qid);
 
 	unvmed_log_info("vcq freed (qid=%u, qsize=%u, qaddr=%p)",
-			vcq->qid, vcq->qsize, vcq->cqe);
+			vcq->qid, vcq->qsize, vcq->vcqe);
 
-	free(vcq->cqe);
+	free(vcq->vcqe);
 	memset(vcq, 0, sizeof(struct unvme_vcq));
 }
 
@@ -135,7 +135,7 @@ static int __unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 		return -EAGAIN;
 	}
 
-	q->cqe[tail] = *cqe;
+	q->vcqe[tail] = (struct unvme_vcqe){ .cqe = *cqe, .bdf = u->u_bdf };
 	atomic_store_release(&q->tail, (tail + 1) % q->qsize);
 	unvmed_log_cmd_vcq_push(cqe);
 
@@ -164,38 +164,39 @@ int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
 	return __unvmed_vcq_push(u, vcq, cqe);
 }
 
-int unvmed_vcq_pop(struct unvme_vcq *q, struct nvme_cqe *cqe)
+int unvmed_vcq_pop(struct unvme_vcq *q, struct unvme_vcqe *vcqe)
 {
 	uint16_t head = atomic_load_acquire(&q->head);
 
 	if (head == atomic_load_acquire(&q->tail))
 		return -ENOENT;
 
-	*cqe = q->cqe[head];
+	*vcqe = q->vcqe[head];
 	atomic_store_release(&q->head, (head + 1) % q->qsize);
-	unvmed_log_cmd_vcq_pop(cqe);
+	unvmed_log_cmd_vcq_pop(&vcqe->cqe);
 	return 0;
 }
 
 static int __unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
-			      struct nvme_cqe *cqes, int nr_cqes, bool nowait)
+			      struct unvme_vcqe *vcqes, int nr_vcqes,
+			      bool nowait)
 {
-	struct nvme_cqe __cqe;
-	struct nvme_cqe *cqe = &__cqe;
+	struct unvme_vcqe __vcqe;
+	struct unvme_vcqe *vcqe = &__vcqe;
 	int nr_cmds;
 	int nr = 0;
 	int ret;
 
-	while (nr < nr_cqes) {
+	while (nr < nr_vcqes) {
 		do {
-			ret = unvmed_vcq_pop(vcq, &__cqe);
+			ret = unvmed_vcq_pop(vcq, &__vcqe);
 		} while (ret == -ENOENT && !nowait);
 
 		if (ret)
 			break;
 
-		if (cqes)
-			memcpy(&cqes[nr], cqe, sizeof(*cqe));
+		if (vcqes)
+			memcpy(&vcqes[nr], vcqe, sizeof(*vcqe));
 		nr++;
 	}
 
@@ -207,12 +208,12 @@ static int __unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
 }
 
 int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
-		     struct nvme_cqe *cqes, int min, int max)
+		     struct unvme_vcqe *vcqes, int min, int max)
 {
 	int ret;
 	int n;
 
-	n = __unvmed_vcq_run_n(u, vcq, cqes, min, false);
+	n = __unvmed_vcq_run_n(u, vcq, vcqes, min, false);
 	if (n < 0)
 		return 0;
 
@@ -221,7 +222,7 @@ int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
 	if (ret >= max)
 		return ret;
 
-	n = __unvmed_vcq_run_n(u, vcq, cqes + n, max - n, true);
+	n = __unvmed_vcq_run_n(u, vcq, vcqes ? vcqes + n : NULL, max - n, true);
 	if (n < 0)
 		return ret;
 

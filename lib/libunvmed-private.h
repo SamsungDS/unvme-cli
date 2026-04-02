@@ -84,6 +84,11 @@ struct unvme {
 	int shmem_fd;
 	char shmem_name[64];
 
+	/*
+	 * BDF packed as a uint32_t: (domain<<16)|(bus<<8)|(device<<3)|func.
+	 */
+	uint32_t u_bdf;
+
 	struct list_node list;
 };
 
