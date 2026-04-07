@@ -905,11 +905,13 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	}
 
 	/*
-	 * .open_file() is not called in trim-only workloads at all.  To avoid
-	 * 0-sized memory allocation, we should check the orig_buffer_size
-	 * here.
+	 * For trim-only workloads, orig_buffer is a one-page placeholder and is
+	 * never used in NVMe commands, so skip the IOMMU mapping. The existing
+	 * orig_buffer_size check is kept to handle the read/write path where
+	 * the size can be zero.
 	 */
-	if (ld->orig_buffer_size) {
+	if (ld->orig_buffer_size &&
+	    td->o.td_ddir != TD_DDIR_TRIM && td->o.td_ddir != TD_DDIR_RANDTRIM) {
 		if (o->cmb_data)
 			unvmed_to_iova(u, td->orig_buffer, &ld->orig_buffer_iova);
 		else {
@@ -1021,7 +1023,8 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 			libunvmed_log("failed to unmap prp iomem from iommu\n");
 	}
 
-	if (td->orig_buffer && !o->cmb_data) {
+	if (td->orig_buffer && !o->cmb_data &&
+	    td->o.td_ddir != TD_DDIR_TRIM && td->o.td_ddir != TD_DDIR_RANDTRIM) {
 		ret = unvmed_unmap_vaddr(ld->u, td->orig_buffer);
 		if (ret)
 			libunvmed_log("failed to unmap io_u buffers from iommu\n");
@@ -1054,6 +1057,27 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 	if (ret) {
 		libunvmed_log("failed to grab mutex lock\n");
 		return ret;
+	}
+
+	/*
+	 * For trim-only workloads, the data buffer is not needed; trim_iomem is
+	 * used instead.  However, fio may set io_u->buf from td->orig_buffer
+	 * after iomem_alloc, so allocate a single page as a placeholder to keep
+	 * the pointer non-NULL.  The engine overwrites io_u->buf with trim_iomem
+	 * in io_u_init, so orig_buffer is never actually used in NVMe commands.
+	 * prp_list_iomem and prp_iomem are only needed for read/write; skip them.
+	 */
+	if (td->o.td_ddir == TD_DDIR_TRIM || td->o.td_ddir == TD_DDIR_RANDTRIM) {
+		size = unvmed_pgmap(u, &ptr, unvmed_pagesize(u));
+		if (size < 0) {
+			libunvmed_log("failed to allocate trim placeholder buffer\n");
+			pthread_mutex_unlock(&g_serialize);
+			return 1;
+		}
+		td->orig_buffer = (char *)ptr;
+		ld->orig_buffer_size = size;
+		pthread_mutex_unlock(&g_serialize);
+		return 0;
 	}
 
 	if (o->cmb_data) {
