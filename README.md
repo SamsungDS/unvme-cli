@@ -109,6 +109,9 @@ unvme add $bdf
 unvme create-adminq $bdf
 unvme enable $bdf
 
+# Identify the controller first to cache the MDTS value
+unvme id-ctrl $bdf
+
 # Create a I/O SQ and CQ with qid=1
 unvme create-iocq $bdf --qid=1 --qsize=256 --vector=1
 unvme create-iosq $bdf --qid=1 --qsize=256 --cqid=1
