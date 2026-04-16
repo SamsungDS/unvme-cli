@@ -1594,6 +1594,20 @@ static inline struct unvme_cmd *unvmed_get_cmd(struct unvme_sq *usq,
 void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq);
 
 /**
+ * unvmed_cancel_init_cmds - Cancel all INIT state commands
+ * @u: &struct unvme
+ *
+ * Cancel all commands that have been allocated but not yet submitted to
+ * submission queues.  For each such command a fake CQE with status "Command
+ * Aborted By Host" (SCT=PATH(0x3), SC=0x71) is generated and delivered
+ * through the normal completion path.
+ *
+ * This API must be called with all submission queues already quiesced (locked)
+ * via unvmed_quiesce_sq_all() to prevent concurrent SQE issues.
+ */
+void unvmed_cancel_init_state_cmds(struct unvme *u);
+
+/**
  * __unvmed_cq_run_n - Reap CQ entries from a completion queue
  * @u: &struct unvme
  * @ucq: completion queue (&struct unvme_cq)

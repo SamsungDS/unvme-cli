@@ -2168,6 +2168,35 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 	}
 }
 
+void unvmed_cancel_init_state_cmds(struct unvme *u)
+{
+	struct unvme_sq *usq;
+	struct unvme_cmd *cmd;
+	int qid;
+
+	/*
+	 * Caller must have already quiesced (locked) all submission queues via
+	 * unvmed_quiesce_sq_all() before calling this function to ensure no new
+	 * SQEs are posted while we scan for INIT state commands.
+	 */
+	for (qid = 0; qid < u->nr_sqs; qid++) {
+		usq = unvmed_sq_get(u, qid);
+		if (!usq)
+			continue;
+
+		for (int i = 0; i < usq->qsize - 1; i++) {
+			cmd = unvmed_cmd_get(usq, i);
+			if (!cmd)
+				continue;
+
+			if (LOAD(cmd->state) == UNVME_CMD_S_INIT)
+				unvmed_put_cqe(u, cmd);
+
+			unvmed_cmd_put(cmd);
+		}
+		unvmed_sq_put(u, usq);
+	}
+}
 
 void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 {
@@ -2269,6 +2298,9 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 
 	/* Quiesce first to get the ownership for all SQs */
 	unvmed_quiesce_sq_all(u);
+
+	/* Cancel INIT state commands */
+	unvmed_cancel_init_state_cmds(u);
 
 	/*
 	 * Wait for all the in-flight commands to complete, meaning that upper
