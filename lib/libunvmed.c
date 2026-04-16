@@ -2038,8 +2038,7 @@ static bool unvmed_cmd_cmpl_wakeup(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 	return false;
 }
 
-static inline void unvmed_put_cqe(struct unvme *u, struct unvme_cq *ucq,
-				  struct unvme_cmd *cmd)
+static inline void unvmed_put_cqe(struct unvme *u, struct unvme_cmd *cmd)
 {
 	uint16_t status = (NVME_SCT_PATH << NVME_SCT_SHIFT) |
 		NVME_SC_CMD_ABORTED_BY_HOST;
@@ -2114,7 +2113,7 @@ update:
 			continue;
 
 		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED)
-			unvmed_put_cqe(u, ucq, cmd);
+			unvmed_put_cqe(u, cmd);
 	}
 
 	unvmed_cq_exit(ucq);
