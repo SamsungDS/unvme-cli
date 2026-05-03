@@ -1344,7 +1344,8 @@ static void libunvmed_fill_pi(struct thread_data *td, struct io_u *io_u,
 	 */
 	if (o->pi_act)
 		sqe->control |= NVME_IO_PRINFO_PRACT;
-	sqe->control |= o->prchk;
+	if (sqe->opcode != nvme_cmd_write_zeroes)
+		sqe->control |= o->prchk;
 
 	if (o->prchk & NVME_IO_PRINFO_PRCHK_APP) {
 		sqe->apptag = cpu_to_le16(o->apptag);
