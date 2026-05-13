@@ -284,6 +284,7 @@ enum unvme_sq_flags {
 
 enum unvme_cmd_state {
 	UNVME_CMD_S_INIT		= 0,
+	UNVME_CMD_S_ALLOCATED,
 	UNVME_CMD_S_SUBMITTED,
 	UNVME_CMD_S_COMPLETED,
 	UNVME_CMD_S_TO_BE_COMPLETED,
@@ -1594,7 +1595,7 @@ static inline struct unvme_cmd *unvmed_get_cmd(struct unvme_sq *usq,
 void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq);
 
 /**
- * unvmed_cancel_init_cmds - Cancel all INIT state commands
+ * unvmed_cancel_allocated_state_cmds - Cancel all ALLOCATED state commands
  * @u: &struct unvme
  *
  * Cancel all commands that have been allocated but not yet submitted to
@@ -1605,7 +1606,7 @@ void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq);
  * This API must be called with all submission queues already quiesced (locked)
  * via unvmed_quiesce_sq_all() to prevent concurrent SQE issues.
  */
-void unvmed_cancel_init_state_cmds(struct unvme *u);
+void unvmed_cancel_allocated_state_cmds(struct unvme *u);
 
 /**
  * __unvmed_cq_run_n - Reap CQ entries from a completion queue

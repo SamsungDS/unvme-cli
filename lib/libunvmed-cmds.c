@@ -227,6 +227,7 @@ static struct unvme_cmd *__unvmed_cmd_alloc(struct unvme *u,
 	cmd->usq = usq;
 	cmd->rq = rq;
 	cmd->refcnt = 1;
+	cmd->state = UNVME_CMD_S_ALLOCATED;
 
 	rq->opaque = cmd;
 

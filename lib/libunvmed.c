@@ -2108,31 +2108,19 @@ update:
 	}
 
 	for (int i = 0; i < usq->qsize; i++) {
-		struct unvme_cmd *cmd_ref;
-
 		cmd = &usq->cmds[i];
 
-		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED) {
-			unvmed_put_cqe(u, cmd);
-			continue;
-		}
-
 		/*
-		 * For commands in INIT state (CID allocated but not yet pushed
-		 * to SQ), use unvmed_cmd_get() to atomically acquire a
+		 * For commands in ALLOCATED state (cmd allocated but not yet
+		 * pushed to SQ), use unvmed_cmd_get() to atomically acquire a
 		 * reference.  This prevents a TOCTOU race where a concurrent
 		 * thread (e.g. fio without SQ lock) could free the command
 		 * between our refcnt check and unvmed_put_cqe(), which would
 		 * result in a NULL dereference on cmd->rq.
 		 */
-		cmd_ref = unvmed_cmd_get(usq, i);
-		if (!cmd_ref)
-			continue;
-
-		if (LOAD(cmd_ref->state) == UNVME_CMD_S_INIT)
-			unvmed_put_cqe(u, cmd_ref);
-
-		unvmed_cmd_put(cmd_ref);
+		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED ||
+				LOAD(cmd->state) == UNVME_CMD_S_ALLOCATED)
+			unvmed_put_cqe(u, cmd);
 	}
 
 	unvmed_cq_exit(ucq);
@@ -2168,7 +2156,7 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 	}
 }
 
-void unvmed_cancel_init_state_cmds(struct unvme *u)
+void unvmed_cancel_allocated_state_cmds(struct unvme *u)
 {
 	struct unvme_sq *usq;
 	struct unvme_cmd *cmd;
@@ -2185,14 +2173,10 @@ void unvmed_cancel_init_state_cmds(struct unvme *u)
 			continue;
 
 		for (int i = 0; i < usq->qsize - 1; i++) {
-			cmd = unvmed_cmd_get(usq, i);
-			if (!cmd)
-				continue;
+			cmd = &usq->cmds[i];
 
-			if (LOAD(cmd->state) == UNVME_CMD_S_INIT)
+			if (LOAD(cmd->state) == UNVME_CMD_S_ALLOCATED)
 				unvmed_put_cqe(u, cmd);
-
-			unvmed_cmd_put(cmd);
 		}
 		unvmed_sq_put(u, usq);
 	}
@@ -2299,8 +2283,8 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	/* Quiesce first to get the ownership for all SQs */
 	unvmed_quiesce_sq_all(u);
 
-	/* Cancel INIT state commands */
-	unvmed_cancel_init_state_cmds(u);
+	/* Cancel ALLOCATED state commands */
+	unvmed_cancel_allocated_state_cmds(u);
 
 	/*
 	 * Wait for all the in-flight commands to complete, meaning that upper
