@@ -32,6 +32,7 @@ struct unvme_vcq_slot {
 static struct unvme_vcq_slot __vcq_slots[UNVME_VCQ_MAX];
 static struct unvme_vcq_slot *__vcq_free_top;
 static struct unvme_vcq *__vcq_map[UNVME_VCQ_MAX];
+static __thread int __vcq_qid = -1;
 
 void unvmed_vcq_pool_init(void)
 {
@@ -102,6 +103,7 @@ int unvmed_vcq_init(struct unvme_vcq *vcq, uint32_t qsize, uint32_t *qid)
 
 	atomic_store_release(&__vcq_map[id], vcq);
 	*qid = id;
+	__vcq_qid = id;
 
 	unvmed_log_info("vcq initialized (qid=%u, qsize=%u, qaddr=%p)",
 			vcq->qid, vcq->qsize, vcq->vcqe);
@@ -122,7 +124,7 @@ void unvmed_vcq_free(struct unvme_vcq *vcq)
 	memset(vcq, 0, sizeof(struct unvme_vcq));
 }
 
-static int __unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
+static int ____unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 			     struct nvme_cqe *cqe)
 {
 	uint16_t tail;
@@ -143,10 +145,11 @@ static int __unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 	return 0;
 }
 
-int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
+static int __unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe, bool update_state)
 {
 	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
 	struct unvme_vcq *vcq;
+	int ret;
 
 	if (!cmd) {
 		unvmed_log_err("failed to get command (sqid=%d, cid=%d)",
@@ -161,7 +164,42 @@ int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
 		return -ENODEV;
 	}
 
-	return __unvmed_vcq_push(u, vcq, cqe);
+	if (update_state) {
+		enum unvme_cmd_state old = UNVME_CMD_S_SUBMITTED;
+		if (!atomic_cmpxchg(&cmd->state, old, UNVME_CMD_S_TO_BE_COMPLETED)) {
+			unvmed_log_err("MUST-NOT: failed to update @cmd->state\n");
+			return -EBADE;
+		}
+	}
+
+	do {
+		ret = ____unvmed_vcq_push(u, vcq, cqe);
+	} while (ret == -EAGAIN);
+
+	return 0;
+}
+
+int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
+{
+	return __unvmed_vcq_push(u, cqe, false);
+}
+
+int unvmed_vcq_push_to_other(struct unvme *u, struct nvme_cqe *cqe)
+{
+	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
+
+	if (!cmd) {
+		unvmed_log_err("failed to get command (sqid=%d, cid=%d)",
+				cqe->sqid, cqe->cid);
+		return -ENOENT;
+	}
+
+	if (__vcq_qid != -1 && __vcq_qid == cmd->vcq) {
+		unvmed_log_err("@cqe must not be this thread's one");
+		return -EPERM;
+	}
+
+	return __unvmed_vcq_push(u, cqe, true);
 }
 
 int unvmed_vcq_pop(struct unvme_vcq *q, struct unvme_vcqe *vcqe)

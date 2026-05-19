@@ -687,6 +687,29 @@ int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe);
+
+/**
+ * unvmed_vcq_push_to_other - Push the given @cqe to @cmd->vcq push @cqe to
+ * another threads' @vcq.
+ * @u: &struct unvme
+ * @cqe: completion queue entry to be pushed.
+ *
+ * It pushes the given @cqe to the corresponding @vcq which is registered to
+ * the @cmd instance whose (sqid == cqe->sqid) && (cid == cqe->cid).
+ *
+ * Unlike unvmed_vcq_push(), this function atomically transitions @cmd->state
+ * from %UNVME_CMD_S_SUBMITTED to %UNVME_CMD_S_TO_BE_COMPLETED before pushing.
+ * This function should be called before updating CQ head doorbells and the
+ * given @cqe must be the pointer which is in CQ.  So, DO NOT copy this @cqe to
+ * another variable, just pass it as a pointer.  If @cmd->state is not
+ * %UNVME_CMD_S_SUBMITTED, the push will be failed and return error.
+ *
+ * This API is thread-safe.
+ *
+ * Return: ``0`` on success, otherwise ``errno``.
+ */
+int unvmed_vcq_push_to_other(struct unvme *u, struct nvme_cqe *cqe);
+
 /**
  * unvmed_init - Initialize libunvmed library
  * @logfile: logfile path, NULL if no-log mode
