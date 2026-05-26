@@ -165,6 +165,11 @@ static inline int unvme_socket_send(int sock, struct unvme_msg *msg,
 
 #define UNVME_DEFAULT_UUID      "ebaad5d4-7e69-4067-ac91-930eba81317d"
 
+/*
+ * Thread-local VCQ accessor
+ */
+struct unvme_vcq *unvmed_get_thread_vcq(void);
+
 static inline void unvme_print_help(FILE *fp, char *cmd, const char *desc, void *argtable[]) {
 	fprintf(fp, "\nUsage: unvme %s", cmd);
 	arg_print_syntax(fp, argtable, "\n");

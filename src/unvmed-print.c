@@ -763,17 +763,6 @@ void unvme_pr_status(const char *format, struct unvme *u, bool stats)
 	}
 	unvme_pr("\n");
 
-	unvme_pr("Virtual Completion Queue\n");
-	unvme_pr("sqid head tail qsize\n");
-	unvme_pr("---- ---- ---- -----\n");
-	for (int i = 0; i < nr_sqs; i++) {
-		struct unvme_sq *usq = usqs[i];
-
-		unvme_pr("%4d %4d %4d %5d\n",
-			 usq->id, usq->vcq.head, usq->vcq.tail, usq->vcq.qsize);
-	}
-	unvme_pr("\n");
-
 	unvme_pr("Completion Queue\n");
 	unvme_pr("qid  vaddr              iova               pc head qsize phase vec  refcnt\n");
 	unvme_pr("---- ------------------ ------------------ -- ---- ----- ----- ---- ------\n");

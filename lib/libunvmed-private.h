@@ -251,7 +251,8 @@ static inline int __unvmed_cmd_wait(struct unvme_cmd *cmd)
 
 	while (!atomic_load_acquire(&cmd->completed)) {
 		if (!unvmed_cq_irq_enabled(cmd->usq->ucq))
-			unvmed_cq_run(cmd->u, cmd->usq, cmd->usq->ucq, NULL);
+			unvmed_cq_run(cmd->u, cmd->usq, cmd->usq->ucq,
+					unvmed_cmd_get_vcq(cmd), NULL);
 		else
 			unvmed_futex_wait(&cmd->completed, 0);
 	}

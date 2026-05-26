@@ -283,7 +283,6 @@ struct name {			\
 	struct unvme_cq *ucq;	\
 	struct unvme_cmd *cmds; \
 	struct unvme_timer timer;	\
-	struct unvme_vcq vcq;	\
 	struct unvme_bitmap cids;\
 	int nr_cmds;		\
 	uint64_t cmd_count[CMD_COUNT_RANGE];	\
@@ -690,7 +689,7 @@ static inline struct unvme_vcq *unvmed_cmd_get_vcq(struct unvme_cmd *cmd)
 	if (cmd->vcq)
 		return unvmed_vcq_get(cmd->vcq);
 
-	return &cmd->usq->vcq;
+	return NULL;
 }
 
 /**
@@ -1922,7 +1921,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
  *
  * Return: Number of cq entries fetched.
  */
-int unvmed_cq_run(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq, struct nvme_cqe *cqes);
+int unvmed_cq_run(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq, struct unvme_vcq *vcq, struct nvme_cqe *cqes);
 
 /**
  * unvmed_cq_run_n - Reap ``N`` CQ entries from a completion queue

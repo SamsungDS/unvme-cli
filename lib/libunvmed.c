@@ -2071,20 +2071,12 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 			return NULL;
 		}
 
-		if (unvmed_vcq_init(&usq->vcq, qsize, &usq->vcq.qid)) {
-			unvmed_cid_free(usq);
-			free(usq->cmds);
-			free(usq);
-			return NULL;
-		}
-
 		/*
 		 * @usq instance is safe to be passed to the timeout hander in
 		 * the future since @usq instance will never be freed without
 		 * terminating the pending timer.
 		 */
 		if (unvmed_timer_init(&usq->timer, usq)) {
-			unvmed_vcq_free(&usq->vcq);
 			unvmed_cid_free(usq);
 			free(usq->cmds);
 			free(usq);
@@ -2146,7 +2138,6 @@ static void __unvmed_free_usq(struct unvme *u, struct unvme_sq *usq)
 
 	unvmed_timer_free(&usq->timer);
 	unvmed_cid_free(usq);
-	unvmed_vcq_free(&usq->vcq);
 
 	free(usq->cmds);
 	free(usq);
@@ -3958,9 +3949,8 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 	struct unvme_cmd *cmd;
 	struct unvme_vcqe __vcqe;
 	struct nvme_cqe *cqe;
-	struct unvme_vcq *__vcq = vcq ? vcq : &usq->vcq;
 
-	ret = unvmed_vcq_pop(__vcq, &__vcqe);
+	ret = unvmed_vcq_pop(vcq, &__vcqe);
 	if (ret != -ENOENT) {
 		cqe = &__vcqe.cqe;
 		cmd = unvmed_get_cmd(usq, cqe->cid);
@@ -3993,7 +3983,6 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 		      struct unvme_vcq *vcq, struct nvme_cqe *cqes, int nr_cqes,
 		      bool nowait)
 {
-	struct unvme_vcq *__vcq = vcq ? vcq : &usq->vcq;
 	struct unvme_vcqe __vcqe;
 	struct nvme_cqe *cqe;
 	struct unvme_cmd *cmd;
@@ -4004,7 +3993,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 	while (nr < nr_cqes) {
 		if (unvmed_cq_irq_enabled(ucq)) {
 			do {
-				ret = unvmed_vcq_pop(__vcq, &__vcqe);
+				ret = unvmed_vcq_pop(vcq, &__vcqe);
 			} while (ret == -ENOENT && !nowait);
 
 			if (ret)
@@ -4020,7 +4009,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 				continue;
 			}
 		} else {
-			cqe = __unvmed_get_completion(u, usq, __vcq, ucq);
+			cqe = __unvmed_get_completion(u, usq, vcq, ucq);
 
 			if (!cqe) {
 				if (nowait)
@@ -4041,9 +4030,9 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 	return nr;
 }
 
-int unvmed_cq_run(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq, struct nvme_cqe *cqes)
+int unvmed_cq_run(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq, struct unvme_vcq *vcq, struct nvme_cqe *cqes)
 {
-	return __unvmed_cq_run_n(u, usq, ucq, NULL, cqes, ucq->q->qsize - 1, true);
+	return __unvmed_cq_run_n(u, usq, ucq, vcq, cqes, ucq->q->qsize - 1, true);
 }
 
 int unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *ucq,
@@ -5380,24 +5369,6 @@ struct json_object *unvmed_to_json(struct unvme *u)
 		json_object_array_add(sq_array, sq_obj);
 	}
 	json_object_object_add(status, "sq", sq_array);
-
-	/* Virtual Completion Queues */
-	struct json_object *vcq_array = json_object_new_array();
-	for (int i = 0; i < nr_sqs; i++) {
-		struct unvme_sq *usq = usqs[i];
-		struct json_object *vcq_obj = json_object_new_object();
-
-		json_object_object_add(vcq_obj, "sqid",
-				       json_object_new_int(usq->id));
-		json_object_object_add(vcq_obj, "head",
-				       json_object_new_int(usq->vcq.head));
-		json_object_object_add(vcq_obj, "tail",
-				       json_object_new_int(usq->vcq.tail));
-		json_object_object_add(vcq_obj, "qsize",
-				       json_object_new_int(usq->vcq.qsize));
-		json_object_array_add(vcq_array, vcq_obj);
-	}
-	json_object_object_add(status, "vcq", vcq_array);
 
 	/* Completion Queues */
 	struct json_object *cq_array = json_object_new_array();

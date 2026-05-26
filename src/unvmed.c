@@ -446,7 +446,20 @@ void unvme_exit_job(int ret)
 static void *unvme_handler(void *opaque)
 {
 	struct unvme_msg *msg = (struct unvme_msg *)opaque;
+	struct unvme_vcq *vcq;
 	int ret;
+
+	/*
+	 * Initialize thread-local VCQ for this command thread.
+	 */
+	vcq = unvmed_get_thread_vcq();
+	if (unvmed_vcq_init(vcq, 32, &vcq->qid)) {
+		unvmed_log_err("failed to initialize VCQ (pid=%d)", unvme_msg_pid(msg));
+		unvme_msg_to_client(msg, unvme_msg_pid(msg), -ENOMEM);
+		unvme_send_msg(sock, msg);
+		free(msg);
+		return NULL;
+	}
 
 	__msg = msg;
 
@@ -454,6 +467,8 @@ static void *unvme_handler(void *opaque)
 	ret = __unvme_handler(msg);
 
 	unvme_exit_job(ret);
+
+	unvmed_vcq_free(vcq);
 
 	pthread_detach(pthread_self());
 	pthread_exit(NULL);
