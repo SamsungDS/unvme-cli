@@ -2816,7 +2816,6 @@ void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 	 * fake cq entries with tail pointer being updated to avoid race.
 	 */
 	unvmed_cq_drain(u, usq->ucq);
-	unvmed_vcq_drain(&usq->vcq);
 
 	unvmed_cancel_sq(u, usq);
 

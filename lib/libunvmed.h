@@ -706,14 +706,6 @@ static inline struct unvme_vcq *unvmed_cmd_get_vcq(struct unvme_cmd *cmd)
 int unvmed_vcq_pop(struct unvme_vcq *q, struct unvme_vcqe *vcqes);
 
 /**
- * unvmed_vcq_drain - Wait until the virtual completion queue is empty
- * @vcq: virtual completion queue instance
- *
- * Busy-wait until all entries in @vcq have been consumed by the application.
- */
-void unvmed_vcq_drain(struct unvme_vcq *vcq);
-
-/**
  * unvmed_vcq_run_n - Run the given @vcq for [min, max]
  * @u: &struct unvme
  * @vcq: virtual completion queue instance to reap

@@ -264,10 +264,3 @@ int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
 
 	return ret + n;
 }
-
-void unvmed_vcq_drain(struct unvme_vcq *vcq)
-{
-	/* Wait for @vcq to be empty (reaped by application) */
-	while (LOAD(vcq->head) != LOAD(vcq->tail))
-		;
-}
