@@ -2933,6 +2933,73 @@ int unvmed_detach_ns(struct unvme_cmd *cmd, uint32_t nsid,
 		     struct iovec *iov, int nr_iov);
 
 /**
+ * struct unvmed_thread_ops - per-thread operation callbacks for a controller
+ * @reinit_ctrl: called when the controller instance is destroyed and
+ *               re-created (e.g. SR-IOV VF freed and re-enumerated after a
+ *               PF reset).  Each registered thread must redo any per-thread
+ *               work that depended on the old instance — such as remapping
+ *               DMA buffers or restoring thread-local state — against the
+ *               new controller instance.  NOT invoked on a plain reset
+ *               (CC.EN toggle, FLR, etc.) where the instance stays alive.
+ *               Must return 0 on success, negative errno on failure.
+ *
+ *               The callback runs under the controller's internal
+ *               thread_list lock.  It MUST NOT call unvmed_add_thread() or
+ *               unvmed_del_thread() on the same controller, directly or
+ *               transitively — doing so self-deadlocks.  Calls into
+ *               unvmed_map_vaddr()/unvmed_unmap_vaddr() are safe (different
+ *               lock).
+ *
+ * Additional callbacks may be added to this struct in the future as new
+ * per-thread lifecycle events are needed.  Currently only @reinit_ctrl is
+ * supported.
+ */
+struct unvmed_thread_ops {
+	int (*reinit_ctrl)(void *opaque);
+};
+
+/**
+ * unvmed_add_thread - Register per-thread ops on a controller
+ * @u: &struct unvme
+ * @ops: pointer to &struct unvmed_thread_ops providing the callbacks.
+ *       See &struct unvmed_thread_ops for the meaning of each op.
+ * @opaque: opaque pointer passed to each callback (e.g. struct thread_data *)
+ *
+ * Store the ops keyed by the calling thread's TID (via gettid()) in the
+ * controller's thread_list.  The reinit path invokes the relevant op on
+ * every registered thread at the appropriate lifecycle point.
+ *
+ * Call once per thread after the thread starts.  Pair with unvmed_del_thread()
+ * when the thread exits to avoid invoking a dangling callback.
+ *
+ * Example:
+ *
+ *   static const struct unvmed_thread_ops my_ops = {
+ *       .reinit_ctrl = app_reinit_cb,
+ *   };
+ *
+ *   static int app_reinit_cb(void *opaque)
+ *   {
+ *       struct app_ctx *ctx = opaque;
+ *       // Each thread re-initializes its actual context associated
+ *       // with the stale old instance.
+ *       return app_remap_buffers(ctx);
+ *   }
+ */
+void unvmed_add_thread(struct unvme *u,
+		       const struct unvmed_thread_ops *ops, void *opaque);
+
+/**
+ * unvmed_del_thread - Unregister an application thread callback from a controller
+ * @u: &struct unvme
+ *
+ * Remove the entry registered by the calling thread (matched by gettid())
+ * from the thread_list.  Call once per thread at close time, paired with
+ * unvmed_add_thread().
+ */
+void unvmed_del_thread(struct unvme *u);
+
+/**
  * unvmed_to_json - Get controller status as JSON object
  * @u: &struct unvme
  *

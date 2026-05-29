@@ -49,6 +49,14 @@ struct unvme {
 	 */
 	uint32_t epoch;
 
+	/*
+	 * Per-thread callback entries registered via unvmed_add_app().
+	 * Keyed by thread_id.  Invoked on controller enable so application
+	 * threads can respond without polling.
+	 */
+	struct list_head thread_list;
+	pthread_mutex_t thread_list_lock;
+
 	enum unvme_state state;
 	pthread_rwlock_t lock;
 
@@ -121,6 +129,13 @@ struct unvme {
 
 struct unvme_dmabuf {
 	struct iommu_dmabuf buf;
+	struct list_node list;
+};
+
+struct unvme_thread_entry {
+	pid_t thread_id;
+	const struct unvmed_thread_ops *ops;
+	void *opaque;
 	struct list_node list;
 };
 

@@ -438,6 +438,36 @@ ret:
 	return change;
 }
 
+void unvmed_add_thread(struct unvme *u,
+		       const struct unvmed_thread_ops *ops, void *opaque)
+{
+	struct unvme_thread_entry *entry = zmalloc(sizeof(*entry));
+
+	entry->thread_id = gettid();
+	entry->ops = ops;
+	entry->opaque = opaque;
+
+	pthread_mutex_lock(&u->thread_list_lock);
+	list_add_tail(&u->thread_list, &entry->list);
+	pthread_mutex_unlock(&u->thread_list_lock);
+}
+
+void unvmed_del_thread(struct unvme *u)
+{
+	struct unvme_thread_entry *entry, *next;
+	pid_t tid = gettid();
+
+	pthread_mutex_lock(&u->thread_list_lock);
+	list_for_each_safe(&u->thread_list, entry, next, list) {
+		if (entry->thread_id == tid) {
+			list_del(&entry->list);
+			free(entry);
+			break;
+		}
+	}
+	pthread_mutex_unlock(&u->thread_list_lock);
+}
+
 int unvmed_nr_cmds(struct unvme *u)
 {
 	return u->nr_cmds;
@@ -1187,6 +1217,9 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 
 	list_head_init(&u->mem_list);
 	pthread_rwlock_init(&u->mem_list_lock, NULL);
+
+	list_head_init(&u->thread_list);
+	pthread_mutex_init(&u->thread_list_lock, NULL);
 
 	if(__unvmed_bdf_to_int(unvmed_bdf(u), &u->u_bdf)) {
 		unvmed_free_ctrl(u);
@@ -2011,6 +2044,24 @@ static void unvmed_free_ns_all(struct unvme *u)
 }
 
 /*
+ * Drain @u->thread_list and free every per-thread callback entry registered
+ * via unvmed_add_thread().  Caller must guarantee no thread is still adding
+ * to or removing from the list at this point (final teardown only).
+ */
+static void unvmed_free_thread_list(struct unvme *u)
+{
+	struct unvme_thread_entry *entry, *next;
+
+	pthread_mutex_lock(&u->thread_list_lock);
+	list_for_each_safe(&u->thread_list, entry, next, list) {
+		list_del(&entry->list);
+		free(entry);
+	}
+	pthread_mutex_unlock(&u->thread_list_lock);
+}
+
+
+/*
  * Free NVMe controller instance from libvfn and the libunvmed.
  */
 void unvmed_free_ctrl(struct unvme *u)
@@ -2063,6 +2114,14 @@ void unvmed_free_ctrl(struct unvme *u)
 	pthread_rwlock_unlock(&u->lock);
 
 	unvmed_free_ns_all(u);
+
+	/*
+	 * Drain leftover per-thread callback entries registered via
+	 * unvmed_add_thread().  Final free is the only safe place to do this:
+	 * caller is responsible for having quiesced application threads, and
+	 * the reaper thread was already joined inside unvmed_free_irqs().
+	 */
+	unvmed_free_thread_list(u);
 
 	if (u->id_ctrl)
 		free(u->id_ctrl);
