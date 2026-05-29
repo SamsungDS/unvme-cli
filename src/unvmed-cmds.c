@@ -251,6 +251,7 @@ static const char *pci_get_iommu_group_id(const char *bdf)
 int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 {
 	struct dirent *entry;
+	struct unvme *__u;
 	char *bdf;
 	DIR *dfd;
 	struct arg_lit *help;
@@ -286,10 +287,13 @@ int unvme_list(int argc, char *argv[], struct unvme_msg *msg)
 		if (!__is_nvme_device(bdf))
 			continue;
 
+		__u = unvmed_get(bdf);
 		unvme_pr("%-15s\t%-8s\t%-11s\t%-12s\n", bdf,
-				unvmed_get(bdf) ? "yes" : "no",
+				__u ? "yes" : "no",
 				pci_get_iommu_group_id(bdf),
 				pci_get_driver(bdf));
+		if (__u)
+			unvmed_put(__u);
 	}
 
 	closedir(dfd);
@@ -332,8 +336,10 @@ int unvme_add(int argc, char *argv[], struct unvme_msg *msg)
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
 
 	u = unvmed_get(arg_strv(dev));
-	if (u)
+	if (u) {
+		unvmed_put(u);
 		goto out;
+	}
 
 	if (arg_intv(nrioqs) < 1) {
 		unvme_pr_err("'--nr-ioqs=' should be greater than 0\n");
@@ -486,7 +492,7 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 
 	u = unvmed_get(arg_strv(dev));
 	if (u)
-		unvmed_free_ctrl(u);
+		unvmed_put(u);
 
 	if (unvmed_pci_unbind(arg_strv(dev))) {
 		unvme_pr_err("failed to unbind PCI device from vfio-pci driver\n");
@@ -546,6 +552,8 @@ int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_pr_show_regs(arg_strv(format), u);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -591,6 +599,8 @@ int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_pr_status(arg_strv(format), u, arg_boolv(stats));
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -656,6 +666,8 @@ int unvme_hmb(int argc, char *argv[], struct unvme_msg *msg)
 			unvme_pr_err("failed to uninitialize Host Memory Buffer\n");
 	}
 out:
+	if (u) 
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -766,6 +778,8 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 	unvmed_enable_sq(usq);
 	unvmed_enable_cq(ucq);
 
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return 0;
 
@@ -774,6 +788,8 @@ usq:
 ucq:
 	unvmed_free_cq(u, 0);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -865,6 +881,8 @@ int unvme_enable(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -920,6 +938,8 @@ int unvme_cmb(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -1065,6 +1085,8 @@ ucq:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -1182,6 +1204,8 @@ ucq:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -1345,6 +1369,8 @@ ucq:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -1467,6 +1493,8 @@ targetq:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -1612,6 +1640,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -1744,6 +1774,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -1880,6 +1912,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -2020,6 +2054,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf - arg_intv(prp1_offset));
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -2168,6 +2204,8 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -2271,6 +2309,8 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -2379,6 +2419,8 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -2523,6 +2565,8 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -2785,6 +2829,8 @@ usq:
 out:
 	if (ns)
 		unvmed_ns_put(u, ns);
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3047,6 +3093,8 @@ usq:
 out:
 	if (ns)
 		unvmed_ns_put(u, ns);
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3349,6 +3397,8 @@ buf:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3410,6 +3460,8 @@ int unvme_update_sqdb(int argc, char *argv[], struct unvme_msg *msg)
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3535,6 +3587,8 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3600,6 +3654,8 @@ int unvme_reset(int argc, char *argv[], struct unvme_msg *msg)
 		goto out;
 	}
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3667,6 +3723,8 @@ int unvme_subsystem_reset(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3714,6 +3772,8 @@ int unvme_flr(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3762,6 +3822,8 @@ int unvme_hot_reset(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3810,6 +3872,8 @@ int unvme_link_disable(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -3897,6 +3961,8 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4012,6 +4078,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4128,6 +4196,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4182,6 +4252,8 @@ int unvme_malloc(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_pr_buf(&buf);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4214,6 +4286,8 @@ int unvme_mfree(int argc, char *argv[], struct unvme_msg *msg)
 	}
 
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4256,6 +4330,8 @@ int unvme_mread(int argc, char *argv[], struct unvme_msg *msg)
 
 	unvme_pr_raw(buf, arg_intv(size));
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4319,6 +4395,8 @@ int unvme_mwrite(int argc, char *argv[], struct unvme_msg *msg)
 free:
 	free(fbuf);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4464,6 +4542,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4557,6 +4637,8 @@ cmd:
 usq:
 	unvmed_sq_put(u, usq);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4674,6 +4756,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }
@@ -4791,6 +4875,8 @@ usq:
 buf:
 	unvmed_pgunmap(buf);
 out:
+	if (u)
+		unvmed_put(u);
 	unvme_free_args(argtable);
 	return ret;
 }

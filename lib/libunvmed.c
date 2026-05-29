@@ -46,6 +46,7 @@ static void __unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 static bool unvmed_cmd_cmpl_wakeup(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 static void __unvmed_reap_cqe(struct unvme_cq *ucq);
 static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl);
+static inline int __unvmed_bdf_to_int(const char *bdf, uint32_t *u_bdf);
 
 static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
 {
@@ -227,16 +228,33 @@ int unvmed_parse_bdf(const char *input, char *bdf)
 struct unvme *unvmed_get(const char *bdf)
 {
 	struct unvme *u;
+	uint32_t u_bdf;
+
+	if (__unvmed_bdf_to_int(bdf, &u_bdf))
+		return NULL;
 
 	if (!unvme_list.n.next || !unvme_list.n.prev)
 		return NULL;
 
 	list_for_each(&unvme_list, u, list) {
-		if (!strcmp(u->ctrl.pci.bdf, bdf))
+		if (u->u_bdf == u_bdf) {
+			atomic_inc(&u->refcnt);
 			return u;
+		}
 	}
 
 	return NULL;
+}
+
+int unvmed_put(struct unvme *u)
+{
+	int refcnt;
+
+	refcnt = atomic_dec_fetch(&u->refcnt);
+	if (!refcnt)
+		unvmed_free_ctrl(u);
+
+	return refcnt;
 }
 
 bool unvmed_ctrl_enabled(struct unvme *u)
@@ -991,6 +1009,9 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 		unvmed_free_ctrl(u);
 		return NULL;
 	}
+
+	u->refcnt = 1;
+
 	unvmed_log_info("%s: controller initialized (nr_sqs=%u, nr_cqs=%u)",
 			unvmed_bdf(u), u->nr_sqs, u->nr_cqs);
 

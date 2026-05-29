@@ -763,9 +763,24 @@ void unvmed_free_ctrl_all(void);
  * unvmed_get - Get an unvme instance
  * @bdf: bus-device-function address of PCI NVMe controller
  *
+ * Look up the controller instance matching @bdf and increment its reference
+ * count.  The caller must call unvmed_put() when done to release the
+ * reference.
+ *
  * Return: &struct unvme, otherwise NULL.
  */
 struct unvme *unvmed_get(const char *bdf);
+
+/**
+ * unvmed_put - Put an unvme instance
+ * @u: &struct unvme
+ *
+ * Decrement @u->refcnt.  When it reaches zero @u is freed and must not be
+ * accessed afterwards.
+ *
+ * Return: the decremented refcnt value.
+ */
+int unvmed_put(struct unvme *u);
 
 /**
  * unvmed_ctrl_enabled - Check whether the controller is enabled

@@ -22,6 +22,13 @@ struct unvme {
 	 */
 	int nr_irqs;
 
+	/*
+	 * Reference count for the controller instance lifetime.  Incremented
+	 * by unvmed_get() and decremented by unvmed_put(); reaching zero
+	 * triggers unvmed_free_ctrl().
+	 */
+	int refcnt;
+
 	enum unvme_state state;
 	pthread_spinlock_t lock;
 
