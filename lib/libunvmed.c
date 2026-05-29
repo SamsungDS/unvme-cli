@@ -90,6 +90,7 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		switch (old) {
 		case UNVME_DISABLED:
 		case UNVME_ENABLED:
+		case UNVME_FATAL:
 			change = true;
 			break;
 		default:
@@ -99,6 +100,15 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		switch (old) {
 		case UNVME_DISABLED:
 		case UNVME_ENABLED:
+		case UNVME_FATAL:
+			change = true;
+			break;
+		default:
+			break;
+		}
+	case UNVME_FATAL:
+		switch (old) {
+		case UNVME_ENABLING:
 			change = true;
 			break;
 		default:
@@ -2576,7 +2586,13 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 
 	while (1) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
-		if (NVME_CSTS_RDY(csts))
+		if (NVME_CSTS_CFS(csts)) {
+			unvmed_log_err("%s: controller has seted CFS (CSTS.CFS)",
+			       unvmed_bdf(u));
+			errno = ENODEV;
+			unvmed_ctrl_set_state(u, UNVME_FATAL);
+			return -1;
+		} else if (NVME_CSTS_RDY(csts))
 			break;
 	}
 

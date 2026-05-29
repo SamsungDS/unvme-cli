@@ -89,6 +89,11 @@ enum unvme_state {
 	 * good.
 	 */
 	UNVME_TEARDOWN,
+	/*
+	 * Controller has encountered a fatal status (CSTS.CFS=1) and is no
+	 * longer accessible.
+	 */
+	UNVME_FATAL,
 };
 
 static inline const char *unvmed_state_str(enum unvme_state state)
@@ -104,6 +109,8 @@ static inline const char *unvmed_state_str(enum unvme_state state)
 		return "RESETTING";
 	case UNVME_TEARDOWN:
 		return "TEARDOWN";
+	case UNVME_FATAL:
+		return "FATAL";
 	}
 	return "Unknown";
 }
