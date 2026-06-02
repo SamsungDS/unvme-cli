@@ -752,12 +752,6 @@ static int fio_libunvmed_init(struct thread_data *td)
 		return ret;
 
 	/*
-	 * Set total threads count on first call
-	 */
-	if (g_total_threads == 0)
-		g_total_threads = thread_number;
-
-	/*
 	 * If called twice, return directly here.
 	 */
 	if (td->io_ops_data) {
@@ -768,6 +762,12 @@ static int fio_libunvmed_init(struct thread_data *td)
 	ret = libunvmed_init_data(td);
 	if (ret)
 		goto unlock;
+
+	/*
+	 * Count only threads that reach initialization. Early-exit threads
+	 * are not included.
+	 */
+	g_total_threads++;
 
 	ld = td->io_ops_data;
 
