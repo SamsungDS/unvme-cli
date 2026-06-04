@@ -70,6 +70,7 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		default:
 			break;
 		}
+		break;
 	case UNVME_ENABLING:
 		switch (old) {
 		case UNVME_DISABLED:
@@ -78,6 +79,7 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		default:
 			break;
 		}
+		break;
 	case UNVME_ENABLED:
 		switch (old) {
 		case UNVME_ENABLING:
@@ -86,6 +88,7 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		default:
 			break;
 		}
+		break;
 	case UNVME_RESETTING:
 		switch (old) {
 		case UNVME_DISABLED:
@@ -96,6 +99,7 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		default:
 			break;
 		}
+		break;
 	case UNVME_TEARDOWN:
 		switch (old) {
 		case UNVME_DISABLED:
@@ -106,6 +110,7 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		default:
 			break;
 		}
+		break;
 	case UNVME_FATAL:
 		switch (old) {
 		case UNVME_ENABLING:
@@ -114,6 +119,7 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		default:
 			break;
 		}
+		break;
 	default:
 		break;
 	}
