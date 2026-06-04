@@ -1032,6 +1032,167 @@ static int libunvmed_parse_prchk(struct libunvmed_options *o)
 		return -1;
 }
 
+/*
+ * Map the io_u / PRP / PRP-list buffers owned by @td into the
+ * controller's IOMMU space.  Buffers are mapped in order:
+ *
+ *   1. td->orig_buffer          (skipped when o->cmb_data — CMB uses
+ *                                unvmed_to_iova() instead of map_vaddr)
+ *   2. ld->prp_iomem
+ *   3. ld->prp_list_iomem
+ *
+ * On any failure the function unwinds only the mappings it just
+ * established in this call — the metadata / TRIM buffers and any
+ * unrelated mappings are left alone.  The backing host pages
+ * (unvmed_pgmap allocations) are *not* freed here.
+ *
+ * Return: 0 on success, -1 on failure (with td_vmsg already invoked).
+ */
+static int libunvmed_map_mems(struct thread_data *td)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct unvme *u = ld->u;
+	bool orig_mapped = false;
+	bool prp_mapped = false;
+	int ret = 0;
+
+	if (ld->orig_buffer_size) {
+		if (o->cmb_data) {
+			unvmed_to_iova(u, td->orig_buffer, &ld->orig_buffer_iova);
+		} else {
+			ret = unvmed_map_vaddr(u, td->orig_buffer,
+					ld->orig_buffer_size,
+					&ld->orig_buffer_iova, 0);
+			if (ret) {
+				libunvmed_log("failed to map io_u buffers to iommu\n");
+				td_vmsg(td, EFAULT, "buffer mapping failed",
+						"libunvmed_map_mems");
+				return -1;
+			}
+			orig_mapped = true;
+		}
+	}
+
+	if (ld->prp_iomem) {
+		uint64_t iova;
+
+		ret = unvmed_map_vaddr(u, ld->prp_iomem, ld->prp_iomem_size,
+				&iova, 0);
+		if (ret) {
+			libunvmed_log("failed to map prp iomem to iommu\n");
+			td_vmsg(td, EFAULT, "buffer mapping failed",
+					"libunvmed_map_mems");
+			goto err;
+		}
+		prp_mapped = true;
+	}
+
+	if (ld->prp_list_iomem) {
+		uint64_t iova;
+
+		ret = unvmed_map_vaddr(u, ld->prp_list_iomem,
+				ld->prp_list_iomem_size, &iova, 0);
+		if (ret) {
+			libunvmed_log("failed to map prp_list iomem to iommu\n");
+			td_vmsg(td, EFAULT, "buffer mapping failed",
+					"libunvmed_map_mems");
+			goto err;
+		}
+	}
+
+	return 0;
+
+err:
+	if (prp_mapped && unvmed_unmap_vaddr(u, ld->prp_iomem))
+		libunvmed_log("failed to unmap prp_iomem\n");
+	if (orig_mapped && unvmed_unmap_vaddr(u, td->orig_buffer))
+		libunvmed_log("failed to unmap orig_buffer\n");
+	return -1;
+}
+
+/*
+ * reinit_ctrl callback: libunvmed invokes this on each thread that
+ * registered with unvmed_add_thread() after the controller instance
+ * has been destroyed and re-created (e.g. an SR-IOV VF freed and
+ * re-enumerated after a PF reset).  Every DMA buffer this thread
+ * owns must be re-mapped against the new controller instance:
+ *
+ *   1. io_u / PRP / PRP-list — delegated to libunvmed_map_mems()
+ *      (the same set fio_libunvmed_open_file() maps on first open).
+ *   2. metadata buffer (ld->meta_iomem), when present.
+ *   3. TRIM buffer (ld->trim_iomem), when present.
+ *
+ * Any buffer that undergoes IOMMU mapping via unvmed_map_vaddr() in
+ * either fio_libunvmed_open_file() or libunvmed_init_data() must be
+ * covered here.  If new buffers are added to those paths, mirror
+ * them in this callback or the controller will silently see stale
+ * IOVAs after a reinit.
+ *
+ * Failure handling: every IOMMU mapping established during this
+ * callback is rolled back before returning -EFAULT, so the
+ * controller is left without partial IOMMU residues.  The host-side
+ * backing pages (unvmed_pgmap allocations) are NOT freed — they
+ * stay live across the remap retry.  Freeing them here would turn
+ * a recoverable failure into a use-after-free the next time the
+ * ioengine touches ld->{prp,prp_list,meta,trim}_iomem.
+ *
+ * On success ld->epoch is refreshed via unvmed_get_epoch() so
+ * fio_libunvmed_close_file() sees the new instance and takes the
+ * normal unmap path instead of the "stale epoch — skip unmaps" path.
+ */
+static int libunvmed_remap_mems_cb(void *opaque)
+{
+	struct thread_data *td = (struct thread_data *)opaque;
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct unvme *u = ld->u;
+	bool meta_mapped = false;
+
+	if (libunvmed_map_mems(td))
+		return -EFAULT;
+
+	if (ld->meta_iomem) {
+		if (unvmed_map_vaddr(u, ld->meta_iomem, ld->meta_iomem_size,
+				&ld->meta_iomem_iova, 0)) {
+			libunvmed_log("failed to map vaddr for metadata\n");
+			td_vmsg(td, EFAULT, "buffer mapping failed",
+					"libunvmed_remap_mems_cb");
+			goto err;
+		}
+		meta_mapped = true;
+	}
+
+	if (ld->trim_iomem) {
+		if (unvmed_map_vaddr(u, ld->trim_iomem, ld->trim_iomem_size,
+				&ld->trim_iomem_iova, 0)) {
+			libunvmed_log("failed to map vaddr for TRIM buffer\n");
+			td_vmsg(td, EFAULT, "buffer mapping failed",
+					"libunvmed_remap_mems_cb");
+			goto err;
+		}
+	}
+
+	ld->epoch = unvmed_get_epoch(u);
+	return 0;
+
+err:
+	if (meta_mapped && unvmed_unmap_vaddr(u, ld->meta_iomem))
+		libunvmed_log("failed to unmap meta_iomem on rollback\n");
+	if (ld->prp_list_iomem && unvmed_unmap_vaddr(u, ld->prp_list_iomem))
+		libunvmed_log("failed to unmap prp_list_iomem on rollback\n");
+	if (ld->prp_iomem && unvmed_unmap_vaddr(u, ld->prp_iomem))
+		libunvmed_log("failed to unmap prp_iomem on rollback\n");
+	if (td->orig_buffer && ld->orig_buffer_size && !o->cmb_data &&
+	    unvmed_unmap_vaddr(u, td->orig_buffer))
+		libunvmed_log("failed to unmap orig_buffer on rollback\n");
+	return -EFAULT;
+}
+
+static const struct unvmed_thread_ops libunvmed_thread_ops = {
+	.reinit_ctrl = libunvmed_remap_mems_cb,
+};
+
 static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
@@ -1083,55 +1244,10 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	 * 0-sized memory allocation, we should check the orig_buffer_size
 	 * here.
 	 */
-	if (ld->orig_buffer_size) {
-		if (o->cmb_data)
-			unvmed_to_iova(u, td->orig_buffer, &ld->orig_buffer_iova);
-		else {
-			ret = unvmed_map_vaddr(u, td->orig_buffer, ld->orig_buffer_size,
-					&ld->orig_buffer_iova, 0);
-			if (ret) {
-				libunvmed_log("failed to map io_u buffers to iommu\n");
-				ret = -1;
-				td_vmsg(td, EFAULT, "buffer mapping failed",
-						"fio_libunvmed_open_file");
-				goto out;
-			}
-		}
-	}
+	ret = libunvmed_map_mems(td);
 
-	if (ld->prp_iomem) {
-		uint64_t iova;
-
-		ret = unvmed_map_vaddr(u, ld->prp_iomem, ld->prp_iomem_size,
-				&iova, 0);
-		if (ret) {
-			libunvmed_log("failed to map prp iomem to iommu\n");
-			ret = -1;
-			td_vmsg(td, EFAULT, "buffer mapping failed",
-					"fio_libunvmed_open_file");
-			goto out;
-		}
-	}
-
-	if (ld->prp_list_iomem) {
-		uint64_t iova;
-
-		ret = unvmed_map_vaddr(u, ld->prp_list_iomem, ld->prp_list_iomem_size,
-				&iova, 0);
-		if (ret) {
-			libunvmed_log("failed to map prp_list iomem to iommu\n");
-
-			if (ld->prp_iomem && unvmed_unmap_vaddr(u, ld->prp_iomem))
-				libunvmed_log("failed to unmap prp_iomem\n");
-			if (td->orig_buffer && unvmed_unmap_vaddr(u, td->orig_buffer))
-				libunvmed_log("failed to unmap orig_buffer\n");
-
-			ret = -1;
-			td_vmsg(td, EFAULT, "buffer mapping failed",
-					"fio_libunvmed_open_file");
-			goto out;
-		}
-	}
+	if (ret)
+		goto out;
 
 	if (libunvmed_parse_prchk(o)) {
 		libunvmed_log("'pi_chk=' has neither GUARD, APPTAG, or REFTAG\n");
@@ -1155,6 +1271,7 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 	}
 
 	ld->epoch = unvmed_get_epoch(u);
+	unvmed_add_thread(ld->u, &libunvmed_thread_ops, td);
 
 out:
 	if (ret) {
@@ -1185,6 +1302,8 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 		libunvmed_log("failed to grab mutex lock\n");
 		return ret;
 	}
+
+	unvmed_del_thread(ld->u);
 
 	if (ld->epoch != unvmed_get_epoch(ld->u)) {
 		libunvmed_log("skipping close_file unmaps: stale ctrl epoch (%u != %u)\n",
