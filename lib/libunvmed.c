@@ -91,7 +91,6 @@ static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		break;
 	case UNVME_RESETTING:
 		switch (old) {
-		case UNVME_DISABLED:
 		case UNVME_ENABLED:
 		case UNVME_FATAL:
 			change = true;
@@ -1913,6 +1912,11 @@ static int __unvme_reset_ctrl(struct unvme *u)
 
 	unvmed_log_debug("%s: resetting controller", unvmed_bdf(u));
 
+	if (unvmed_ctrl_get_state(u) == UNVME_DISABLED) {
+		errno = EALREADY;
+		return -1;
+	}
+
 	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
 		return -1;
@@ -1922,7 +1926,13 @@ static int __unvme_reset_ctrl(struct unvme *u)
 	unvmed_write32(u, NVME_REG_CC, cc & ~(1 << NVME_CC_EN_SHIFT));
 	while (1) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
-		if (!NVME_CSTS_RDY(csts))
+		if (csts == 0xffffffff) {
+			unvmed_log_err("%s: link is down (CSTS=0xffffffff)",
+				       unvmed_bdf(u));
+			errno = ENODEV;
+			return -1;
+		}
+		if (!NVME_CSTS_RDY(csts) && !NVME_CSTS_CFS(csts))
 			break;
 	}
 	unvmed_log_info("%s: controller reset complete", unvmed_bdf(u));
@@ -2370,6 +2380,11 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	__unvmed_delete_cq(u, u->acq);
 
 	unvmed_ctrl_set_state(u, UNVME_DISABLED);
+}
+
+int unvme_reset_ctrl(struct unvme *u)
+{
+	return __unvme_reset_ctrl(u);
 }
 
 /*

@@ -1258,6 +1258,27 @@ void unvmed_free_ctx(struct unvme *u);
 void unvmed_reset_ctrl(struct unvme *u);
 
 /**
+ * unvme_reset_ctrl - Reset controller and return status
+ * @u: &struct unvme
+ *
+ * Deassert CC.EN and wait for CSTS.RDY to reach 0.  Unlike
+ * unvmed_reset_ctrl(), this function does not quiesce queues or cancel
+ * in-flight commands; it performs only the hardware-level reset and returns
+ * the result to the caller.
+ *
+ * The caller MUST call unvmed_reset_ctx() after a successful return to reset
+ * the driver context (queues, commands, namespaces) to a consistent state
+ * before re-enabling the controller.
+ *
+ * Return: 0 on success, -1 with errno set on failure.  errno is set to
+ *         EALREADY if the controller is already in the disabled state (reset
+ *         already done), EBUSY if a reset is already in progress, or ENODEV
+ *         if PCIe link down is detected (CSTS == 0xffffffff) during CSTS.RDY
+ *         polling.
+ */
+int unvme_reset_ctrl(struct unvme *u);
+
+/**
  * unvmed_reset_ctrl_graceful - Reset controller gracefully
  * @u: &struct unvme
  *
