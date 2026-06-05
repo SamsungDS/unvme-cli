@@ -836,6 +836,8 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 		unvmed_pgunmap(ld->meta_iomem);
 	}
 
+	unvmed_put(ld->u);
+
 	free(ld->cqes);
 	free(ld);
 }
@@ -1031,7 +1033,6 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 	unvmed_sq_put(ld->u, ld->usq);
 
 	unvmed_vcq_free(&__vcq);
-	unvmed_put(ld->u);
 
 	pthread_mutex_unlock(&g_serialize);
 
