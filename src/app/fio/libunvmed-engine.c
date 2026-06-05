@@ -5,6 +5,7 @@
 #include "fio.h"
 #include "optgroup.h"
 #include "crc/crc-t10dif.h"
+#include "crc/crc32c.h"
 #include "crc/crc64.h"
 
 #undef cpu_to_le64
@@ -564,6 +565,18 @@ struct nvme_16b_guard_dif {
 	__be16 guard;
 	__be16 apptag;
 	__be32 srtag;
+};
+
+struct nvme_32b_guard_dif {
+	__be32 guard;
+	__be16 apptag;
+	/*
+	 * Combined Storage Tag and Reference Tag field, 80 bits wide.
+	 * Storage Tag occupies the upper STS bits, Reference Tag the rest.
+	 * With Storage Tag unsupported and a 48-bit LBA-derived Reference Tag,
+	 * sr[0..3] are zero and sr[4..9] hold the 48-bit Reference Tag in BE.
+	 */
+	uint8_t sr[10];
 };
 
 struct nvme_64b_guard_dif {
@@ -1256,6 +1269,22 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		goto out;
 	}
 
+	/*
+	 * For extended LBA (DIF, interleaved metadata), the PI tuple occupies
+	 * the tail of every xfer_buf block.  fio's verify header covers the
+	 * whole buffer including that region, so writing PI over it corrupts
+	 * the checksum.  Reject the combination up front, same as io_uring_cmd.
+	 */
+	if (libunvmed_ns_meta_is_dif(ld->ns) && libunvmed_pi_enabled(ld->ns) &&
+	    td->o.verify != VERIFY_NONE) {
+		log_err("%s: for extended LBA, verify cannot be used when E2E "
+			"data protection is enabled\n", f->file_name);
+		ret = -1;
+		td_vmsg(td, EINVAL, "E2E + verify conflict",
+				"fio_libunvmed_open_file");
+		goto out;
+	}
+
 	if ((o->write_mode != FIO_URING_CMD_WMODE_WRITE || o->wmode_split_nr > 1) &&
 	    !td_write(td)) {
 		libunvmed_log("'readwrite=|rw=' has no write\n");
@@ -1625,6 +1654,93 @@ static void libunvmed_fill_pi_64b_guard(struct thread_data *td, struct io_u *io_
 	}
 }
 
+/*
+ * XXX: This allocates a temporary buffer to concatenate lba data and metadata
+ * prefix before calling fio_crc32c(), which causes a performance drop per LBA.
+ * Once fio core provides a seed-based fio_crc32c(seed, buf, len) API, replace
+ * this with two chained calls and drop the allocation.
+ */
+static inline uint32_t libunvmed_crc32c_sep(const void *buf, size_t buf_len,
+					    const void *mbuf, size_t mbuf_len)
+{
+	size_t total = buf_len + mbuf_len;
+	uint8_t *tmp = malloc(total);
+	uint32_t crc;
+
+	memcpy(tmp, buf, buf_len);
+	memcpy(tmp + buf_len, mbuf, mbuf_len);
+	crc = fio_crc32c(tmp, total);
+	free(tmp);
+
+	return crc;
+}
+
+static void libunvmed_fill_pi_32b_guard(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct libunvmed_meta_options *mo = io_u->engine_data;
+	struct unvme_ns *ns = ld->ns;
+	struct nvme_32b_guard_dif *pi;
+	void *buf = io_u->xfer_buf;
+	void *mbuf = mo->mbuf;
+	uint32_t lba_idx = 0;
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
+	uint32_t nlb = libunvmed_get_nlba(ns, io_u->xfer_buflen);
+	uint32_t guard;
+
+	if (ns->dps & NVME_NS_DPS_PI_FIRST) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			mo->interval = ns->lba_size;
+		else
+			mo->interval = 0;
+	} else {
+		if (libunvmed_ns_meta_is_dif(ns))
+			mo->interval = ns->lba_size + ns->ms - sizeof(struct nvme_32b_guard_dif);
+		else
+			mo->interval = ns->ms - sizeof(struct nvme_32b_guard_dif);
+	}
+
+	if (io_u->ddir == DDIR_READ)
+		return;
+
+	while (lba_idx <= nlb) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			pi = (struct nvme_32b_guard_dif *)(buf + mo->interval);
+		else
+			pi = (struct nvme_32b_guard_dif *)(mbuf + mo->interval);
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_GUARD) {
+			if (libunvmed_ns_meta_is_dif(ns))
+				guard = fio_crc32c(buf, mo->interval);
+			else
+				guard = libunvmed_crc32c_sep(buf, ns->lba_size,
+							     mbuf, mo->interval);
+			pi->guard = cpu_to_be32(guard ^ 0xffffffff);
+			if (o->meta_err_injection & UNVME_ERR_GUARD)
+				libunvmed_inject_err_to_meta((uint8_t *)&(pi->guard));
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP)
+			pi->apptag = cpu_to_be16(mo->apptag & mo->apptag_mask);
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
+			memset(pi->sr, 0, 4);
+			put_unaligned_be48(slba + lba_idx, &pi->sr[4]);
+			if (o->meta_err_injection & UNVME_ERR_REFTAG)
+				libunvmed_inject_err_to_meta(&pi->sr[4]);
+		}
+
+		buf += ns->lba_size;
+		if (libunvmed_ns_meta_is_dif(ns))
+			buf += ns->ms;
+		else
+			mbuf += ns->ms;
+
+		lba_idx++;
+	}
+}
+
 static void libunvmed_fill_pi(struct thread_data *td, struct io_u *io_u,
 			      struct nvme_cmd_rw *sqe)
 {
@@ -1644,6 +1760,7 @@ static void libunvmed_fill_pi(struct thread_data *td, struct io_u *io_u,
 			libunvmed_fill_pi_16b_guard(td, io_u);
 			break;
 		case NVME_NVM_PIF_32B_GUARD:
+			libunvmed_fill_pi_32b_guard(td, io_u);
 			break;
 		case NVME_NVM_PIF_64B_GUARD:
 			libunvmed_fill_pi_64b_guard(td, io_u);
@@ -1675,7 +1792,8 @@ static void libunvmed_fill_pi(struct thread_data *td, struct io_u *io_u,
 		case NVME_NS_DPS_PI_TYPE2:
 			if (ns->pif == NVME_NVM_PIF_16B_GUARD)
 				sqe->reftag = cpu_to_le32((uint32_t)slba);
-			else if (ns->pif == NVME_NVM_PIF_64B_GUARD) {
+			else if (ns->pif == NVME_NVM_PIF_32B_GUARD ||
+				 ns->pif == NVME_NVM_PIF_64B_GUARD) {
 				sqe->reftag = cpu_to_le32(slba & 0xffffffff);
 				sqe->cdw3 = cpu_to_le32(((slba >> 32) & 0xffff));
 			}
@@ -2167,6 +2285,90 @@ next:
 	return 0;
 }
 
+static int libunvmed_verify_pi_32b_guard(struct thread_data *td, struct io_u *io_u)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	struct libunvmed_options *o = td->eo;
+	struct libunvmed_meta_options *mo = io_u->engine_data;
+	struct unvme_ns *ns = ld->ns;
+	struct nvme_32b_guard_dif *pi;
+	void *buf = io_u->xfer_buf;
+	void *mbuf = mo->mbuf;
+	uint32_t lba_idx = 0;
+	uint64_t slba = libunvmed_get_slba(ns, io_u->offset);
+	uint32_t nlb = libunvmed_get_nlba(ns, io_u->xfer_buflen);
+
+	while (lba_idx <= nlb) {
+		if (libunvmed_ns_meta_is_dif(ns))
+			pi = (struct nvme_32b_guard_dif *)(buf + mo->interval);
+		else
+			pi = (struct nvme_32b_guard_dif *)(mbuf + mo->interval);
+
+		if (((ns->dps & NVME_NS_DPS_PI_MASK) == NVME_NS_DPS_PI_TYPE1 ||
+		    (ns->dps & NVME_NS_DPS_PI_MASK) == NVME_NS_DPS_PI_TYPE2) &&
+		    be16_to_cpu(pi->apptag) == 0xffff)
+			goto next;
+
+		if ((ns->dps & NVME_NS_DPS_PI_MASK) == NVME_NS_DPS_PI_TYPE3 &&
+		    be16_to_cpu(pi->apptag) == 0xffff &&
+		    get_unaligned_be48(&pi->sr[4]) == 0xffffffffffff)
+			goto next;
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_GUARD) {
+			uint32_t guard = be32_to_cpu(pi->guard);
+			uint32_t guard_exp;
+			if (libunvmed_ns_meta_is_dif(ns))
+				guard_exp = fio_crc32c(buf, mo->interval);
+			else
+				guard_exp = libunvmed_crc32c_sep(buf, ns->lba_size,
+								 mbuf, mo->interval);
+			guard_exp = guard_exp ^ 0xffffffff;
+			if (guard != guard_exp) {
+				libunvmed_log("Guard check error, guard=%#x, expected=%#x\n", guard, guard_exp);
+				return -EIO;
+			}
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_APP) {
+			uint16_t at = be16_to_cpu(pi->apptag & mo->apptag_mask);
+			uint16_t at_exp = mo->apptag & mo->apptag_mask;
+			if (at != at_exp) {
+				libunvmed_log("Apptag check error, apptag=%#x, expected=%#x\n", at, at_exp);
+				return -EIO;
+			}
+		}
+
+		if (o->prchk & NVME_IO_PRINFO_PRCHK_REF) {
+			switch (ns->dps & NVME_NS_DPS_PI_MASK) {
+			case NVME_NS_DPS_PI_TYPE1:
+			case NVME_NS_DPS_PI_TYPE2:
+				uint64_t rt = get_unaligned_be48(&pi->sr[4]);
+				uint64_t rt_exp = slba + lba_idx;
+				if (rt != rt_exp) {
+					libunvmed_log("Reftag check error, reftag=%#lx, expected=%#lx\n", rt, rt_exp);
+					return -EIO;
+				}
+				break;
+			case NVME_NS_DPS_PI_TYPE3:
+				break;
+			default:
+				assert(false);
+			}
+		}
+
+next:
+		buf += ns->lba_size;
+		if (libunvmed_ns_meta_is_dif(ns))
+			buf += ns->ms;
+		else
+			mbuf += ns->ms;
+
+		lba_idx++;
+	}
+
+	return 0;
+}
+
 static int libunvmed_verify_pi(struct thread_data *td, struct io_u *io_u)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
@@ -2174,10 +2376,8 @@ static int libunvmed_verify_pi(struct thread_data *td, struct io_u *io_u)
 
 	if (ns->pif == NVME_NVM_PIF_16B_GUARD)
 		return libunvmed_verify_pi_16b_guard(td, io_u);
-	else if (ns->pif == NVME_NVM_PIF_32B_GUARD) {
-		libunvmed_log("Not support 32B guard PI\n");
-		return -EINVAL;
-	}
+	else if (ns->pif == NVME_NVM_PIF_32B_GUARD)
+		return libunvmed_verify_pi_32b_guard(td, io_u);
 	else if (ns->pif == NVME_NVM_PIF_64B_GUARD)
 		return libunvmed_verify_pi_64b_guard(td, io_u);
 
