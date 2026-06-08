@@ -1141,8 +1141,168 @@ static inline int __unvmed_bdf_to_int(const char *bdf, uint32_t *u_bdf)
 }
 
 /*
- * Initialize NVMe controller instance in libvfn.  If exists, return the
- * existing one, otherwise it will create new one.  NULL if failure happens.
+ * Invoke every registered reinit_ctrl callback under @u->thread_list_lock.
+ *
+ * Why hold the mutex across the callback:
+ *   - unvmed_del_thread() also takes this mutex, so holding it here prevents
+ *     a registered thread from freeing its entry mid-iteration — i.e. it
+ *     forecloses the use-after-free that would happen if we snapshotted
+ *     pointers and released the lock before calling back.
+ *
+ * Caller contract (callback authors):
+ *   - The callback MUST NOT call unvmed_add_thread() / unvmed_del_thread()
+ *     on the same @u, directly or transitively — that would self-deadlock
+ *     on @u->thread_list_lock (non-recursive).
+ *   - The callback MAY call unvmed_map_vaddr()/unvmed_unmap_vaddr(); those
+ *     take @u->lock (rdlock), a separate lock — no ordering hazard with
+ *     this mutex.
+ *
+ * Liveness:
+ *   tgkill(pid, tid, 0) is a best-effort liveness check.  Threads that
+ *   pthread_exit() without calling unvmed_del_thread() first will leave a
+ *   stale entry whose @opaque points to freed memory; ESRCH prunes those
+ *   here but TID reuse can still mask the case.  The application must call
+ *   unvmed_del_thread() before exiting.
+ *
+ * Returns 0 on success, -1 if any callback failed.
+ */
+static int __unvmed_reinit_invoke_callbacks(struct unvme *u)
+{
+	struct unvme_thread_entry *entry, *next;
+	int ret = 0;
+
+	pthread_mutex_lock(&u->thread_list_lock);
+	list_for_each_safe(&u->thread_list, entry, next, list) {
+		if (tgkill(getpid(), entry->thread_id, 0) == -1 &&
+		    errno == ESRCH) {
+			list_del(&entry->list);
+			free(entry);
+			continue;
+		}
+		if (entry->ops->reinit_ctrl &&
+		    entry->ops->reinit_ctrl(entry->opaque)) {
+			unvmed_log_err("%s: thread reinit_ctrl callback failed",
+					unvmed_bdf(u));
+			ret = -1;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&u->thread_list_lock);
+
+	return ret;
+}
+
+/*
+ * Re-initialize a VF controller instance after a PF reset.
+ *
+ * Called from unvmed_init_ctrl() when the controller is found in
+ * UNVME_TEARDOWN state, meaning the PF has already driven the VF through
+ * partial teardown (unvmed_free_vf_ctrl) and is now reinitializing it.
+ *
+ * Flow:
+ *   1. Re-run nvme_ctrl_init() in place, reusing the existing struct unvme.
+ *   2. Reallocate IRQs for the new hardware state.
+ *   3. Transition to UNVME_VF_RECOVERING and invoke every registered thread's
+ *      reinit_ctrl callback so that application threads (e.g. fio) can remap
+ *      their IOMMU buffers without polling.
+ *   4. Transition to UNVME_VF_RECOVERED; the normal enable path
+ *      (unvmed_enable_ctrl) will take it from there to ENABLING -> ENABLED.
+ *
+ * Refcount: enters with the +1 ref taken by the caller's unvmed_get(); on
+ * success returns @u with that ref transferred to the caller (matches the
+ * fresh-init path of unvmed_init_ctrl()). On failure, drops the ref via
+ * unvmed_put() and returns NULL.
+ */
+static struct unvme *__unvmed_reinit_ctrl(struct unvme *u, const char *bdf,
+					  uint32_t max_nr_ioqs)
+{
+	if (!pci_is_vf(bdf)) {
+		unvmed_log_err("%s: reinit support only VF", unvmed_bdf(u));
+		unvmed_put(u);
+		return NULL;
+	}
+
+	u->ctrl.opts.nsqr = max_nr_ioqs - 1;
+	u->ctrl.opts.ncqr = max_nr_ioqs - 1;
+
+	if (nvme_ctrl_init(&u->ctrl, bdf, &u->ctrl.opts)) {
+		unvmed_log_err("%s: failed to init nvme_ctrl", unvmed_bdf(u));
+		unvmed_put(u);
+		return NULL;
+	}
+	u->epoch++;
+
+	u->ctrl.config.nsqa = u->ctrl.opts.nsqr;
+	u->ctrl.config.ncqa = u->ctrl.opts.ncqr;
+
+	/*
+	 * Mirror the fresh-init path: keep nr_sqs/nr_cqs consistent with the
+	 * just-updated opts, so libvfn's ctrl.sq/ctrl.cq array size and our
+	 * shadow array bounds do not drift across reinits.
+	 */
+	u->nr_sqs = u->ctrl.opts.nsqr + 2;
+	u->nr_cqs = u->ctrl.opts.ncqr + 2;
+
+	if (unvmed_alloc_irqs(u)) {
+		unvmed_log_err("%s: failed to initialize IRQs", unvmed_bdf(u));
+
+		nvme_close(&u->ctrl);
+		unvmed_put(u);
+		return NULL;
+	}
+
+	unvmed_ctrl_set_state(u, UNVME_VF_RECOVERING);
+
+	if (__unvmed_reinit_invoke_callbacks(u)) {
+		/*
+		 * Undo what this function did so the controller is not left in
+		 * a half-initialized zombie state (IRQs allocated, ctrl open,
+		 * stuck in VF_RECOVERING with no valid outbound transition).
+		 *
+		 * Roll state back to TEARDOWN so a subsequent unvmed_init_ctrl()
+		 * retry can re-enter this path cleanly.
+		 */
+		unvmed_free_irqs(u);
+		pthread_rwlock_wrlock(&u->lock);
+		nvme_close(&u->ctrl);
+		pthread_rwlock_unlock(&u->lock);
+		unvmed_ctrl_set_state(u, UNVME_TEARDOWN);
+		unvmed_put(u);
+		return NULL;
+	}
+
+	unvmed_ctrl_set_state(u, UNVME_VF_RECOVERED);
+
+	unvmed_log_info("%s: controller re-initialized (nr_sqs=%u, nr_cqs=%u)",
+			unvmed_bdf(u), u->nr_sqs, u->nr_cqs);
+
+	/*
+	 * Hand the caller the same +1 ref the fresh-init path of
+	 * unvmed_init_ctrl() returns: do NOT drop the ref taken by
+	 * unvmed_get() in unvmed_init_ctrl().
+	 */
+	return u;
+}
+
+/*
+ * Look up or (re)initialize the NVMe controller instance for @bdf.
+ *
+ * Three cases, in order:
+ *   1. No struct unvme exists for @bdf yet
+ *        → allocate a fresh instance, run nvme_ctrl_init(), allocate
+ *          IRQs, and return it with state = UNVME_DISABLED.
+ *   2. An instance exists in UNVME_TEARDOWN
+ *        → the PF has already partially torn this VF down via
+ *          unvmed_free_vf_ctrl(); route into __unvmed_reinit_ctrl()
+ *          which reruns nvme_ctrl_init() in place, reallocates IRQs,
+ *          fires each thread's reinit_ctrl callback, and leaves the
+ *          instance in UNVME_VF_RECOVERED for the caller to drive
+ *          through the normal enable path.
+ *   3. An instance exists in any other state
+ *        → return it as-is (unvmed_get() already took a +1 ref).
+ *
+ * Return: pointer to &struct unvme with a +1 refcount taken by this
+ * call, or NULL on failure.
  */
 struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 {
@@ -1150,8 +1310,12 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	struct unvme *u;
 
 	u = unvmed_get(bdf);
-	if (u)
+	if (u) {
+		if (__unvmed_ctrl_get_state(u) == UNVME_TEARDOWN)
+			return __unvmed_reinit_ctrl(u, bdf, max_nr_ioqs);
+
 		return u;
+	}
 
 	u = zmalloc(sizeof(struct unvme));
 	u->state = UNVME_DISABLED;
@@ -2119,6 +2283,7 @@ void unvmed_free_vf_ctrl(struct unvme *u)
 		if (u->shmem_name[0])
 			shm_unlink(u->shmem_name);
 	}
+
 	pthread_rwlock_wrlock(&u->lock);
 	nvme_close(&u->ctrl);
 	pthread_rwlock_unlock(&u->lock);
