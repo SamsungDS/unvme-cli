@@ -30,7 +30,7 @@ struct unvme {
 	int refcnt;
 
 	enum unvme_state state;
-	pthread_spinlock_t lock;
+	pthread_rwlock_t lock;
 
 	uint8_t mps;	/* Memory Page Size (2 ^ (12 + @mps)) */
 

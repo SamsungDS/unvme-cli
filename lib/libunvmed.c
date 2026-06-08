@@ -58,8 +58,14 @@ static bool __unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 	enum unvme_state old;
 	bool change = false;
 
-	pthread_spin_lock(&u->lock);
+	pthread_rwlock_wrlock(&u->lock);
 	old = __unvmed_ctrl_get_state(u);
+
+	if (old == state) {
+		errno = EALREADY;
+		pthread_rwlock_unlock(&u->lock);
+		return false;
+	}
 
 	switch (state) {
 	case UNVME_DISABLED:
@@ -127,11 +133,13 @@ static bool __unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		STORE(u->state, state);
 		unvmed_log_info("%s: set controller state (%s -> %s)",
 				unvmed_bdf(u), unvmed_state_str(old), unvmed_state_str(state));
-	} else
+	} else {
+		errno = EINVAL;
 		unvmed_log_err("%s: failed to set controller state (%s -> %s)",
 				unvmed_bdf(u), unvmed_state_str(old), unvmed_state_str(state));
+	}
 
-	pthread_spin_unlock(&u->lock);
+	pthread_rwlock_unlock(&u->lock);
 	return change;
 }
 
@@ -994,7 +1002,7 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 	assert(u->ctrl.opts.nsqr == opts.nsqr);
 	assert(u->ctrl.opts.ncqr == opts.ncqr);
 
-	pthread_spin_init(&u->lock, 0);
+	pthread_rwlock_init(&u->lock, NULL);
 
 	/*
 	 * XXX: Since unvme-cli does not follow all the behaviors of the driver, it does
@@ -1860,7 +1868,14 @@ void unvmed_free_ctrl(struct unvme *u)
 	int qid;
 
 	/*
-	 * Make sure reaper thread to read the proper state value.
+	 * Set TEARDOWN first via the normal state machine (u->lock) so that any
+	 * new unvmed_map_vaddr/unvmed_unmap_vaddr caller that enters after this
+	 * point will see TEARDOWN under u->lock (rdlock) and bail out before
+	 * touching u->ctrl.
+	 *
+	 * Then acquire u->lock as writer to drain all in-flight readers that are
+	 * already past the TEARDOWN check and currently accessing u->ctrl.  Only
+	 * after all readers have exited is it safe to call nvme_close().
 	 */
 	__unvmed_ctrl_set_state(u, UNVME_TEARDOWN);
 
@@ -1893,7 +1908,9 @@ void unvmed_free_ctrl(struct unvme *u)
 	free(u->sqs);
 	free(u->cqs);
 
+	pthread_rwlock_wrlock(&u->lock);
 	nvme_close(&u->ctrl);
+	pthread_rwlock_unlock(&u->lock);
 
 	unvmed_free_ns_all(u);
 
@@ -3138,19 +3155,45 @@ ssize_t unvmed_to_vaddr(struct unvme *u, uint64_t iova, void **vaddr)
 int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len,
 		    uint64_t *iova, unsigned long flags)
 {
-	struct iommu_ctx *ctx = __iommu_ctx(&u->ctrl);
+	struct iommu_ctx *ctx;
 
-	if (iommu_map_vaddr_align(ctx, buf, len, unvmed_pagesize(u), iova, flags))
+	pthread_rwlock_rdlock(&u->lock);
+
+	if (!u->ctrl.pci.bdf) {
+		pthread_rwlock_unlock(&u->lock);
+		errno = ENODEV;
 		return -1;
+	}
 
+	ctx = __iommu_ctx(&u->ctrl);
+
+	if (iommu_map_vaddr_align(ctx, buf, len, unvmed_pagesize(u), iova, flags)) {
+		pthread_rwlock_unlock(&u->lock);
+		return -1;
+	}
+
+	pthread_rwlock_unlock(&u->lock);
 	return 0;
 }
 
 int unvmed_unmap_vaddr(struct unvme *u, void *buf)
 {
-	struct iommu_ctx *ctx = __iommu_ctx(&u->ctrl);
+	struct iommu_ctx *ctx;
+	int ret;
 
-	return iommu_unmap_vaddr(ctx, buf, NULL);
+	pthread_rwlock_rdlock(&u->lock);
+
+	if (!u->ctrl.pci.bdf) {
+		pthread_rwlock_unlock(&u->lock);
+		errno = ENODEV;
+		return -1;
+	}
+
+	ctx = __iommu_ctx(&u->ctrl);
+	ret = iommu_unmap_vaddr(ctx, buf, NULL);
+	pthread_rwlock_unlock(&u->lock);
+
+	return ret;
 }
 
 static void unvmed_cmd_add_timer(struct unvme_cmd *cmd)

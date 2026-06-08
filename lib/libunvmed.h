@@ -810,7 +810,9 @@ enum unvme_state unvmed_ctrl_get_state(struct unvme *u);
  * @u: &struct unvme
  * @state: target state to transition to
  *
- * Return: ``true`` if state transition succeeded, otherwise ``false``.
+ * Return: ``true`` if state transition succeeded, otherwise ``false`` with
+ * ``errno`` set to ``EALREADY`` if already in @state, or ``EINVAL`` if the
+ * transition is not allowed from the current state.
  */
 bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state);
 
@@ -1605,7 +1607,8 @@ ssize_t unvmed_to_vaddr(struct unvme *u, uint64_t iova, void **vaddr);
  * @flags: flags defined in (enum iommu_map_flags) of libvfn
  *
  * Map the given @buf virtual address for the given size @len to IOMMU
- * mapping table.
+ * mapping table.  If the controller is being torn down (u->ctrl.pci.bdf is
+ * NULL) the call returns ``-1`` with ``errno`` set to ``ENODEV``.
  *
  * This API is thread-safe.
  *
@@ -1619,7 +1622,9 @@ int unvmed_map_vaddr(struct unvme *u, void *buf, size_t len, uint64_t *iova,
  * @u: &struct unvme
  * @buf: virtual address to translate
  *
- * Unmap the given @buf virtual address from IOMMU mapping table.
+ * Unmap the given @buf virtual address from IOMMU mapping table.  If the
+ * controller is being torn down (u->ctrl.pci.bdf is NULL) the call returns
+ * ``-1`` with ``errno`` set to ``ENODEV``.
  *
  * This API is thread-safe.
  *
