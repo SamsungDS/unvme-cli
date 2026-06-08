@@ -2092,13 +2092,8 @@ static void unvmed_free_thread_list(struct unvme *u)
 	pthread_mutex_unlock(&u->thread_list_lock);
 }
 
-/*
- * Free NVMe controller instance from libvfn and the libunvmed.
- */
-void unvmed_free_ctrl(struct unvme *u)
+void unvmed_free_vf_ctrl(struct unvme *u)
 {
-	int qid;
-
 	/*
 	 * Set TEARDOWN first via the normal state machine (u->lock) so that any
 	 * new unvmed_map_vaddr/unvmed_unmap_vaddr caller that enters after this
@@ -2124,15 +2119,66 @@ void unvmed_free_ctrl(struct unvme *u)
 		if (u->shmem_name[0])
 			shm_unlink(u->shmem_name);
 	}
+	pthread_rwlock_wrlock(&u->lock);
+	nvme_close(&u->ctrl);
+	pthread_rwlock_unlock(&u->lock);
+}
+
+/*
+ * Free NVMe controller instance from libvfn and the libunvmed.
+ */
+void unvmed_free_ctrl(struct unvme *u)
+{
+	int qid;
 
 	/*
-	 * Drain dbuf registry while pci.bdf is still alive so the IOMMU
-	 * mappings get released properly.  After reinit, vaddr/iova on any
-	 * lingering entry would be stale and re-registration of the same
-	 * backing pages would collide with this list, so it must be emptied
-	 * here — symmetrical to the non-VF unvmed_free_ctrl() path.
+	 * Atomically transition to TEARDOWN under u->lock so the reaper
+	 * thread observes the state change consistently.  Success ==
+	 * "this call is the one performing hardware teardown".  Failure
+	 * means either we are already in TEARDOWN (e.g. unvmed_free_vf_ctrl()
+	 * already ran) or the current state is not a valid teardown source
+	 * (ENABLING / VF_INVALIDATING / VF_RECOVERED / VF_ENABLED) — in both
+	 * cases another path owns nvme_close(), so this call only releases
+	 * host-side page allocations and the dbuf bookkeeping.
 	 */
-	unvmed_free_mem_all(u);
+	if (__unvmed_ctrl_set_state(u, UNVME_TEARDOWN)) {
+		unvmed_free_irqs(u);
+		unvmed_hmb_free(u);
+
+		/* Clean up shared memory if allocated */
+		if (u->shmem_vaddr && u->shmem_size > 0) {
+			if (u->shmem_iova)
+				unvmed_unmap_vaddr(u, u->shmem_vaddr);
+			munmap(u->shmem_vaddr, u->shmem_size);
+			if (u->shmem_fd >= 0)
+				close(u->shmem_fd);
+			if (u->shmem_name[0])
+				shm_unlink(u->shmem_name);
+		}
+
+		/*
+		 * Drain DMA buffer registry while pci.bdf is still alive so
+		 * unvmed_unmap_vaddr() actually removes the IOMMU mappings.
+		 * Doing this after nvme_close() would leak IOMMU mappings into
+		 * a still-active vfio container (PF + sibling VFs), letting
+		 * the kernel reuse the underlying pages while devices can
+		 * still DMA into them — the path that previously brought the
+		 * host down.
+		 */
+		unvmed_free_mem_all(u);
+
+		pthread_rwlock_wrlock(&u->lock);
+		nvme_close(&u->ctrl);
+		pthread_rwlock_unlock(&u->lock);
+	} else {
+		/*
+		 * IOMMU mappings owned by this controller have either been
+		 * released by the prior nvme_close()/vfio close path or will
+		 * be when the container is finally torn down; only release
+		 * host-side page allocations and the dbuf bookkeeping here.
+		 */
+		unvmed_free_mem_all(u);
+	}
 
 	for (qid = 0; qid < u->nr_sqs; qid++) {
 		if (!u->sqs[qid])
@@ -2148,12 +2194,6 @@ void unvmed_free_ctrl(struct unvme *u)
 
 	free(u->sqs);
 	free(u->cqs);
-
-	unvmed_free_mem_all(u);
-
-	pthread_rwlock_wrlock(&u->lock);
-	nvme_close(&u->ctrl);
-	pthread_rwlock_unlock(&u->lock);
 
 	unvmed_free_ns_all(u);
 

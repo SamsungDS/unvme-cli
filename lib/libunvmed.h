@@ -800,6 +800,17 @@ int unvmed_parse_bdf(const char *input, char *bdf);
 struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
 
 /**
+ * unvmed_free_vf_ctrl - Partially tear down a VF controller for later reuse
+ * @u: &struct unvme
+ *
+ * Release hardware resources (IRQs, HMB, shared memory, nvme_close) while
+ * leaving the &struct unvme instance alive so it can be reinitialized later.
+ * Sets the state to %UNVME_TEARDOWN and waits for any in-flight DMA allocations
+ * to drain before calling nvme_close().
+ */
+void unvmed_free_vf_ctrl(struct unvme *u);
+
+/**
  * unvmed_free_ctrl - Free a given NVMe controller instance
  * @u: &struct unvme
  *
