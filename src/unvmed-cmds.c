@@ -516,7 +516,7 @@ int unvme_del(int argc, char *argv[], struct unvme_msg *msg)
 
 int unvme_show_regs(int argc, char *argv[], struct unvme_msg *msg)
 {
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev;
 	struct arg_str *format;
 	struct arg_lit *help;
@@ -560,7 +560,7 @@ out:
 
 int unvme_status(int argc, char *argv[], struct unvme_msg *msg)
 {
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev;
 	struct arg_str *format;
 	struct arg_lit *stats;
@@ -607,7 +607,7 @@ out:
 
 int unvme_hmb(int argc, char *argv[], struct unvme_msg *msg)
 {
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev;
 	struct arg_lit *allocate;
 	struct arg_lit *deallocate;
@@ -889,7 +889,7 @@ out:
 
 int unvme_cmb(int argc, char *argv[], struct unvme_msg *msg)
 {
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev;
 	struct arg_lit *enable;
 	struct arg_lit *disable;
@@ -1501,7 +1501,7 @@ out:
 
 int unvme_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 {
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev;
 	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
@@ -1651,7 +1651,7 @@ int unvme_id_ctrl(int argc, char *argv[], struct unvme_msg *msg)
 	const char *desc =
 		"Submit an Identify Controller admin command to the target <device>.";
 
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *prp1_offset = arg_int0(NULL, "prp1-offset", "<n>", "[O] PRP1 offset < CC.MPS (default: 0x0)");
 	struct arg_lit *vendor_specific = arg_lit0("V", "vendor-specific", "[O] Dump binary vendor field");
@@ -1782,7 +1782,7 @@ out:
 
 int unvme_id_active_nslist(int argc, char *argv[], struct unvme_msg *msg)
 {
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev;
 	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
@@ -1920,7 +1920,7 @@ out:
 
 int unvme_nvm_id_ns(int argc, char *argv[], struct unvme_msg *msg)
 {
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev;
 	struct arg_dbl *nsid;
 	struct arg_int *prp1_offset;
@@ -2227,7 +2227,7 @@ int unvme_set_features_noq(int argc, char *argv[], struct unvme_msg *msg)
 	const uint32_t sqid = 0;
 	struct unvme_cmd *cmd;
 	struct unvme_sq *usq = NULL;
-	struct unvme *u;
+	struct unvme *u = NULL;
 	uint32_t cdw11;
 	int ret;
 
@@ -2335,7 +2335,7 @@ int unvme_set_features_hmb(int argc, char *argv[], struct unvme_msg *msg)
 
 	struct unvme_cmd *cmd;
 	struct unvme_sq *usq;
-	struct unvme *u;
+	struct unvme *u = NULL;
 	int ret = 0;
 
 	unvme_parse_args_locked(argc, argv, argtable, help, end, desc);
@@ -3972,7 +3972,7 @@ int unvme_id_primary_ctrl_caps(int argc, char *argv[], struct unvme_msg *msg)
 	const char *desc =
 		"Submit an Identify Primary Controller Capabilities admin command to the target <device>.";
 
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *cntlid = arg_int1("c", "cntlid", "<n>", "[M] Controller Identifier");
 	struct arg_str *format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)");
@@ -4089,7 +4089,7 @@ int unvme_id_secondary_ctrl_list(int argc, char *argv[], struct unvme_msg *msg)
 	const char *desc =
 		"Submit an Identify Secondary Controller List admin command to the target <device>.";
 
-	struct unvme *u;
+	struct unvme *u = NULL;
 	struct arg_rex *dev = arg_rex1(NULL, NULL, UNVME_BDF_PATTERN, "<device>", 0, "[M] Device bdf");
 	struct arg_int *cntlid = arg_int1("c", "cntlid", "<n>", "[M] Lowest Controller Identifier");
 	struct arg_str *format = arg_str0("o", "output-format", "[normal|json|binary]", "[O] Output format: [normal|json|binary] (defaults: normal)");
