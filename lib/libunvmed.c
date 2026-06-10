@@ -2440,7 +2440,15 @@ static int __unvme_reset_ctrl(struct unvme *u)
 			errno = ENODEV;
 			return -1;
 		}
-		if (!NVME_CSTS_RDY(csts) && !NVME_CSTS_CFS(csts))
+		if (NVME_CSTS_CFS(csts)) {
+			unvmed_log_err("%s: controller has set CFS (CSTS.CFS)",
+			       unvmed_bdf(u));
+			errno = ENODEV;
+			__unvmed_ctrl_set_state(u, UNVME_FATAL);
+			return -1;
+		}
+
+		if (!NVME_CSTS_RDY(csts))
 			break;
 	}
 	unvmed_log_info("%s: controller reset complete", unvmed_bdf(u));
@@ -3153,7 +3161,7 @@ int __unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	while (1) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
 		if (NVME_CSTS_CFS(csts)) {
-			unvmed_log_err("%s: controller has seted CFS (CSTS.CFS)",
+			unvmed_log_err("%s: controller has set CFS (CSTS.CFS)",
 			       unvmed_bdf(u));
 			errno = ENODEV;
 
