@@ -48,18 +48,18 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq);
 static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl);
 static inline int __unvmed_bdf_to_int(const char *bdf, uint32_t *u_bdf);
 
-static inline enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
+static inline enum unvme_state __unvmed_ctrl_get_state(struct unvme *u)
 {
 	return LOAD(u->state);
 }
 
-static bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
+static bool __unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 {
 	enum unvme_state old;
 	bool change = false;
 
 	pthread_spin_lock(&u->lock);
-	old = unvmed_ctrl_get_state(u);
+	old = __unvmed_ctrl_get_state(u);
 
 	switch (state) {
 	case UNVME_DISABLED:
@@ -274,7 +274,17 @@ int unvmed_put(struct unvme *u)
 
 bool unvmed_ctrl_enabled(struct unvme *u)
 {
-	return unvmed_ctrl_get_state(u) == UNVME_ENABLED;
+	return __unvmed_ctrl_get_state(u) == UNVME_ENABLED;
+}
+
+enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
+{
+	return __unvmed_ctrl_get_state(u);
+}
+
+bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
+{
+	return __unvmed_ctrl_set_state(u, state);
 }
 
 int unvmed_nr_cmds(struct unvme *u)
@@ -1852,7 +1862,7 @@ void unvmed_free_ctrl(struct unvme *u)
 	/*
 	 * Make sure reaper thread to read the proper state value.
 	 */
-	unvmed_ctrl_set_state(u, UNVME_TEARDOWN);
+	__unvmed_ctrl_set_state(u, UNVME_TEARDOWN);
 
 	unvmed_free_irqs(u);
 	unvmed_hmb_free(u);
@@ -1912,12 +1922,12 @@ static int __unvme_reset_ctrl(struct unvme *u)
 
 	unvmed_log_debug("%s: resetting controller", unvmed_bdf(u));
 
-	if (unvmed_ctrl_get_state(u) == UNVME_DISABLED) {
+	if (__unvmed_ctrl_get_state(u) == UNVME_DISABLED) {
 		errno = EALREADY;
 		return -1;
 	}
 
-	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+	if (!__unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
 		return -1;
 	}
@@ -2295,7 +2305,7 @@ void unvmed_reset_ctx(struct unvme *u)
 	unvmed_disable_ctx(u);
 	unvmed_cancel_cmds(u);
 
-	unvmed_ctrl_set_state(u, UNVME_DISABLED);
+	__unvmed_ctrl_set_state(u, UNVME_DISABLED);
 }
 
 /*
@@ -2379,7 +2389,7 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	__unvmed_delete_sq(u, u->asq);
 	__unvmed_delete_cq(u, u->acq);
 
-	unvmed_ctrl_set_state(u, UNVME_DISABLED);
+	__unvmed_ctrl_set_state(u, UNVME_DISABLED);
 }
 
 int unvme_reset_ctrl(struct unvme *u)
@@ -2439,7 +2449,7 @@ static void *unvmed_reaper_run(void *opaque)
 		if (!atomic_load_acquire(&r->refcnt))
 			goto out;
 
-		if (unvmed_ctrl_get_state(u) == UNVME_TEARDOWN)
+		if (__unvmed_ctrl_get_state(u) == UNVME_TEARDOWN)
 			goto out;
 
 		/*
@@ -2527,7 +2537,7 @@ int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
 	struct unvme_cq *ucq;
 	const uint16_t qid = 0;
 
-	if (unvmed_ctrl_get_state(u) != UNVME_DISABLED) {
+	if (__unvmed_ctrl_get_state(u) != UNVME_DISABLED) {
 		errno = EPERM;
 		goto out;
 	}
@@ -2584,7 +2594,7 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	uint32_t cc;
 	uint32_t csts;
 
-	if (!unvmed_ctrl_set_state(u, UNVME_ENABLING)) {
+	if (!__unvmed_ctrl_set_state(u, UNVME_ENABLING)) {
 		unvmed_log_err("%s: failed to set ENABLING state", unvmed_bdf(u));
 		errno = EBUSY;
 		return -1;
@@ -2611,7 +2621,7 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 			unvmed_log_err("%s: controller has seted CFS (CSTS.CFS)",
 			       unvmed_bdf(u));
 			errno = ENODEV;
-			unvmed_ctrl_set_state(u, UNVME_FATAL);
+			__unvmed_ctrl_set_state(u, UNVME_FATAL);
 			return -1;
 		} else if (NVME_CSTS_RDY(csts))
 			break;
@@ -2628,7 +2638,7 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	if (u->asq)
 		unvmed_enable_sq(u->asq);
 
-	unvmed_ctrl_set_state(u, UNVME_ENABLED);
+	__unvmed_ctrl_set_state(u, UNVME_ENABLED);
 
 	unvmed_log_info("%s: controller enabled (iosqes=%u, iocqes=%u, mps=%u, "
 			"ams=%u, css=%u, timeout=%d)",
@@ -3529,7 +3539,7 @@ int unvmed_subsystem_reset(struct unvme *u)
 	char config[4096];
 	uint32_t csts;
 
-	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+	if (!__unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
 		return -1;
 	}
@@ -3614,7 +3624,7 @@ int unvmed_flr(struct unvme *u)
 		goto close;
 	}
 
-	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+	if (!__unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
 		ret = -1;
 		goto close;
@@ -3767,7 +3777,7 @@ int unvmed_hot_reset(struct unvme *u)
 		goto free;
 	}
 
-	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+	if (!__unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
 		ret = -1;
 		goto close;
@@ -3839,7 +3849,7 @@ int unvmed_link_disable(struct unvme *u)
 		goto free;
 	}
 
-	if (!unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
+	if (!__unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
 		ret = -1;
 		goto close;

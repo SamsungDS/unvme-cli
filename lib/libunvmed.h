@@ -798,6 +798,23 @@ int unvmed_put(struct unvme *u);
 bool unvmed_ctrl_enabled(struct unvme *u);
 
 /**
+ * unvmed_ctrl_get_state - Get the current controller state
+ * @u: &struct unvme
+ *
+ * Return: the current &enum unvme_state of @u.
+ */
+enum unvme_state unvmed_ctrl_get_state(struct unvme *u);
+
+/**
+ * unvmed_ctrl_set_state - Set the controller state
+ * @u: &struct unvme
+ * @state: target state to transition to
+ *
+ * Return: ``true`` if state transition succeeded, otherwise ``false``.
+ */
+bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state);
+
+/**
  * unvmed_cmb_init - Initialize Controller Memory Buffer
  * @u: &struct unvme
  *
