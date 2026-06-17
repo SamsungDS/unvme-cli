@@ -1158,20 +1158,32 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 
 	if (ld->prp_list_iomem) {
 		ret = unvmed_unmap_vaddr(ld->u, ld->prp_list_iomem);
-		if (ret)
-			libunvmed_log("failed to unmap prp list iomem from iommu\n");
+		if (ret) {
+			if (errno != ENODEV)
+				libunvmed_log("failed to unmap prp list iomem from iommu\n");
+			else
+				ret = 0;
+		}
 	}
 
 	if (ld->prp_iomem) {
 		ret = unvmed_unmap_vaddr(ld->u, ld->prp_iomem);
-		if (ret)
-			libunvmed_log("failed to unmap prp iomem from iommu\n");
+		if (ret) {
+			if (errno != ENODEV)
+				libunvmed_log("failed to unmap prp iomem from iommu\n");
+			else
+				ret = 0;
+		}
 	}
 
 	if (td->orig_buffer && !o->cmb_data) {
 		ret = unvmed_unmap_vaddr(ld->u, td->orig_buffer);
-		if (ret)
-			libunvmed_log("failed to unmap io_u buffers from iommu\n");
+		if (ret) {
+			if (errno != ENODEV)
+				libunvmed_log("failed to unmap io_u buffers from iommu\n");
+			else
+				ret = 0;
+		}
 	}
 
 	unvmed_cq_put(ld->u, ld->ucq);
