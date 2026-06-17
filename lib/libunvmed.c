@@ -2071,7 +2071,14 @@ static bool unvmed_cmd_cmpl_wakeup(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 	 * during that time, reset thread may think @cmd is in SUBMITTED state
 	 * and should be cancelled, but cqe of @cmd has already arrived, so we
 	 * should mark here.
+	 *
+	 * If state is already TO_BE_COMPLETED, this is an invalid state
+	 * transition.
 	 */
+	if (atomic_load_acquire(&cmd->state) == UNVME_CMD_S_TO_BE_COMPLETED)
+		unvmed_log_err("%s: invalid command state (sqid=%u, cid=%u, state=TO_BE_COMPLETED)",
+				unvmed_bdf(u), le16_to_cpu(cqe->sqid), cqe->cid);
+
 	atomic_store_release(&cmd->state, UNVME_CMD_S_TO_BE_COMPLETED);
 
 	if (cmd->flags & UNVMED_CMD_F_WAKEUP_ON_CQE) {
@@ -2140,8 +2147,6 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 						unvmed_bdf(u), le16_to_cpu(cqe->sqid), cqe->cid);
 				goto update;
 			}
-
-			cmd->state = UNVME_CMD_S_TO_BE_COMPLETED;
 
 			/*
 			 * Try to complete the @cmd here since the actual @ucq
