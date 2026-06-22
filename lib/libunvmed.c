@@ -151,10 +151,19 @@ size_t unvmed_pagesize(struct unvme *u)
 int __unvmed_mem_alloc(struct unvme *u, size_t size,
 		       struct iommu_dmabuf *buf, size_t pagesize)
 {
+	pthread_rwlock_rdlock(&u->lock);
+
+	if (!u->ctrl.pci.bdf) {
+		pthread_rwlock_unlock(&u->lock);
+		errno = ENODEV;
+		return -1;
+	}
+
 	buf->ctx = __iommu_ctx(&u->ctrl);
 	buf->len = unvmed_pgmap_aligned(u, &buf->vaddr, size, pagesize);
 	if (buf->len < 0) {
 		unvmed_log_err("%s: failed to allocate a buffer", unvmed_bdf(u));
+		pthread_rwlock_unlock(&u->lock);
 		return -1;
 	}
 
@@ -162,9 +171,11 @@ int __unvmed_mem_alloc(struct unvme *u, size_t size,
 				unvmed_pagesize(u), &buf->iova, 0)) {
 		unvmed_pgunmap(buf->vaddr);
 		unvmed_log_err("%s: failed to map a buffer to IOMMU", unvmed_bdf(u));
+		pthread_rwlock_unlock(&u->lock);
 		return -1;
 	}
 
+	pthread_rwlock_unlock(&u->lock);
 	return 0;
 }
 
