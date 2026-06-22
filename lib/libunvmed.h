@@ -1389,6 +1389,19 @@ int unvmed_create_sq(struct unvme *u, uint32_t qid, uint32_t qsize,
 		     uint32_t cqid, uint32_t qprio, uint32_t pc, uint32_t nvmsetid);
 
 /**
+ * unvmed_del_sq - Release internal resources of a submission queue.
+ * @u: &struct unvme controller instance
+ * @qid: submission queue identifier to delete
+ *
+ * Looks up the SQ by @qid, discards it from the controller, and drops its
+ * reference count.  Unlike unvmed_delete_sq(), this does *not* issue a
+ * Delete I/O SQ admin command — it only tears down the host-side state.
+ * Use this when the controller-side queue is already gone (e.g. after a
+ * reset) and only the host-side cleanup remains.
+ */
+void unvmed_del_sq(struct unvme *u, uint32_t qid);
+
+/**
  * unvmed_cmd_prep_create_sq - Prepare Create I/O Submission Queue command instance
  * @cmd: command instance allocated from submission queue
  * @u: unvme controller instance

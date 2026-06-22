@@ -3133,6 +3133,14 @@ static int unvmed_delete_sq(struct unvme *u, uint32_t qid)
 	return ret;
 }
 
+void unvmed_del_sq(struct unvme *u, uint32_t qid)
+{
+	struct unvme_sq *usq = unvmed_sq_find(u, qid);
+
+	if (usq)
+		__unvmed_delete_sq(u, usq);
+}
+
 int unvmed_to_iova(struct unvme *u, void *buf, uint64_t *iova)
 {
 	struct iommu_ctx *ctx = __iommu_ctx(&u->ctrl);
