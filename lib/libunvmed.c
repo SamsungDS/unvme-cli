@@ -2181,6 +2181,17 @@ update:
 			break;
 	}
 
+	/*
+	 * Update the software CQ head/phase to match what this CQ drain loop
+	 * consumed.  Without this, a subsequent cq_drain wakeup causes the
+	 * reaper to re-read the same CQEs from the stale head position,
+	 * double-completing commands that this loop already set to
+	 * TO_BE_COMPLETED.  No doorbell write needed since the controller is
+	 * already disabled at this point.
+	 */
+	ucq->q->head = head;
+	ucq->q->phase = phase;
+
 	for (int i = 0; i < usq->qsize; i++) {
 		cmd = &usq->cmds[i];
 
