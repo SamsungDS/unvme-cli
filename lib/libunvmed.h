@@ -971,6 +971,18 @@ int unvmed_init_meta_ns(struct unvme *u, uint32_t nsid, void *nvm_id_ns);
 int unvmed_nr_cmds(struct unvme *u);
 
 /**
+ * unvmed_get_epoch - Get the current ctrl epoch
+ * @u: &struct unvme
+ *
+ * Returns the epoch counter which is incremented each time nvme_ctrl_init()
+ * succeeds.  Application threads can snapshot this at open time and compare
+ * at close/cleanup to skip operations on a stale ctrl reference.
+ *
+ * Return: current epoch value
+ */
+uint32_t unvmed_get_epoch(struct unvme *u);
+
+/**
  * unvmed_nr_irqs - Get maximum number of interrupt vectors
  * @u: &struct unvme
  *

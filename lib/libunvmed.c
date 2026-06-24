@@ -311,6 +311,11 @@ int unvmed_nr_cmds(struct unvme *u)
 	return u->nr_cmds;
 }
 
+uint32_t unvmed_get_epoch(struct unvme *u)
+{
+	return u->epoch;
+}
+
 int unvmed_nr_irqs(struct unvme *u)
 {
 	return u->nr_irqs;
@@ -1000,6 +1005,7 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 		free(u);
 		return NULL;
 	}
+	u->epoch++;
 
 	if (unvmed_alloc_irqs(u)) {
 		unvmed_log_err("%s: failed to initialize IRQs", unvmed_bdf(u));

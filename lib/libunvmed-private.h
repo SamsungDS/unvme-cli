@@ -29,6 +29,26 @@ struct unvme {
 	 */
 	int refcnt;
 
+	/*
+	 * Incremented each time unvmed_init_ctrl() succeeds.  Application
+	 * threads snapshot this value at open time and compare at close /
+	 * cleanup to detect stale ctrl references after the controller is
+	 * deleted and recreated.
+	 *
+	 * This epoch counter serves as a generation identifier for the
+	 * controller instance. External processes (e.g., fio libunvmed engine)
+	 * cache this value and compare it against the current epoch to detect
+	 * whether their controller reference has become stale. When a controller
+	 * is recreated, application memory buffers are not yet remapped to the
+	 * new controller instance. Without this epoch check, cleanup code would
+	 * attempt to unmap buffers that are either unmapped or mapped to a
+	 * different controller, causing IOMMU faults or double-unmap errors.
+	 * A mismatch indicates the controller has been recreated, prompting the
+	 * driver to skip cleanup operations (e.g., DMA buffer unmapping, queue
+	 * teardown) until the buffers are properly remapped.
+	 */
+	uint32_t epoch;
+
 	enum unvme_state state;
 	pthread_rwlock_t lock;
 
