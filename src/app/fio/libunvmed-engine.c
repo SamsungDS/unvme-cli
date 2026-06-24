@@ -536,6 +536,21 @@ struct libunvmed_data {
 	struct unvme_sq *usq;
 	struct unvme_cq *ucq;
 
+	 /*
+	 * Snapshot of the controller's epoch counter taken at open time.
+	 * This value is compared against the current epoch (via unvmed_get_epoch())
+	 * during cleanup paths (close_file, cleanup) to detect whether the
+	 * controller has been deleted and recreated. When a controller is
+	 * recreated, FIO's memory buffers (mem) are not yet remapped to the
+	 * new controller instance. Without this epoch check, cleanup code
+	 * would attempt to unmap buffers that are either unmapped or mapped
+	 * to a different controller, causing IOMMU faults or double-unmap
+	 * errors. A mismatch indicates a stale controller reference, prompting
+	 * the driver to skip cleanup operations (e.g., DMA buffer unmapping,
+	 * queue teardown) until the buffers are properly remapped.
+	 */
+	uint32_t epoch;
+
 	unsigned int nr_queued;
 	struct nvme_cqe *cqes;
 
@@ -966,9 +981,21 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 {
 	struct libunvmed_data *ld = td->io_ops_data;
 	int refcnt;
+	bool epoch_mismatch = (ld->epoch != unvmed_get_epoch(ld->u));
 
+	if (epoch_mismatch) {
+		libunvmed_log("skipping unmap_vaddr: stale ctrl epoch (%u != %u)\n",
+			      ld->epoch, unvmed_get_epoch(ld->u));
+	}
+
+	/*
+	 * Skip only unvmed_unmap_vaddr() when epoch mismatches (controller was
+	 * recreated and buffers are not yet remapped) to avoid IOMMU faults.
+	 * unvmed_pgunmap() and all other cleanup operations proceed normally.
+	 */
 	if (td->o.td_ddir == TD_DDIR_TRIM || td->o.td_ddir == TD_DDIR_RANDTRIM) {
-		unvmed_unmap_vaddr(ld->u, ld->trim_iomem);
+		if (!epoch_mismatch)
+			unvmed_unmap_vaddr(ld->u, ld->trim_iomem);
 		unvmed_pgunmap(ld->trim_iomem);
 	}
 
@@ -976,7 +1003,8 @@ static void fio_libunvmed_cleanup(struct thread_data *td)
 	assert(refcnt >= 0);
 
 	if (ld->meta_iomem) {
-		unvmed_unmap_vaddr(ld->u, ld->meta_iomem);
+		if (!epoch_mismatch)
+			unvmed_unmap_vaddr(ld->u, ld->meta_iomem);
 		unvmed_pgunmap(ld->meta_iomem);
 	}
 
@@ -1126,6 +1154,8 @@ static int fio_libunvmed_open_file(struct thread_data *td, struct fio_file *f)
 		goto out;
 	}
 
+	ld->epoch = unvmed_get_epoch(u);
+
 out:
 	if (ret) {
 		unvmed_cq_put(u, ld->ucq);
@@ -1154,6 +1184,12 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 	if (ret) {
 		libunvmed_log("failed to grab mutex lock\n");
 		return ret;
+	}
+
+	if (ld->epoch != unvmed_get_epoch(ld->u)) {
+		libunvmed_log("skipping close_file unmaps: stale ctrl epoch (%u != %u)\n",
+			      ld->epoch, unvmed_get_epoch(ld->u));
+		goto skip_unmap;
 	}
 
 	if (ld->prp_list_iomem) {
@@ -1186,6 +1222,7 @@ static int fio_libunvmed_close_file(struct thread_data *td,
 		}
 	}
 
+skip_unmap:
 	unvmed_cq_put(ld->u, ld->ucq);
 	unvmed_sq_put(ld->u, ld->usq);
 
