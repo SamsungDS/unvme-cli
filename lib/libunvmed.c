@@ -2203,9 +2203,14 @@ update:
 		 * between our refcnt check and unvmed_put_cqe(), which would
 		 * result in a NULL dereference on cmd->rq.
 		 */
-		if (LOAD(cmd->state) == UNVME_CMD_S_SUBMITTED ||
-				LOAD(cmd->state) == UNVME_CMD_S_ALLOCATED)
+		switch (LOAD(cmd->state)) {
+		case UNVME_CMD_S_SUBMITTED:
+		case UNVME_CMD_S_ALLOCATED:
 			unvmed_put_cqe(u, cmd);
+			break;
+		default:
+			break;
+		}
 	}
 
 	unvmed_cq_exit(ucq);
