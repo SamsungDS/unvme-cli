@@ -803,7 +803,10 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs);
  * unvmed_free_ctrl - Free a given NVMe controller instance
  * @u: &struct unvme
  *
- * Free all the resources related to the given @u.
+ * Free all the resources related to the given @u.  If the controller has
+ * already been partially torn down by unvmed_free_vf_ctrl() (state is already
+ * %UNVME_TEARDOWN), the hardware teardown step is skipped and only the
+ * in-memory structures are freed.
  */
 void unvmed_free_ctrl(struct unvme *u);
 

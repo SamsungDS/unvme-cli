@@ -2044,6 +2044,38 @@ static void unvmed_free_ns_all(struct unvme *u)
 }
 
 /*
+ * Drain @u->mem_list and release every entry registered via
+ * unvmed_mem_alloc().  Each entry owns an IOMMU mapping and a backing page
+ * allocation; unvmed_unmap_vaddr() is gated by a !pci.bdf check, so when the
+ * controller is still alive it actually removes the IOMMU mapping, and when
+ * pci.bdf is already cleared (post nvme_close) it returns ENODEV harmlessly
+ * — vfio releases those mappings automatically on container close, so only
+ * the host-side page allocation has to be freed here.
+ *
+ * Detach each entry under the list lock and unmap/free outside it to avoid
+ * recursing into mem_list_lock through unvmed_unmap_vaddr().
+ */
+static void unvmed_free_mem_all(struct unvme *u)
+{
+	struct unvme_dmabuf *dbuf;
+
+	while (true) {
+		pthread_rwlock_wrlock(&u->mem_list_lock);
+		dbuf = list_top(&u->mem_list, struct unvme_dmabuf, list);
+		if (dbuf)
+			list_del(&dbuf->list);
+		pthread_rwlock_unlock(&u->mem_list_lock);
+
+		if (!dbuf)
+			break;
+
+		unvmed_unmap_vaddr(u, dbuf->buf.vaddr);
+		unvmed_pgunmap(dbuf->buf.vaddr);
+		free(dbuf);
+	}
+}
+
+/*
  * Drain @u->thread_list and free every per-thread callback entry registered
  * via unvmed_add_thread().  Caller must guarantee no thread is still adding
  * to or removing from the list at this point (final teardown only).
@@ -2059,7 +2091,6 @@ static void unvmed_free_thread_list(struct unvme *u)
 	}
 	pthread_mutex_unlock(&u->thread_list_lock);
 }
-
 
 /*
  * Free NVMe controller instance from libvfn and the libunvmed.
@@ -2094,6 +2125,15 @@ void unvmed_free_ctrl(struct unvme *u)
 			shm_unlink(u->shmem_name);
 	}
 
+	/*
+	 * Drain dbuf registry while pci.bdf is still alive so the IOMMU
+	 * mappings get released properly.  After reinit, vaddr/iova on any
+	 * lingering entry would be stale and re-registration of the same
+	 * backing pages would collide with this list, so it must be emptied
+	 * here — symmetrical to the non-VF unvmed_free_ctrl() path.
+	 */
+	unvmed_free_mem_all(u);
+
 	for (qid = 0; qid < u->nr_sqs; qid++) {
 		if (!u->sqs[qid])
 			continue;
@@ -2109,11 +2149,20 @@ void unvmed_free_ctrl(struct unvme *u)
 	free(u->sqs);
 	free(u->cqs);
 
+	unvmed_free_mem_all(u);
+
 	pthread_rwlock_wrlock(&u->lock);
 	nvme_close(&u->ctrl);
 	pthread_rwlock_unlock(&u->lock);
 
 	unvmed_free_ns_all(u);
+
+	/*
+	 * Drain saved-context list (populated by unvmed_ctx_save() on
+	 * disable/reset paths) so an unbalanced save without a paired restore
+	 * does not leak unvme_ctx allocations on final free.
+	 */
+	unvmed_ctx_free(u);
 
 	/*
 	 * Drain leftover per-thread callback entries registered via
@@ -2125,6 +2174,19 @@ void unvmed_free_ctrl(struct unvme *u)
 
 	if (u->id_ctrl)
 		free(u->id_ctrl);
+
+	/*
+	 * Destroy the locks initialized in unvmed_init_ctrl() last.  All of
+	 * the lists they guard have been drained above, the reaper thread was
+	 * joined inside unvmed_free_irqs(), and the caller has quiesced
+	 * application threads — no concurrent waiter can be on these locks.
+	 */
+	pthread_rwlock_destroy(&u->lock);
+	pthread_rwlock_destroy(&u->sqs_lock);
+	pthread_rwlock_destroy(&u->cqs_lock);
+	pthread_rwlock_destroy(&u->ns_list_lock);
+	pthread_rwlock_destroy(&u->mem_list_lock);
+	pthread_mutex_destroy(&u->thread_list_lock);
 
 	list_del(&u->list);
 	free(u);
