@@ -1492,7 +1492,7 @@ static void unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 	unvmed_log_cmd_cmpl(unvmed_bdf(cmd->u), cqe);
 
 	if (!unvmed_cmd_cmpl_wakeup(cmd, cqe))
-		unvmed_vcq_push(cmd->u, cqe);
+		unvmed_vcq_push(cmd, cqe);
 }
 
 static void unvmed_cmd_timeout(struct unvme_cmd *cmd)

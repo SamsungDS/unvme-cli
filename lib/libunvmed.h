@@ -682,33 +682,38 @@ int unvmed_vcq_run_n(struct unvme *u, struct unvme_vcq *vcq,
 		     struct unvme_vcqe *vcqes, int min, int max);
 
 /**
- * unvmed_vcq_push - Push the given @cqe to @cmd->vcq
- * @u: &struct unvme
+ * unvmed_vcq_push - Push the given @cqe to @cmd->vcq.
+ * @cmd: command instance whose vcq will receive the CQE
  * @cqe: completion queue entry to be pushed
  *
- * It pusehd the given @cqe to the corresponding @vcq which is registered to
- * the @cmd instance whose (sqid == cqe->sqid) && (cid == cqe->cid).
+ * Pushes the given @cqe to the virtual completion queue (@vcq) associated
+ * with @cmd.  The @vcq is determined by cmd->vcq and must have been set up
+ * during command allocation.
+ *
+ * This function is used internally by the CQ reaping path to deliver
+ * completions to the thread that submitted the command.  It does not
+ * modify @cmd->state; callers must ensure proper state transitions.
  *
  * This API is thread-safe.
  *
- * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
+ * Return: ``0`` on success, otherwise ``errno``.
  */
-int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe);
+int unvmed_vcq_push(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 
 /**
- * unvmed_vcq_push_to_other - Push the given @cqe to @cmd->vcq push @cqe to
- * another threads' @vcq.
+ * unvmed_vcq_push_to_other - Push the given @cqe to @cmd->vcq of another
+ * thread.
  * @u: &struct unvme
  * @cqe: completion queue entry to be pushed.
  *
- * It pushes the given @cqe to the corresponding @vcq which is registered to
+ * Pushes the given @cqe to the corresponding @vcq which is registered to
  * the @cmd instance whose (sqid == cqe->sqid) && (cid == cqe->cid).
  *
- * Unlike unvmed_vcq_push(), this function atomically transitions @cmd->state
- * from %UNVME_CMD_S_SUBMITTED to %UNVME_CMD_S_TO_BE_COMPLETED before pushing.
- * This function should be called before updating CQ head doorbells and the
- * given @cqe must be the pointer which is in CQ.  So, DO NOT copy this @cqe to
- * another variable, just pass it as a pointer.  If @cmd->state is not
+ * This function atomically transitions @cmd->state from
+ * %UNVME_CMD_S_SUBMITTED to %UNVME_CMD_S_TO_BE_COMPLETED before pushing.
+ * It should be called before updating CQ head doorbells and the given @cqe
+ * must be the pointer which is in CQ.  So, DO NOT copy this @cqe to another
+ * variable, just pass it as a pointer.  If @cmd->state is not
  * %UNVME_CMD_S_SUBMITTED, the push will be failed and return error.
  *
  * This API is thread-safe.

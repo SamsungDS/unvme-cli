@@ -124,7 +124,7 @@ void unvmed_vcq_free(struct unvme_vcq *vcq)
 	memset(vcq, 0, sizeof(struct unvme_vcq));
 }
 
-static int ____unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
+static int __unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 			     struct nvme_cqe *cqe)
 {
 	uint16_t tail;
@@ -145,9 +145,8 @@ static int ____unvmed_vcq_push(struct unvme *u, struct unvme_vcq *q,
 	return 0;
 }
 
-static int __unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe, bool update_state)
+int unvmed_vcq_push(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
 {
-	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
 	struct unvme_vcq *vcq;
 	int ret;
 
@@ -164,29 +163,17 @@ static int __unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe, bool update_
 		return -ENODEV;
 	}
 
-	if (update_state) {
-		enum unvme_cmd_state old = UNVME_CMD_S_SUBMITTED;
-		if (!atomic_cmpxchg(&cmd->state, old, UNVME_CMD_S_TO_BE_COMPLETED)) {
-			unvmed_log_err("MUST-NOT: failed to update @cmd->state\n");
-			return -EBADE;
-		}
-	}
-
 	do {
-		ret = ____unvmed_vcq_push(u, vcq, cqe);
+		ret = __unvmed_vcq_push(cmd->u, vcq, cqe);
 	} while (ret == -EAGAIN);
 
 	return 0;
 }
 
-int unvmed_vcq_push(struct unvme *u, struct nvme_cqe *cqe)
-{
-	return __unvmed_vcq_push(u, cqe, false);
-}
-
 int unvmed_vcq_push_to_other(struct unvme *u, struct nvme_cqe *cqe)
 {
 	struct unvme_cmd *cmd = unvmed_get_cmd_from_cqe(u, cqe);
+	enum unvme_cmd_state old = UNVME_CMD_S_SUBMITTED;
 
 	if (!cmd) {
 		unvmed_log_err("failed to get command (sqid=%d, cid=%d)",
@@ -199,7 +186,18 @@ int unvmed_vcq_push_to_other(struct unvme *u, struct nvme_cqe *cqe)
 		return -EPERM;
 	}
 
-	return __unvmed_vcq_push(u, cqe, true);
+	/*
+	 * When pushing a CQE to another thread's VCQ, the command state must
+	 * be UNVME_CMD_S_SUBMITTED. This atomic transition ensures that the
+	 * command has been submitted but not yet completed, preventing
+	 * duplicate completion or race conditions between threads.
+	 */
+	if (!atomic_cmpxchg(&cmd->state, old, UNVME_CMD_S_TO_BE_COMPLETED)) {
+		unvmed_log_err("MUST-NOT: failed to update @cmd->state\n");
+		return -EBADE;
+	}
+
+	return unvmed_vcq_push(cmd, cqe);
 }
 
 int unvmed_vcq_pop(struct unvme_vcq *q, struct unvme_vcqe *vcqe)
