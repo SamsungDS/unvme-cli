@@ -54,6 +54,7 @@ if [ -z "$CMD_TIMEOUT" ]; then
 else
 	unvme enable $bdf -t $CMD_TIMEOUT
 fi
+unvme id-ctrl $bdf > /dev/null
 unvme id-ns $bdf -n 1 > /dev/null
 unvme set-features-noq $bdf -s 0xfffe -c 0xfffe > /dev/null
 unvme create-iocq $bdf -q 1 -z 512 -v 1

@@ -91,6 +91,7 @@ trap "unvme stop -a" EXIT
 	else
 		unvme enable $BDF -t $CMD_TIMEOUT
 	fi
+	unvme id-ctrl $BDF > /dev/null
 	unvme id-ns $BDF -n 1 > /dev/null
 )
 
