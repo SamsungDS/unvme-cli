@@ -47,6 +47,7 @@ static bool unvmed_cmd_cmpl_wakeup(struct unvme_cmd *cmd, struct nvme_cqe *cqe);
 static void __unvmed_reap_cqe(struct unvme_cq *ucq);
 static int __unvmed_id_ctrl(struct unvme *u, struct nvme_id_ctrl *id_ctrl);
 static inline int __unvmed_bdf_to_int(const char *bdf, uint32_t *u_bdf);
+static struct unvme_cmd *unvmed_get_cmd_on_reaper(struct unvme *u, struct nvme_cqe *cqe);
 
 static inline enum unvme_state __unvmed_ctrl_get_state(struct unvme *u)
 {
@@ -2175,7 +2176,7 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 	while (1) {
 		cqe = unvmed_get_cqe(ucq, head);
 		if ((le16_to_cpu(cqe->sfp) & 0x1) != phase) {
-			cmd = unvmed_get_cmd_from_cqe(u, cqe);
+			cmd = unvmed_get_cmd_on_reaper(u, cqe);
 			if (!cmd) {
 				unvmed_log_err("%s: invalid cqe (sqid=%d, cid=%d)",
 						unvmed_bdf(u), le16_to_cpu(cqe->sqid), cqe->cid);
@@ -2472,10 +2473,12 @@ static void __unvmed_reap_cqe(struct unvme_cq *ucq)
 		if (!cqe)
 			break;
 
-		cmd = unvmed_get_cmd_from_cqe(u, cqe);
+		cmd = unvmed_get_cmd_on_reaper(u, cqe);
 		if (!cmd) {
-			unvmed_log_err("%s: invalid cqe (sqid=%d, cid=%d)",
-					unvmed_bdf(u), le16_to_cpu(cqe->sqid), cqe->cid);
+			unvmed_log_err("%s: invalid cqe (sqid=%d, cid=%d, status=0x%X) u.state=%s",
+					unvmed_bdf(u), le16_to_cpu(cqe->sqid),
+					cqe->cid, (cqe->sfp >> 1),
+					unvmed_state_str(u->state));
 			nvme_cq_update_head(ucq->q);
 			continue;
 		}
@@ -3272,6 +3275,30 @@ uint16_t unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		nvme_sq_update_tail(cmd->rq->sq);
 
 	return idx;
+}
+
+static struct unvme_cmd *unvmed_get_cmd_on_reaper(struct unvme *u,
+						  struct nvme_cqe *cqe)
+{
+	struct unvme_sq *usq;
+	struct unvme_cmd *cmd;
+
+	/*
+	 * We don't have get/put scheme here since @usq instance can only be
+	 * freed up in reset context or delete I/O submission queue context and
+	 * those behaviors will ensure that all the CQ reaping processes are
+	 * stopped(quiesced).
+	 */
+	usq = unvmed_sq_find(u, le16_to_cpu(cqe->sqid));
+	if (!usq)
+		return NULL;
+
+	cmd = &usq->cmds[cqe->cid];
+
+	if (LOAD(cmd->state) != UNVME_CMD_S_SUBMITTED)
+		return NULL;
+
+	return cmd;
 }
 
 struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,
