@@ -88,6 +88,7 @@ static bool ____unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 	case UNVME_ENABLED:
 		switch (old) {
 		case UNVME_ENABLING:
+		case UNVME_VF_ENABLED:
 			change = true;
 			break;
 		default:
@@ -108,7 +109,10 @@ static bool ____unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		switch (old) {
 		case UNVME_DISABLED:
 		case UNVME_ENABLED:
+		case UNVME_RESETTING:
 		case UNVME_FATAL:
+		case UNVME_VF_INVALIDATED:
+		case UNVME_VF_RECOVERING:
 			change = true;
 			break;
 		default:
@@ -118,6 +122,65 @@ static bool ____unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 	case UNVME_FATAL:
 		switch (old) {
 		case UNVME_ENABLING:
+		case UNVME_RESETTING:
+		case UNVME_VF_INVALIDATING:
+		case UNVME_ENABLED:
+			change = true;
+			break;
+		default:
+			break;
+		}
+		break;
+	case UNVME_VF_INVALIDATING:
+		switch (old) {
+		case UNVME_ENABLED:
+		case UNVME_DISABLED:
+		case UNVME_RESETTING:
+		case UNVME_ENABLING:
+		case UNVME_FATAL:
+		case UNVME_VF_ENABLED:
+			change = true;
+			break;
+		default:
+			break;
+		}
+		break;
+	case UNVME_VF_INVALIDATED:
+		switch (old) {
+		case UNVME_ENABLED:
+		case UNVME_FATAL:
+		case UNVME_DISABLED:
+		case UNVME_RESETTING:
+		case UNVME_VF_INVALIDATING:
+		case UNVME_VF_ENABLED:
+			change = true;
+			break;
+		default:
+			break;
+		}
+		break;
+	case UNVME_VF_RECOVERING:
+		switch (old) {
+		case UNVME_TEARDOWN:
+			change = true;
+			break;
+		default:
+			break;
+		}
+		break;
+	case UNVME_VF_RECOVERED:
+		switch (old) {
+		case UNVME_VF_RECOVERING:
+			change = true;
+			break;
+		default:
+			break;
+		}
+		break;
+	case UNVME_VF_ENABLED:
+		switch (old) {
+		case UNVME_DISABLED:
+		case UNVME_VF_RECOVERED:
 			change = true;
 			break;
 		default:
@@ -2031,6 +2094,11 @@ static int __unvme_reset_ctrl(struct unvme *u)
 		return -1;
 	}
 
+	if (__unvmed_ctrl_get_state(u) == UNVME_TEARDOWN) {
+		errno = ENODEV;
+		return -1;
+	}
+
 	if (!__unvmed_ctrl_set_state(u, UNVME_RESETTING)) {
 		errno = EBUSY;
 		return -1;
@@ -2715,13 +2783,27 @@ static void __unvmed_init_mps(struct unvme *u, uint8_t mps)
 	u->ctrl.config.mps = mps;
 }
 
-int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
-		      uint8_t mps, uint8_t ams, uint8_t css, int timeout)
+/*
+ * Internal helper to enable NVMe controller by asserting CC.EN and waiting
+ * for CSTS.RDY.  The @state parameter controls whether state machine
+ * transitions are performed:
+ *
+ * - @state=true: full state transition (ENABLING -> ENABLED). Used by
+ *   unvmed_enable_ctrl() for PF and normal controller enable.
+ * - @state=false: skip state transitions. Used by unvmed_enable_vf() to let
+ *   caller manage VF-specific states (VF_RECOVERING -> VF_RECOVERED -> VF_ENABLED).
+ *
+ * On CSTS.CFS=1 (controller fatal status), sets state to UNVME_FATAL only
+ * if @state=true.
+ */
+int __unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
+		      uint8_t mps, uint8_t ams, uint8_t css, int timeout,
+		      bool state)
 {
 	uint32_t cc;
 	uint32_t csts;
 
-	if (!__unvmed_ctrl_set_state(u, UNVME_ENABLING)) {
+	if (state && !__unvmed_ctrl_set_state(u, UNVME_ENABLING)) {
 		unvmed_log_err("%s: failed to set ENABLING state", unvmed_bdf(u));
 		errno = EBUSY;
 		return -1;
@@ -2748,7 +2830,9 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 			unvmed_log_err("%s: controller has seted CFS (CSTS.CFS)",
 			       unvmed_bdf(u));
 			errno = ENODEV;
-			__unvmed_ctrl_set_state(u, UNVME_FATAL);
+
+			if (state)
+				__unvmed_ctrl_set_state(u, UNVME_FATAL);
 			return -1;
 		} else if (NVME_CSTS_RDY(csts))
 			break;
@@ -2765,12 +2849,58 @@ int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	if (u->asq)
 		unvmed_enable_sq(u->asq);
 
-	__unvmed_ctrl_set_state(u, UNVME_ENABLED);
+	if (state && !__unvmed_ctrl_set_state(u, UNVME_ENABLED)) {
+		errno = ENODEV;
+		return -1;
+	}
 
 	unvmed_log_info("%s: controller enabled (iosqes=%u, iocqes=%u, mps=%u, "
 			"ams=%u, css=%u, timeout=%d)",
 			unvmed_bdf(u), iosqes, iocqes, mps, ams, css, timeout);
 
+
+	return 0;
+}
+
+int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
+		      uint8_t mps, uint8_t ams, uint8_t css, int timeout)
+{
+	return __unvmed_enable_ctrl(u, iosqes, iocqes, mps, ams, css, timeout, true);
+}
+
+/**
+ * unvmed_enable_vf - Enable NVMe Virtual Function controller
+ * @u: &struct unvme
+ * @iosqes: I/O Submission Queue Entry Size (specified as 2^n)
+ * @iocqes: I/O Completion Queue Entry Size (specified as 2^n)
+ * @mps: Memory Page Size (specified as (2 ^ (12 + n)))
+ * @ams: Arbitration Mechanism Selected
+ * @css: I/O Command Set Selected
+ * @timeout: timeout in seconds (0: disabled)
+ *
+ * Enable the given NVMe VF controller by asserting CC.EN to 1 and waiting for
+ * CSTS.RDY.  Unlike unvmed_enable_ctrl(), this function skips state machine
+ * transitions during enable (passes state=false to __unvmed_enable_ctrl()),
+ * letting the caller retain full control over VF-specific states.
+ *
+ * After successful enable, transitions to UNVME_VF_ENABLED.  Typical VF
+ * recovery flow:
+ * 1. Caller sets UNVME_VF_RECOVERING
+ * 2. Caller calls unvmed_enable_vf()
+ * 3. This function sets UNVME_VF_ENABLED
+ *
+ * Return: ``0`` on success, ``-1`` on failure with ``errno`` set.
+ */
+int unvmed_enable_vf(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
+		      uint8_t mps, uint8_t ams, uint8_t css, int timeout)
+{
+	if (__unvmed_enable_ctrl(u, iosqes, iocqes, mps, ams, css, timeout, false))
+		return -1;
+
+	if (!unvmed_ctrl_set_state_fallback(u, UNVME_VF_ENABLED,
+					(UNVME_VF_INVALIDATING | UNVME_VF_INVALIDATED | UNVME_FATAL),
+					UNVME_VF_INVALIDATED))
+		return -1;
 
 	return 0;
 }
@@ -4610,6 +4740,99 @@ int unvmed_free_cq(struct unvme *u, uint16_t qid)
 	unvmed_disable_cq(ucq);
 
 	__unvmed_delete_cq(u, ucq);
+	return 0;
+}
+
+int unvmed_vf_check_reset_allowed(struct unvme *u)
+{
+	static const unsigned int finalize_from =
+		UNVME_VF_INVALIDATING | UNVME_FATAL;
+	enum unvme_state cur;
+
+	if (!u->ctrl.pci.bdf || !pci_is_vf(u->ctrl.pci.bdf)) {
+		errno = ENODEV;
+		return -1;
+	}
+
+	cur = __unvmed_ctrl_get_state(u);
+	if (cur == UNVME_ENABLED)
+		return 0;
+
+	/*
+	 * Best-effort finalize: if the VF is mid-invalidation or FATAL,
+	 * commit INVALIDATED.  Ignore EAGAIN/EALREADY — the state may
+	 * have moved on between the get above and the cmp_set, and the
+	 * outcome is reported below regardless.
+	 */
+	if (!__unvmed_ctrl_cmp_set_state(u, finalize_from,
+				UNVME_VF_INVALIDATED)) {
+		if (errno != EAGAIN && errno != EALREADY) {
+			unvmed_log_err("%s: cmp_set state (mask=0x%x, cur=%s, new=%s, errno=%d)",
+				       unvmed_bdf(u), finalize_from,
+				       unvmed_state_str(cur), unvmed_state_str(UNVME_VF_INVALIDATED),
+				       errno);
+			return -1;
+		}
+	}
+
+	errno = EBUSY;
+	return -1;
+}
+
+int unvmed_vf_start_invalidating(struct unvme *u)
+{
+	/* All states except VF_ENABLED / RESETTING are allowed as sources. */
+	uint32_t allowed = ~(UNVME_VF_ENABLED | UNVME_RESETTING) & ((1U << 11) - 1);
+	enum unvme_state cur;
+
+	if (!u->ctrl.pci.bdf || !pci_is_vf(u->ctrl.pci.bdf)) {
+		errno = ENODEV;
+		return -1;
+	}
+
+	cur = __unvmed_ctrl_get_state(u);
+
+	while (!__unvmed_ctrl_cmp_set_state(u, allowed, UNVME_VF_INVALIDATING)) {
+		if (errno != EAGAIN) {
+			unvmed_log_err("%s: cmp_set state (mask=0x%x, cur=%s, new=%s)",
+				       unvmed_bdf(u), allowed,
+				       unvmed_state_str(cur), unvmed_state_str(UNVME_VF_INVALIDATING));
+			return -1;
+		}
+	}
+	return cur;
+}
+
+int unvmed_vf_finish_invalidated(struct unvme *u, enum unvme_state old)
+{
+	static const uint32_t exit_state =
+		UNVME_VF_INVALIDATED | UNVME_FATAL |
+		UNVME_ENABLED        | UNVME_DISABLED |
+		UNVME_RESETTING      | UNVME_VF_ENABLED;
+	uint32_t csts;
+	enum unvme_state cur;
+
+	if (!u->ctrl.pci.bdf || !pci_is_vf(u->ctrl.pci.bdf)) {
+		errno = ENODEV;
+		return -1;
+	}
+
+	if (!(old & exit_state)) {
+		do {
+			cur = __unvmed_ctrl_get_state(u);
+		} while (!(cur & exit_state));
+	}
+
+	for (;;) {
+		csts = unvmed_read32(u, NVME_REG_CSTS);
+		if (!NVME_CSTS_RDY(csts) || NVME_CSTS_CFS(csts))
+			break;
+		usleep(1000);  /* 1 ms — matches Python time.sleep(0.001) */
+	}
+
+	if (!__unvmed_ctrl_set_state(u, UNVME_VF_INVALIDATED) && errno != EALREADY)
+		return -1;
+
 	return 0;
 }
 

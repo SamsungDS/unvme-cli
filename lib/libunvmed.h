@@ -87,6 +87,13 @@ enum unvme_state {
 	/*
 	 * The final state going to release the unvme controller instance for
 	 * good. (16)
+	 *
+	 * Kernel/PCI view:
+	 *   This is the only state in which the VF PCI node may disappear
+	 *   from /sys/bus/pci/devices/ and userspace access becomes invalid.
+	 *   In all other states (including VF_INVALIDATING/INVALIDATED and the
+	 *   VF_RECOVERING/RECOVERED/ENABLED chain) the VF PCI node remains
+	 *   present and accessible.
 	 */
 	UNVME_TEARDOWN		= 1U << 4,
 	/*
@@ -94,6 +101,34 @@ enum unvme_state {
 	 * longer accessible. (32)
 	 */
 	UNVME_FATAL		= 1U << 5,
+	/*
+	 * Started to invalidate the controller, after this, UNVME_VF_INVALIDATED.
+	 * Entered when PF reset invalidates all VFs. State transitions from this
+	 * state are restricted to prevent races during invalidation. (64)
+	 */
+	UNVME_VF_INVALIDATING	= 1U << 6,
+	/*
+	 * Controller has been invalidated and is no longer accessible.
+	 * VF enters this state after PF reset completes. Recovery requires
+	 * explicit VF recovery flow (VF_RECOVERING -> VF_RECOVERED -> VF_ENABLED). (128)
+	 */
+	UNVME_VF_INVALIDATED	= 1U << 7,
+	/*
+	 * Recovering VF controller, after this, UNVME_VF_RECOVERED.
+	 * Transitional state entered when caller initiates VF recovery after
+	 * PF reset invalidation. (256)
+	 */
+	UNVME_VF_RECOVERING	= 1U << 8,
+	/*
+	 * VF controller has been recovered and is accessible again.
+	 * Next state is UNVME_VF_ENABLED after unvmed_enable_vf() completes. (512)
+	 */
+	UNVME_VF_RECOVERED	= 1U << 9,
+	/*
+	 * VF controller re-enabled after recovery. Functionally equivalent to
+	 * UNVME_ENABLED but reached through VF-specific recovery path. (1024)
+	 */
+	UNVME_VF_ENABLED	= 1U << 10,
 };
 
 static inline const char *unvmed_state_str(enum unvme_state state)
@@ -111,6 +146,16 @@ static inline const char *unvmed_state_str(enum unvme_state state)
 		return "TEARDOWN";
 	case UNVME_FATAL:
 		return "FATAL";
+	case UNVME_VF_INVALIDATING:
+		return "VF_INVALIDATING";
+	case UNVME_VF_INVALIDATED:
+		return "VF_INVALIDATED";
+	case UNVME_VF_RECOVERING:
+		return "VF_RECOVERING";
+	case UNVME_VF_RECOVERED:
+		return "VF_RECOVERED";
+	case UNVME_VF_ENABLED:
+		return "VF_ENABLED";
 	}
 	return "Unknown";
 }
@@ -816,7 +861,11 @@ enum unvme_state unvmed_ctrl_get_state(struct unvme *u);
  * @state: target state to transition to
  *
  * Public wrapper around the internal locked setter.  Runs the same
- * transition-matrix validation as any other state change.
+ * transition-matrix validation as any other state change; the matrix
+ * includes VF lifecycle states, so external callers (e.g. the reset
+ * framework) may drive UNVME_VF_RECOVERING / UNVME_VF_RECOVERED /
+ * UNVME_VF_ENABLED transitions through this API.
+ *
  * Return: ``true`` if state transition succeeded, otherwise ``false`` with
  * ``errno`` set to ``EALREADY`` if already in @state, or ``EINVAL`` if the
  * transition is not allowed from the current state.
@@ -841,6 +890,70 @@ bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state);
 bool unvmed_ctrl_set_state_fallback(struct unvme *u, enum unvme_state state,
 				    unsigned int cur_states,
 				    enum unvme_state fallback);
+
+/**
+ * unvmed_vf_start_invalidating - Mark a VF as invalidating
+ * @u: &struct unvme (must be a VF)
+ *
+ * Spin (yielding) until UNVME_RESETTING clears, then atomically commit
+ * UNVME_VF_INVALIDATING.  All other states — including UNVME_VF_ENABLED
+ * and UNVME_ENABLED — are accepted as valid source states; only an
+ * in-flight regular reset (RESETTING) is waited out.  Called at the
+ * entry of the VF invalidation flow on PF reset.
+ *
+ * Return: on success the *previous* &enum unvme_state (a non-negative
+ * bit-flag value) — pass it verbatim to unvmed_vf_finish_invalidated()
+ * as its ``old`` argument.  On failure returns ``-1`` with ``errno``
+ * set (``ENODEV`` if @u is not a VF or the BDF is already cleared;
+ * any non-``EAGAIN`` errno from the state setter is propagated).
+ */
+int unvmed_vf_start_invalidating(struct unvme *u);
+
+/**
+ * unvmed_vf_finish_invalidated - Wait for invalidation to settle and commit
+ * @u: &struct unvme (must be a VF)
+ * @old: the previous-state value returned by
+ *       unvmed_vf_start_invalidating().  If it was already terminal
+ *       (VF_INVALIDATED / FATAL / ENABLED / DISABLED) the state-wait
+ *       loop is skipped and this function goes straight to the
+ *       CSTS.RDY/CSTS.CFS poll.
+ *
+ * Two-phase settle:
+ *  1. If @old was not already a terminal state, spin (yielding) until
+ *     the current state reaches one of VF_INVALIDATED / FATAL /
+ *     ENABLED / DISABLED.
+ *  2. Poll CSTS every 1 ms until CSTS.RDY clears or CSTS.CFS asserts.
+ * After both phases, commit UNVME_VF_INVALIDATED (an EALREADY there
+ * is treated as success — some other thread finalized concurrently).
+ *
+ * Return: ``0`` on success.  ``-1`` with ``errno`` set on failure:
+ *   - ``ENODEV`` if @u is not a VF or the BDF is already cleared.
+ *   - Any non-``EALREADY`` errno from the final state commit is
+ *     propagated verbatim.
+ */
+int unvmed_vf_finish_invalidated(struct unvme *u, enum unvme_state old);
+
+/**
+ * unvmed_vf_check_reset_allowed - Precondition check before a VF reset
+ * @u: &struct unvme (must be a VF)
+ *
+ * Verify the VF is in UNVME_ENABLED.  If it is mid-invalidation
+ * (UNVME_VF_INVALIDATING / UNVME_FATAL), best-effort advance the state
+ * to UNVME_VF_INVALIDATED so the rest of the system observes a coherent
+ * terminal state before this call reports failure.  ``EAGAIN`` and
+ * ``EALREADY`` from that finalize step are swallowed — the state may
+ * have moved between the read and the cmp-set, and the outcome is
+ * reported below regardless.
+ *
+ * Return: ``0`` if the VF is in UNVME_ENABLED and the caller may
+ * proceed with the reset.  Otherwise ``-1`` with ``errno`` set:
+ *   - ``EBUSY`` : VF is not (or is no longer) UNVME_ENABLED — reset
+ *                 must be skipped.
+ *   - ``ENODEV`` : @u is not a VF, or the BDF is already cleared.
+ *   - other      : errno propagated from the finalize cmp-set step
+ *                  (anything other than ``EAGAIN`` / ``EALREADY``).
+ */
+int unvmed_vf_check_reset_allowed(struct unvme *u);
 
 /**
  * unvmed_cmb_init - Initialize Controller Memory Buffer
@@ -1393,6 +1506,33 @@ int unvmed_create_adminq(struct unvme *u, uint32_t sq_size,
  */
 int unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 		       uint8_t mps, uint8_t ams, uint8_t css, int timeout);
+
+/**
+ * unvmed_enable_vf - Enable NVMe controller for a Virtual Function
+ * @u: &struct unvme
+ * @iosqes: I/O Submission Queue Entry Size (specified as 2^n)
+ * @iocqes: I/O Completion Queue Entry Size (specified as 2^n)
+ * @mps: Memory Page Size (specified as (2 ^ (12 + n)))
+ * @ams: Arbitration Mechanism Selected
+ * @css: I/O Command Set Selected
+ * @timeout: timeout in seconds (0: disabled)
+ *
+ * Enable the given NVMe VF controller by asserting CC.EN to 1 and waiting
+ * for CSTS.RDY.  Unlike unvmed_enable_ctrl(), the CC.EN / CSTS.RDY step
+ * runs *without* driving the ENABLING/ENABLED/FATAL state transitions,
+ * so the caller keeps ownership of the state machine during the VF
+ * recovery sequence (e.g. UNVME_VF_RECOVERING held across the call).
+ * On successful hardware enable this function then makes a single
+ * best-effort commit to UNVME_VF_ENABLED via the normal transition
+ * matrix; the return value of that commit is not propagated, so a
+ * matrix rejection (EALREADY / EINVAL) leaves the caller's state
+ * choice intact while the function still returns ``0``.
+ *
+ * Return: ``0`` on successful hardware enable, ``-1`` with ``errno``
+ * set on CC.EN / CSTS.RDY failure (``ENODEV`` on CSTS.CFS).
+ */
+int unvmed_enable_vf(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
+		     uint8_t mps, uint8_t ams, uint8_t css, int timeout);
 
 /**
  * unvmed_create_cq - Create I/O Completion Queue
