@@ -54,17 +54,15 @@ static inline enum unvme_state __unvmed_ctrl_get_state(struct unvme *u)
 	return LOAD(u->state);
 }
 
-static bool __unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
+static bool ____unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 {
 	enum unvme_state old;
 	bool change = false;
 
-	pthread_rwlock_wrlock(&u->lock);
 	old = __unvmed_ctrl_get_state(u);
 
 	if (old == state) {
 		errno = EALREADY;
-		pthread_rwlock_unlock(&u->lock);
 		return false;
 	}
 
@@ -140,7 +138,38 @@ static bool __unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 				unvmed_bdf(u), unvmed_state_str(old), unvmed_state_str(state));
 	}
 
+	return change;
+}
+
+static bool __unvmed_ctrl_cmp_set_state(struct unvme *u, unsigned int old_states,
+				enum unvme_state state)
+{
+	enum unvme_state old;
+	bool change = false;
+
+	pthread_rwlock_wrlock(&u->lock);
+	old = __unvmed_ctrl_get_state(u);
+
+	if (!(old & old_states)) {
+		errno = EAGAIN;
+		goto ret;
+	}
+
+	change = ____unvmed_ctrl_set_state(u, state);
+
+ret:
 	pthread_rwlock_unlock(&u->lock);
+	return change;
+}
+
+static bool __unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
+{
+	bool change = false;
+
+	pthread_rwlock_wrlock(&u->lock);
+	change = ____unvmed_ctrl_set_state(u, state);
+	pthread_rwlock_unlock(&u->lock);
+
 	return change;
 }
 
@@ -297,6 +326,16 @@ bool unvmed_ctrl_enabled(struct unvme *u)
 	return __unvmed_ctrl_get_state(u) == UNVME_ENABLED;
 }
 
+/**
+ * unvmed_ctrl_get_state - Get current controller state
+ * @u: &struct unvme
+ *
+ * Returns the current state of the controller.  This is the public wrapper
+ * around __unvmed_ctrl_get_state() for external callers (e.g. reset framework)
+ * to read controller state.
+ *
+ * Return: Current &enum unvme_state value.
+ */
 enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
 {
 	return __unvmed_ctrl_get_state(u);
@@ -305,6 +344,35 @@ enum unvme_state unvmed_ctrl_get_state(struct unvme *u)
 bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 {
 	return __unvmed_ctrl_set_state(u, state);
+}
+
+bool unvmed_ctrl_set_state_fallback(struct unvme *u, enum unvme_state state,
+				    unsigned int cur_states, enum unvme_state fallback)
+{
+	enum unvme_state cur;
+	bool change = false;
+
+	pthread_rwlock_wrlock(&u->lock);
+	cur = __unvmed_ctrl_get_state(u);
+
+	if (____unvmed_ctrl_set_state(u, state) || errno == EALREADY) {
+		change = true;
+		goto ret;
+	}
+
+	if (!(cur & cur_states))
+		goto ret;
+
+	if (____unvmed_ctrl_set_state(u, fallback) || errno == EALREADY) {
+		errno = ENODEV;
+		unvmed_log_info("%s: set controller state fallback (%s -> %s), requested: %s",
+				unvmed_bdf(u), unvmed_state_str(cur), unvmed_state_str(fallback),
+				unvmed_state_str(state));
+	}
+
+ret:
+	pthread_rwlock_unlock(&u->lock);
+	return change;
 }
 
 int unvmed_nr_cmds(struct unvme *u)
@@ -993,6 +1061,7 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 		return u;
 
 	u = zmalloc(sizeof(struct unvme));
+	u->state = UNVME_DISABLED;
 
 	/*
 	 * Zero-based values for I/O queues to pass to `libvfn` excluding the

@@ -69,31 +69,31 @@ struct unvme_timer {
 
 enum unvme_state {
 	/*
-	 * Controller disabled state which is the first state.
+	 * Controller disabled state which is the first state. (1)
 	 */
-	UNVME_DISABLED	= 0,
+	UNVME_DISABLED		= 1U << 0,
 	/*
-	 * Started to enable the controller, after this, UNVME_ENABELD.
+	 * Started to enable the controller, after this, UNVME_ENABELD. (2)
 	 */
-	UNVME_ENABLING,
+	UNVME_ENABLING		= 1U << 1,
 	/*
-	 * Controller enabled state which is alive.
+	 * Controller enabled state which is alive. (4)
 	 */
-	UNVME_ENABLED,
+	UNVME_ENABLED		= 1U << 2,
 	/*
-	 * Resetting the controller, after this, UNVME_DISABLED.
+	 * Resetting the controller, after this, UNVME_DISABLED. (8)
 	 */
-	UNVME_RESETTING,
+	UNVME_RESETTING		= 1U << 3,
 	/*
 	 * The final state going to release the unvme controller instance for
-	 * good.
+	 * good. (16)
 	 */
-	UNVME_TEARDOWN,
+	UNVME_TEARDOWN		= 1U << 4,
 	/*
 	 * Controller has encountered a fatal status (CSTS.CFS=1) and is no
-	 * longer accessible.
+	 * longer accessible. (32)
 	 */
-	UNVME_FATAL,
+	UNVME_FATAL		= 1U << 5,
 };
 
 static inline const char *unvmed_state_str(enum unvme_state state)
@@ -815,11 +815,32 @@ enum unvme_state unvmed_ctrl_get_state(struct unvme *u);
  * @u: &struct unvme
  * @state: target state to transition to
  *
+ * Public wrapper around the internal locked setter.  Runs the same
+ * transition-matrix validation as any other state change.
  * Return: ``true`` if state transition succeeded, otherwise ``false`` with
  * ``errno`` set to ``EALREADY`` if already in @state, or ``EINVAL`` if the
  * transition is not allowed from the current state.
  */
 bool unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state);
+
+/**
+ * unvmed_ctrl_set_state_fallback - Set controller state with fallback on failure
+ * @u: &struct unvme
+ * @state: target state to transition to
+ * @cur_states: if current state matches this on failure, apply fallback
+ * @fallback: fallback state to set when transition fails and current matches
+ *
+ * Attempt to transition @u->state to @state.  If the transition fails and
+ * the current state equals @current_state, set @u->state to @fallback instead.
+ * This is useful for handling race conditions where another thread (e.g. PF
+ * reset detection) may have changed the state concurrently.
+ *
+ * Return: ``true`` on successful transition to @state, ``false`` on fallback
+ * to @fallback (with ``errno`` set to the original failure).
+ */
+bool unvmed_ctrl_set_state_fallback(struct unvme *u, enum unvme_state state,
+				    unsigned int cur_states,
+				    enum unvme_state fallback);
 
 /**
  * unvmed_cmb_init - Initialize Controller Memory Buffer
