@@ -1502,10 +1502,19 @@ int unvmed_init_ns(struct unvme *u, uint32_t nsid, void *identify)
 	} else {
 		int refcnt;
 		ns = (struct __unvme_ns *)prev;
-		if (ns->enabled) {
-			refcnt = unvmed_ns_put(u, prev);
-			assert(refcnt > 0);
-		}
+		/*
+		 * Drop the +1 ref taken by unvmed_ns_get() above.  This used
+		 * to be conditional on ns->enabled, which leaked the ref (and
+		 * thus the namespace) whenever a previously *disabled* ns was
+		 * re-initialized: get raised refcnt to 2, only free_ns_all's
+		 * single put lowered it to 1, so __unvmed_free_ns() never ran.
+		 *
+		 * refcnt was >= 1 before the get (find_and_get returned it),
+		 * so this put lands at >= 1 and @ns stays valid for the
+		 * re-population below.
+		 */
+		refcnt = unvmed_ns_put(u, prev);
+		assert(refcnt > 0);
 	}
 
 	if (id_ns->nlbaf < 16)
