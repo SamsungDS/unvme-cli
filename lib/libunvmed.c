@@ -2431,6 +2431,11 @@ static int __unvme_reset_ctrl(struct unvme *u)
 	}
 
 	cc = unvmed_read32(u, NVME_REG_CC);
+	if (cc == 0xffffffff) {
+		unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
+		errno = ENODEV;
+		return -1;
+	}
 	unvmed_write32(u, NVME_REG_CC, cc & ~(1 << NVME_CC_EN_SHIFT));
 	while (1) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
@@ -3144,6 +3149,12 @@ int __unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	}
 
 	cc = unvmed_read32(u, NVME_REG_CC);
+	if (cc == 0xffffffff) {
+		unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
+		errno = ENODEV;
+		return -1;
+	}
+
 	if (NVME_CC_EN(cc)) {
 		unvmed_log_err("%s: Controller (%s) has already been enabled (CC.EN=1)",
 		       unvmed_bdf(u), unvmed_bdf(u));
@@ -3160,6 +3171,14 @@ int __unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 
 	while (1) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
+		if (csts == 0xffffffff) {
+			unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
+			errno = ENODEV;
+
+			if (state)
+				__unvmed_ctrl_set_state(u, UNVME_FATAL);
+			return -1;
+		}
 		if (NVME_CSTS_CFS(csts)) {
 			unvmed_log_err("%s: controller has set CFS (CSTS.CFS)",
 			       unvmed_bdf(u));
@@ -4092,6 +4111,11 @@ static int unvmed_pci_restore_state(struct unvme *u, void *config)
 
 	while (true) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
+		if (csts == 0xffffffff) {
+			unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
+			errno = ENODEV;
+			return -1;
+		}
 		if (!NVME_CSTS_RDY(csts))
 			break;
 
@@ -4220,6 +4244,11 @@ int unvmed_subsystem_reset(struct unvme *u)
 	 */
 	while (true) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
+		if (csts == 0xffffffff) {
+			unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
+			errno = ENODEV;
+			return -1;
+		}
 		if (NVME_CSTS_NSSRO(csts)) {
 			unvmed_write32(u, NVME_REG_CSTS,
 					1 << NVME_CSTS_NSSRO_SHIFT);
@@ -4576,7 +4605,17 @@ int unvmed_ctx_init(struct unvme *u)
 	ctx->type = UNVME_CTX_T_CTRL;
 
 	cc = unvmed_read32(u, NVME_REG_CC);
+	if (cc == 0xffffffff) {
+		unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
+		errno = ENODEV;
+		return -1;
+	}
 	aqa = unvmed_read32(u, NVME_REG_AQA);
+	if (aqa == 0xffffffff) {
+		unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
+		errno = ENODEV;
+		return -1;
+	}
 
 	ctx->ctrl.iosqes = NVME_CC_IOSQES(cc);
 	ctx->ctrl.iocqes = NVME_CC_IOCQES(cc);
@@ -5159,6 +5198,11 @@ int unvmed_vf_finish_invalidated(struct unvme *u, enum unvme_state old)
 
 	for (;;) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
+		if (csts == 0xffffffff) {
+			unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
+			errno = ENODEV;
+			return -1;
+		}
 		if (!NVME_CSTS_RDY(csts) || NVME_CSTS_CFS(csts))
 			break;
 		usleep(1000);  /* 1 ms — matches Python time.sleep(0.001) */
