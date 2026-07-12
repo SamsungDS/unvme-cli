@@ -508,6 +508,7 @@ struct libunvmed_data {
 	void *prp_list_iomem;
 	size_t prp_list_iomem_size;
 	size_t prp_list_iomem_usize;  /* unit size for per io_u */
+	uint64_t prp_list_iomem_iova;
 
 	/*
 	 * metadata buffer and size
@@ -665,6 +666,15 @@ static inline uint64_t libunvmed_to_meta_iova(struct thread_data *td, void *mbuf
 	uint64_t offset = (uint64_t)(mbuf - (void *)ld->meta_iomem);
 
 	return ld->meta_iomem_iova + (uint64_t)offset;
+}
+
+static inline uint64_t libunvmed_to_prp_list_iova(struct thread_data *td,
+						  void *prplist)
+{
+	struct libunvmed_data *ld = td->io_ops_data;
+	uint64_t offset = (uint64_t)(prplist - (void *)ld->prp_list_iomem);
+
+	return ld->prp_list_iomem_iova + (uint64_t)offset;
 }
 
 static inline int libunvmed_pi_enabled(struct unvme_ns *ns)
@@ -1112,6 +1122,7 @@ static int libunvmed_map_mems(struct thread_data *td)
 					"libunvmed_map_mems");
 			goto err;
 		}
+		ld->prp_list_iomem_iova = iova;
 	}
 
 	return 0;
@@ -1825,6 +1836,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 
 	void *buf = io_u->xfer_buf;
 	void *list = NULL;
+	iova_t list_iova;
 	size_t len = io_u->xfer_buflen;
 	void *mbuf = mo->mbuf;
 	size_t mlen = mo->mlen;
@@ -1883,15 +1895,16 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 	cmd->sqe = (union nvme_cmd)sqe;
 
 	list = ld->prp_list_iomem + (io_u->index * ld->prp_list_iomem_usize);
+	list_iova = libunvmed_to_prp_list_iova(td, list);
 
 	if (o->enable_sgl) {
 		sqe.flags |= NVME_CMD_FLAGS_PSDT_SGL_MPTR_CONTIG <<
 			NVME_CMD_FLAGS_PSDT_SHIFT;
 		ret = __unvmed_mapv_sgl_seg(cmd, (union nvme_cmd *)&sqe,
-				list, &cmd->buf.iov, 1);
+				list, list_iova, &cmd->buf.iov, 1);
 	} else
 		ret = __unvmed_mapv_prp_list(cmd, (union nvme_cmd *)&sqe,
-				list, &cmd->buf.iov, 1);
+				list, list_iova, &cmd->buf.iov, 1);
 
 	if (ret) {
 		unvmed_cmd_put(cmd);

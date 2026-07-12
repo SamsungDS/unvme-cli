@@ -1986,6 +1986,7 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
  * @cmd: command instance (&struct unvme_cmd)
  * @sqe: submission queue entry (&union nvme_cmd)
  * @prplist: memory page address of a PRP list (address to be written to PRP2)
+ * @prplist_iova: I/O virtual address of @prplist mapped to the IOMMU
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
  *
@@ -1994,12 +1995,13 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
  * @sqe.
  *
  * Caller *should* map @prplist to the IOMMU page table before calling this
- * helper.
+ * helper and provide its iova through @prplist_iova.
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int __unvmed_mapv_prp_list(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-			   void *prplist, struct iovec *iov, int nr_iov);
+			   void *prplist, iova_t prplist_iova,
+			   struct iovec *iov, int nr_iov);
 
 /**
  * __unvmed_mapv_prp - Map and configure iovecs as PRP to command
@@ -2036,6 +2038,7 @@ int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
  * @cmd: command instance (&struct unvme_cmd)
  * @sqe: submission queue entry (&union nvme_cmd)
  * @seg: SGL segment memory page address
+ * @seg_iova: I/O virtual address of @seg mapped to the IOMMU
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
  *
@@ -2043,12 +2046,14 @@ int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
  * @nr_iov vectors.  libvfn prepares SGL data structure and map it to the given
  * @sqe.
  *
- * Caller *should* map @seg to the IOMMU page table before calling this helper.
+ * Caller *should* map @seg to the IOMMU page table before calling this helper
+ * and provide its iova through @seg_iova.
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int __unvmed_mapv_sgl_seg(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-			  struct nvme_sgld *seg, struct iovec *iov, int nr_iov);
+			  struct nvme_sgld *seg, iova_t seg_iova,
+			  struct iovec *iov, int nr_iov);
 
 /**
  * __unvmed_mapv_sgl - Map and configure iovecs as SGL to command

@@ -398,12 +398,15 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 }
 
 int __unvmed_mapv_prp_list(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-			   void *prplist, struct iovec *iov, int nr_iov)
+			   void *prplist, iova_t prplist_iova,
+			   struct iovec *iov, int nr_iov)
 {
-	if (!prplist)
+	if (!prplist) {
 		prplist = cmd->rq->page.vaddr;
+		prplist_iova = cmd->rq->page.iova;
+	}
 
-	if (nvme_mapv_prp(&cmd->u->ctrl, prplist, sqe, iov, nr_iov))
+	if (nvme_mapv_prp(&cmd->u->ctrl, prplist, prplist_iova, sqe, iov, nr_iov))
 		return -1;
 	return 0;
 }
@@ -422,9 +425,10 @@ int __unvmed_mapv_sgl(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 }
 
 int __unvmed_mapv_sgl_seg(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-			  struct nvme_sgld *seg, struct iovec *iov, int nr_iov)
+			  struct nvme_sgld *seg, iova_t seg_iova,
+			  struct iovec *iov, int nr_iov)
 {
-	if (nvme_mapv_sgl(&cmd->u->ctrl, seg, sqe, iov, nr_iov))
+	if (nvme_mapv_sgl(&cmd->u->ctrl, seg, seg_iova, sqe, iov, nr_iov))
 		return -1;
 	return 0;
 }
