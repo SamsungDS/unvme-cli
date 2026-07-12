@@ -4810,10 +4810,20 @@ int unvmed_hmb_init(struct unvme *u, uint32_t *bsize, int nr_bsize)
 	u->hmb.hsize = hsize;
 	return 0;
 free:
-	for (i = 0; i < nr_bsize; i++) {
-		if (u->hmb.descs[i].badd) {
-			unvmed_unmap_vaddr(u, (void *)u->hmb.descs_vaddr[i]);
-			unvmed_pgunmap((void *)u->hmb.descs_vaddr[i]);
+	/*
+	 * u->hmb.descs is only assigned after the per-buffer loop starts
+	 * populating entries.  If we got here before that assignment —
+	 * map_vaddr() or descs_vaddr calloc() failure — then u->hmb.descs is
+	 * still NULL and dereferencing u->hmb.descs[i] below would crash.
+	 * Only walk the descriptor array when it actually exists; otherwise
+	 * just release the descs allocation itself.
+	 */
+	if (u->hmb.descs) {
+		for (i = 0; i < nr_bsize; i++) {
+			if (u->hmb.descs[i].badd) {
+				unvmed_unmap_vaddr(u, (void *)u->hmb.descs_vaddr[i]);
+				unvmed_pgunmap((void *)u->hmb.descs_vaddr[i]);
+			}
 		}
 	}
 
