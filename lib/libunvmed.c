@@ -578,7 +578,14 @@ int unvmed_get_sqs(struct unvme *u, struct unvme_sq ***sqs)
 	for (qid = 0; qid < u->nr_sqs; qid++) {
 		struct unvme_sq *usq;
 		usq = unvmed_sq_find(u, qid);
-		if (!usq || (usq && !usq->enabled))
+		/*
+		 * Skip queues whose libvfn backing (usq->q) has been dropped
+		 * by unvmed_discard_sq().  discard clears usq->q but leaves
+		 * usq->enabled set, so an enabled-but-q==NULL entry would
+		 * otherwise be handed back to callers (unvmed_to_json,
+		 * unvmed-print) that dereference usq->q->mem — a NULL deref.
+		 */
+		if (!usq || !usq->enabled || !usq->q)
 			continue;
 
 		(*sqs)[nr_sqs++] = usq;
@@ -604,7 +611,12 @@ int unvmed_get_cqs(struct unvme *u, struct unvme_cq ***cqs)
 
 	for (qid = 0; qid < u->nr_cqs; qid++) {
 		ucq = unvmed_cq_find(u, qid);
-		if (!ucq || (ucq && !ucq->enabled))
+		/*
+		 * See unvmed_get_sqs(): unvmed_discard_cq() clears ucq->q but
+		 * leaves ucq->enabled, so guard against an enabled-but-q==NULL
+		 * entry being dereferenced by callers.
+		 */
+		if (!ucq || !ucq->enabled || !ucq->q)
 			continue;
 
 		(*cqs)[nr_cqs++] = ucq;
