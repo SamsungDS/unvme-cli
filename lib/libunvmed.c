@@ -2725,7 +2725,7 @@ update:
 	ucq->q->head = head;
 	ucq->q->phase = phase;
 
-	for (int i = 0; i < usq->qsize; i++) {
+	for (int i = 0; i < usq->qsize - 1; i++) {
 		cmd = &usq->cmds[i];
 
 		/*
