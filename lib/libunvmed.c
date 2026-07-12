@@ -2034,8 +2034,9 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		}
 
 		if (unvmed_vcq_init(&usq->vcq, qsize, &usq->vcq.qid)) {
-			if (alloc)
-				free(usq);
+			unvmed_cid_free(usq);
+			free(usq->cmds);
+			free(usq);
 			return NULL;
 		}
 
