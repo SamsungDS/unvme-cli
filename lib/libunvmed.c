@@ -4421,7 +4421,7 @@ static int unvmed_get_pcie_cap_offset(char *bdf)
 		goto close;
 
 	ret = -1;
-	while (offset < 0x100) {
+	while (offset && offset < 0x100) {
 		if (pread(fd, &cap, 2, offset) < 0)
 			goto close;
 
