@@ -1331,6 +1331,12 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 
 	u = zmalloc(sizeof(struct unvme));
 	u->state = UNVME_DISABLED;
+	/*
+	 * Initialize the list node self-referentially so unvmed_free_ctrl()'s
+	 * list_del() is safe even on the error path that bails before the
+	 * instance is published via list_add() below.
+	 */
+	list_node_init(&u->list);
 
 	/*
 	 * Zero-based values for I/O queues to pass to `libvfn` excluding the
@@ -1388,7 +1394,6 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 
 	list_head_init(&u->ns_list);
 	pthread_rwlock_init(&u->ns_list_lock, NULL);
-	list_add(&unvme_list, &u->list);
 	list_head_init(&u->ctx_list);
 
 	list_head_init(&u->mem_list);
@@ -1402,7 +1407,19 @@ struct unvme *unvmed_init_ctrl(const char *bdf, uint32_t max_nr_ioqs)
 		return NULL;
 	}
 
+	/*
+	 * Set u_bdf and the initial refcnt before publishing the instance on
+	 * unvme_list.  unvmed_get() matches on u_bdf and atomic_inc()s
+	 * refcnt; if list_add() ran first, another thread could find the
+	 * instance after u_bdf was written and inc refcnt 0->1, which this
+	 * path then overwrote back to 1 via `u->refcnt = 1` — losing the
+	 * getter's reference and leading to a premature free / use-after-
+	 * free.  With u_bdf and refcnt already at 1, any concurrent get
+	 * incs 1->2 and the assignment below is gone, so the ref stays
+	 * balanced.
+	 */
 	u->refcnt = 1;
+	list_add(&unvme_list, &u->list);
 
 	unvmed_log_info("%s: controller initialized (nr_sqs=%u, nr_cqs=%u)",
 			unvmed_bdf(u), u->nr_sqs, u->nr_cqs);
