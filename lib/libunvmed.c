@@ -2846,8 +2846,25 @@ static inline void unvmed_cancel_cmd_all(struct unvme *u)
 
 void unvmed_free_ctx(struct unvme *u)
 {
-	unvmed_free_ns_all(u);
-
+	/*
+	 * Namespaces are NOT torn down here.  Every caller of unvmed_free_ctx()
+	 * is a reset-and-reinit path that re-populates namespaces via
+	 * unvmed_ctx_restore() -> unvmed_init_ns(), which reuses the existing
+	 * ns object (the prev != NULL branch) rather than recreating it.
+	 *
+	 * Calling unvmed_free_ns_all() here would drop a refcnt claim on every
+	 * reset, but unvmed_init_ns() only claims refcnt=1 on first creation
+	 * (prev == NULL) and is balanced (get/put) on re-init.  So each reset
+	 * after the first eats into external holders' references: once a holder
+	 * such as a fio ioengine's ld->ns is the only remaining reference, the
+	 * next reset's put drives refcnt to 0, frees the ns, and leaves the
+	 * holder with a dangling pointer -> use-after-free on its later
+	 * unvmed_ns_put().
+	 *
+	 * Reset only needs to discard the I/O queues; ns metadata is refreshed
+	 * in place by unvmed_init_ns() (and ns->enabled is toggled separately
+	 * by unvmed_disable_ns_all()/unvmed_init_ns()).
+	 */
 	__unvmed_delete_sq_all(u);
 	__unvmed_delete_cq_all(u);
 }
@@ -2955,8 +2972,17 @@ void unvmed_reset_ctrl_graceful(struct unvme *u)
 	u->asq->enabled = false;
 	u->acq->enabled = false;
 
-	unvmed_free_ns_all(u);
-
+	/*
+	 * Namespaces are NOT torn down here, for the same reason as in
+	 * unvmed_free_ctx(): the graceful reset is a reset-and-reinit path whose
+	 * unvmed_ctx_restore() -> unvmed_init_ns() reuses the existing ns object
+	 * (the prev != NULL branch) rather than recreating it.  Dropping a refcnt
+	 * claim here would eat into external holders' references once the driver's
+	 * own claim is gone, driving refcnt to 0 and freeing the ns while a holder
+	 * such as a fio ioengine's ld->ns still references it -> use-after-free.
+	 * Namespaces were already disabled above via unvmed_disable_ns_all();
+	 * reinit re-enables and refreshes them in place.
+	 */
 	__unvmed_delete_sq(u, u->asq);
 	__unvmed_delete_cq(u, u->acq);
 
