@@ -508,6 +508,7 @@ struct libunvmed_data {
 	void *prp_list_iomem;
 	size_t prp_list_iomem_size;
 	size_t prp_list_iomem_usize;  /* unit size for per io_u */
+	int prp_list_nr_lists;
 	uint64_t prp_list_iomem_iova;
 
 	/*
@@ -1445,6 +1446,7 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 
 		ld->prp_list_iomem = ptr;
 		ld->prp_list_iomem_size = size;
+		ld->prp_list_nr_lists = 1;
 	} else {
 		/*
 		 * Give +1 spare since the last entry of a prplist is a linked
@@ -1469,6 +1471,7 @@ static int fio_libunvmed_iomem_alloc(struct thread_data *td, size_t total_mem)
 
 		ld->prp_list_iomem_size = size;
 		ld->prp_list_iomem_usize = (size_t)nr_lists * unvmed_pagesize(u);
+		ld->prp_list_nr_lists = nr_lists;
 	}
 
 	pthread_mutex_unlock(&g_serialize);
@@ -1904,7 +1907,7 @@ static enum fio_q_status fio_libunvmed_rw(struct thread_data *td,
 				list, list_iova, &cmd->buf.iov, 1);
 	} else
 		ret = __unvmed_mapv_prp_list(cmd, (union nvme_cmd *)&sqe,
-				list, list_iova, &cmd->buf.iov, 1);
+				list, ld->prp_list_nr_lists, &cmd->buf.iov, 1);
 
 	if (ret) {
 		unvmed_cmd_put(cmd);

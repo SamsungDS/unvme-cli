@@ -1976,22 +1976,24 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
  *                          PRP list
  * @cmd: command instance (&struct unvme_cmd)
  * @sqe: submission queue entry (&union nvme_cmd)
- * @prplist: memory page address of a PRP list (address to be written to PRP2)
- * @prplist_iova: I/O virtual address of @prplist mapped to the IOMMU
+ * @prplist: contiguous array of PRP list pages, each one MPS page in size,
+ *           mapped to the IOMMU by the caller
+ * @nprplists: number of pages in @prplist
  * @iov: user data buffer I/O vector (&struct iovec)
  * @nr_iov: number of iovecs dangled to @iov
  *
  * Make a PRP data structure for data pointer in @sqe with @iov for number of
  * @nr_iov vectors.  libvfn prepares PRP data structure and map it to the given
- * @sqe.
+ * @sqe.  When the buffer requires more PRP entries than fit in a single page,
+ * the list is chained across @prplist; see nvme_mapv_prp().
  *
  * Caller *should* map @prplist to the IOMMU page table before calling this
- * helper and provide its iova through @prplist_iova.
+ * helper; libvfn derives the iova of @prplist from its virtual address.
  *
  * Return: ``0`` on success, otherwise ``-1`` with ``errno`` set.
  */
 int __unvmed_mapv_prp_list(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-			   void *prplist, iova_t prplist_iova,
+			   void *prplist, int nprplists,
 			   struct iovec *iov, int nr_iov);
 
 /**

@@ -398,15 +398,15 @@ int __unvmed_mapv_prp(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 }
 
 int __unvmed_mapv_prp_list(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-			   void *prplist, iova_t prplist_iova,
+			   void *prplist, int nprplists,
 			   struct iovec *iov, int nr_iov)
 {
 	if (!prplist) {
 		prplist = cmd->rq->page.vaddr;
-		prplist_iova = cmd->rq->page.iova;
+		nprplists = 1;
 	}
 
-	if (nvme_mapv_prp(&cmd->u->ctrl, prplist, prplist_iova, sqe, iov, nr_iov))
+	if (nvme_mapv_prp(&cmd->u->ctrl, prplist, nprplists, sqe, iov, nr_iov))
 		return -1;
 	return 0;
 }
