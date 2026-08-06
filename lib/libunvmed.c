@@ -796,40 +796,24 @@ ssize_t unvmed_get_max_xfer_size(struct unvme *u)
 	return (1ULL << u->id_ctrl->mdts) * unvmed_pagesize(u);
 }
 
-static int unvmed_init_irq_reaper(struct unvme *u, int vector)
+static int unvmed_reaper_init_efd(struct unvme *u, struct unvme_cq_reaper *r)
 {
-	struct unvme_cq_reaper *r = &u->reapers[vector];
 	struct epoll_event e;
 
-	r->u = u;
-	r->vector = vector;
 	r->efd = eventfd(0, EFD_CLOEXEC | EFD_SEMAPHORE);
-
-	r->running = false;
-	r->stop = 0;
-	pthread_mutex_init(&r->th_lock, NULL);
-
-	list_head_init(&r->cq_list);
-	pthread_mutex_init(&r->cq_list_lock, NULL);
-
 	if (r->efd < 0) {
 		unvmed_log_err("%s: failed to create a eventfd (vector=%d, errno=%d \"%s\")",
-				unvmed_bdf(u), vector, errno, strerror(errno));
-		pthread_mutex_destroy(&r->th_lock);
-		pthread_mutex_destroy(&r->cq_list_lock);
+				unvmed_bdf(u), r->vector, errno, strerror(errno));
 		return -1;
 	}
 
 	r->epoll_fd = epoll_create1(0);
 	if (r->epoll_fd < 0) {
 		unvmed_log_err("%s: failed to create a epoll_fd (vector=%d, errno=%d \"%s\")",
-				unvmed_bdf(u), vector, errno, strerror(errno));
+				unvmed_bdf(u), r->vector, errno, strerror(errno));
 		if (errno == EMFILE)  /* Too many open files */
 			unvmed_log_err("%s: check `ulimit -n` for open file limitation", unvmed_bdf(u));
-
 		close(r->efd);
-		pthread_mutex_destroy(&r->th_lock);
-		pthread_mutex_destroy(&r->cq_list_lock);
 		return -1;
 	}
 
@@ -840,6 +824,43 @@ static int unvmed_init_irq_reaper(struct unvme *u, int vector)
 	epoll_ctl(r->epoll_fd, EPOLL_CTL_ADD, r->efd, &e);
 
 	u->efds[r->vector] = r->efd;
+	return 0;
+}
+
+static void unvmed_reaper_free_efd(struct unvme_cq_reaper *r)
+{
+	struct epoll_event e = {
+		.events = EPOLLIN,
+		.data.fd = r->efd,
+	};
+
+	epoll_ctl(r->epoll_fd, EPOLL_CTL_DEL, r->efd, &e);
+	close(r->efd);
+	close(r->epoll_fd);
+
+	r->u->efds[r->vector] = -1;
+}
+
+static int unvmed_init_irq_reaper(struct unvme *u, int vector)
+{
+	struct unvme_cq_reaper *r = &u->reapers[vector];
+
+	r->u = u;
+	r->vector = vector;
+
+	r->running = false;
+	r->stop = 0;
+	pthread_mutex_init(&r->th_lock, NULL);
+
+	list_head_init(&r->cq_list);
+	pthread_mutex_init(&r->cq_list_lock, NULL);
+
+	if (unvmed_reaper_init_efd(u, r) < 0) {
+		pthread_mutex_destroy(&r->th_lock);
+		pthread_mutex_destroy(&r->cq_list_lock);
+		memset(r, 0, sizeof(*r));
+		return -1;
+	}
 
 	unvmed_log_debug("%s: vector=%d initialized (efd=%d, epoll_fd=%d)",
 			unvmed_bdf(u), vector, r->efd, r->epoll_fd);
@@ -869,10 +890,6 @@ static void unvmed_reaper_join(struct unvme_cq_reaper *r)
 
 static void unvmed_free_irq_reaper(struct unvme_cq_reaper *r)
 {
-	struct epoll_event e = {
-		.events = EPOLLIN,
-		.data.fd = r->efd,
-	};
 	struct unvme_reaper_cq_entry *entry, *next;
 
 	pthread_mutex_lock(&r->cq_list_lock);
@@ -886,11 +903,8 @@ static void unvmed_free_irq_reaper(struct unvme_cq_reaper *r)
 	pthread_mutex_destroy(&r->cq_list_lock);
 	pthread_mutex_destroy(&r->th_lock);
 
-	epoll_ctl(r->epoll_fd, EPOLL_CTL_DEL, r->efd, &e);
+	unvmed_reaper_free_efd(r);
 
-	r->u->efds[r->vector] = -1;
-	close(r->efd);
-	close(r->epoll_fd);
 	memset(r, 0, sizeof(*r));
 }
 
