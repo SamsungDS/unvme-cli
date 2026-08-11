@@ -3420,6 +3420,7 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 	struct nvme_cmd_create_cq *sqe;
 	uint16_t qflags = 0;
 	uint16_t iv = 0;
+	int ret = 0;
 
 	if (vector >= 0 && unvmed_init_irq(u, vector)) {
 		unvmed_log_err("%s: failed to initialize irq (nr_irqs=%d, vector=%d, errno=%d \"%s\")",
@@ -3431,14 +3432,14 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 	if (!asq) {
 		unvmed_log_err("%s: failed to find adminq", unvmed_bdf(u));
 		errno = EINVAL;
-		return -1;
+		ret = -1;
+		goto free_irq;
 	}
 
 	if (nvme_configure_cq(&u->ctrl, qid, qsize, vector)) {
 		unvmed_log_err("%s: could not configure io completion queue", unvmed_bdf(u));
-
-		unvmed_sq_put(u, asq);
-		return -1;
+		ret = -1;
+		goto put_sq;
 	}
 
 	unvmed_sq_enter(asq);
@@ -3457,9 +3458,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 				"(errno=%d \"%s\")", unvmed_bdf(u), errno, strerror(errno));
 
 		unvmed_sq_exit(asq);
-		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-		unvmed_sq_put(u, asq);
-		return -1;
+		ret = -1;
+		goto discard_cq;
 	}
 
 	cmd->flags = UNVMED_CMD_F_WAKEUP_ON_CQE;
@@ -3488,12 +3488,9 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 	if (!nvme_cqe_ok(&cmd->cqe)) {
 		unvmed_log_err("%s: failed to create iosq with cqe.status=%#x",
 				unvmed_bdf(u), unvmed_cqe_status(&cmd->cqe));
-
-		unvmed_cmd_put(cmd);
-		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-		unvmed_sq_put(u, asq);
 		errno = EINVAL;
-		return -1;
+		ret = -1;
+		goto put_cmd;
 	}
 
 	ucq = unvmed_init_ucq(u, qid, qsize, vector, pc);
@@ -3501,11 +3498,8 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 		unvmed_log_err("%s: failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
 				unvmed_bdf(u), qid);
-
-		unvmed_cmd_put(cmd);
-		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-		unvmed_sq_put(u, asq);
-		return -1;
+		ret = -1;
+		goto put_cmd;
 	}
 
 	if (vector < 0) {
@@ -3514,17 +3508,21 @@ int unvmed_create_cq(struct unvme *u, uint32_t qid, uint32_t qsize, int vector,
 	} else if (vector >= 0 && unvmed_reaper_add_cq(u, ucq)) {
 		unvmed_log_err("%s: failed to register ucq to reaper (qid=%d)",
 				unvmed_bdf(u), qid);
-		unvmed_cmd_put(cmd);
-		nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
-		unvmed_sq_put(u, asq);
-		return -1;
+		ret = -1;
+		goto put_cmd;
 	}
 
 	unvmed_enable_cq(ucq);
 
+put_cmd:
 	unvmed_cmd_put(cmd);
+discard_cq:
+	nvme_discard_cq(&u->ctrl, &u->ctrl.cq[qid]);
+put_sq:
 	unvmed_sq_put(u, asq);
-	return 0;
+free_irq:
+	unvmed_free_irq(u, vector);
+	return ret;
 }
 
 static void __unvmed_delete_cq(struct unvme *u, struct unvme_cq *ucq)
@@ -5248,10 +5246,10 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 
 	if (mem) {
 		if (nvme_configure_cq_mem(&u->ctrl, qid, qsize, vector, mem) < 0)
-			goto err;
+			goto free_irq;
 	} else {
 		if (nvme_configure_cq(&u->ctrl, qid, qsize, vector) < 0)
-			goto err;
+			goto free_irq;
 	}
 
 	ucq = unvmed_init_ucq(u, qid, qsize, vector, pc);
@@ -5259,8 +5257,7 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 		unvmed_log_err("%s: failed to initialize ucq instance. "
 				"discard cq instance from libvfn (qid=%d)",
 				unvmed_bdf(u), qid);
-		unvmed_discard_cq(u, qid);
-		return NULL;
+		goto discard_cq;
 	}
 
 	/*
@@ -5271,11 +5268,14 @@ static struct unvme_cq *__unvmed_init_cq(struct unvme *u, uint32_t qid, uint32_t
 
 	if (vector >= 0 && unvmed_reaper_add_cq(u, ucq)) {
 		unvmed_log_err("%s: failed to register ucq to reaper", unvmed_bdf(u));
-		return NULL;
+		goto discard_cq;
 	}
 
 	return ucq;
-err:
+discard_cq:
+	unvmed_discard_cq(u, qid);
+free_irq:
+	unvmed_free_irq(u, vector);
 	unvmed_log_err("%s: failed to configure I/O CQ in libvfn", unvmed_bdf(u));
 	return NULL;
 }
