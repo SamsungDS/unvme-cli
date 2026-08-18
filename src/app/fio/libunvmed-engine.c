@@ -2499,11 +2499,14 @@ static int fio_libunvmed_commit(struct thread_data *td)
 
 	if (!unvmed_sq_ready(ld->usq)) {
 		/*
-		 * If @usq driver context is still alive for the current fio
-		 * application, we can go update the tail doorbell, otherwise
-		 * we should stop here.
+		 * Stop if the libvfn backing is gone or this is the last
+		 * reference.  unvmed_discard_sq() nulls @usq->q during a reset
+		 * while @usq->enabled may still be set, so unvmed_sq_ready()
+		 * alone does not guarantee @usq->q is non-NULL here.  Safe to
+		 * read under @usq->lock since discard takes the same lock.
 		 */
-		if (atomic_load_acquire(&ld->usq->refcnt) == 1) {
+		if (!ld->usq->q ||
+		    atomic_load_acquire(&ld->usq->refcnt) == 1) {
 			unvmed_sq_exit(ld->usq);
 			return 0;
 		}

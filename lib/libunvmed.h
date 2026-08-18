@@ -552,6 +552,26 @@ static inline void unvmed_cq_exit(struct unvme_cq *ucq)
 }
 
 /**
+ * unvmed_sq_disable - Disable the given usq
+ * @usq: submission queue instance
+ */
+static inline void unvmed_sq_disable(struct unvme_sq *usq)
+{
+	usq->q = NULL;
+	usq->enabled = false;
+}
+
+/**
+ * unvmed_cq_disable - Disable the given usq
+ * @ucq: completion queue instance
+ */
+static inline void unvmed_cq_disable(struct unvme_cq *ucq)
+{
+	ucq->q = NULL;
+	ucq->enabled = false;
+}
+
+/**
  * unvmed_sq_ready - Check whether the submission queue is ready to process
  * @usq: submission queue instance
  *

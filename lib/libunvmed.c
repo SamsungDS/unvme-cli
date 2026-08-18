@@ -98,6 +98,8 @@ static bool ____unvmed_ctrl_set_state(struct unvme *u, enum unvme_state state)
 		break;
 	case UNVME_RESETTING:
 		switch (old) {
+		case UNVME_DISABLED:
+		case UNVME_ENABLING:
 		case UNVME_ENABLED:
 		case UNVME_FATAL:
 			change = true;
@@ -2877,6 +2879,18 @@ static void __unvmed_put_cqe(struct unvme *u, struct unvme_cmd *cmd)
 	}
 }
 
+/*
+ * The caller MUST hold a reference on the completion queue associated with
+ * @usq before invoking this function.  Acquire it with unvmed_cq_get() and
+ * release with unvmed_cq_put() once the cancel is complete.
+ *
+ * This function dereferences the ucq obtained through @usq to drain and
+ * manipulate completion entries.  Without an extra reference, a concurrent
+ * unvmed_cq_put() (e.g. from fio close_file or a sibling reset's
+ * __unvmed_delete_cq_all) can drop the ucq's refcnt to zero and free the
+ * underlying memory while we are still iterating over its ring, resulting in
+ * a use-after-free.
+ */
 static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 {
 	struct unvme_cq *ucq = usq->ucq;
@@ -2886,6 +2900,17 @@ static inline void unvmed_cancel_sq(struct unvme *u, struct unvme_sq *usq)
 	uint8_t phase;
 
 	unvmed_cq_enter(ucq);
+
+	/*
+	 * @ucq->q might be NULL if some other reset threads already discarded
+	 * it.  It means, all the inflight commands are treated (reaped or
+	 * canceled) already, and the queue has been destroyed, so we don't need
+	 * to do something more and can just go out.
+	 */
+	if (!ucq->q) {
+		unvmed_cq_exit(ucq);
+		return;
+	}
 
 	/*
 	 * Load the latest value of head pointer and phase value right before
@@ -2975,13 +3000,40 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 		if (r && (r->flags & UNVMED_IRQ_F_REAPER)) {
 			eventfd_write(r->efd, 1);  /* Wake up reaper thread */
 
-			/* Wait for reaper thread to reap the pending cq entries */
-			do {
+			/*
+		 	 * Wait for reaper thread to reap the pending cq
+			 * entries.
+		 	 *
+		 	 * Take @ucq->lock each iteration and re-check @ucq->q,
+			 * since a concurrent reset thread (unvmed_discard_cq)
+			 * can null @ucq->q between the reaper's reap and our
+			 * next read.  Without the lock, the phase/head/cqe
+			 * reads dereference freed memory and segfault.
+			 * unvmed_discard_cq sets @ucq->q = NULL under the
+		 	 * same lock, so observing it inside the lock is
+			 * authoritative — the CQ is being torn down and further
+			 * draining is moot.
+		 	 */
+			while (1) {
+				bool done;
+
+				unvmed_cq_enter(ucq);
+				if (!ucq->q) {
+					unvmed_cq_exit(ucq);
+					return;
+				}
+
 				phase = LOAD(ucq->q->phase);
 				head = LOAD(ucq->q->head);
 
 				cqe = unvmed_get_cqe(ucq, head);
-			} while ((le16_to_cpu(cqe->sfp) & 0x1) != phase);
+				done = (le16_to_cpu(cqe->sfp) & 0x1) == phase;
+
+				unvmed_cq_exit(ucq);
+
+				if (done)
+					break;
+			}
 
 			unvmed_put_irq_vector(r);
 			return;
@@ -2989,9 +3041,7 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 
 		if (r)
 			unvmed_put_irq_vector(r);
-	}
-
-	{
+	} else {
 		/*
 		 * If interrupt is disabled for the @ucq, here we can quiesce
 		 * @ucq and reap the cq entries rather than waiting for the
@@ -3031,7 +3081,28 @@ void unvmed_cancel_allocated_state_cmds(struct unvme *u)
 
 void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 {
+	struct unvme_cq *ucq;
+
 	if (!usq->q)
+		return;
+
+	/*
+	 * Acquire a reference to @usq's completion queue for the whole drain +
+	 * cancel_sq window.  @usq->ucq is a raw pointer with no refcnt claim,
+	 * so a concurrent unvmed_cq_put() (e.g. fio close_file, or a sibling
+	 * reset's __unvmed_delete_cq_all) can drop the ucq's refcnt to 0 and
+	 * free it while we still dereference it.  The hang symptom is
+	 * unvmed_cq_drain()'s IRQ-enabled do-while spinning on ucq->q->phase
+	 * of already-freed memory (use-after-free).
+	 *
+	 * Re-acquire via the cached cqid (set at sq init, never mutated after)
+	 * rather than dereferencing @usq->ucq to read its id.  unvmed_cq_get()
+	 * takes @u->cqs_lock and atomically bumps refcnt; if the ucq was
+	 * already torn down (u->cqs[cqid] == NULL) it returns NULL and we bail
+	 * out cleanly instead of touching freed memory.
+	 */
+	ucq = unvmed_cq_get(u, unvmed_sq_cqid(usq));
+	if (!ucq)
 		return;
 
 	/*
@@ -3039,9 +3110,10 @@ void unvmed_cancel_cmd(struct unvme *u, struct unvme_sq *usq)
 	 * behavior which actually _manipulates_ the @vcq itself by pushing
 	 * fake cq entries with tail pointer being updated to avoid race.
 	 */
-	unvmed_cq_drain(u, usq->ucq);
-
+	unvmed_cq_drain(u, ucq);
 	unvmed_cancel_sq(u, usq);
+
+	unvmed_cq_put(u, ucq);
 
 	/*
 	 * Wait for upper layer to complete canceled commands in their
@@ -3302,14 +3374,16 @@ out:
 static void unvmed_discard_sq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_sq *usq;
+	struct nvme_sq *sq;
 
 	pthread_rwlock_rdlock(&u->sqs_lock);
 	usq = u->sqs[qid];
 	if (usq && usq->q) {
 		unvmed_sq_enter(usq);
-		nvme_discard_sq(&u->ctrl, &u->ctrl.sq[qid]);
+		sq = usq->q;
 		if (u->sqs[qid])
-			u->sqs[qid]->q = NULL;
+			unvmed_sq_disable(usq);
+		nvme_discard_sq(&u->ctrl, sq);
 		unvmed_sq_exit(usq);
 	}
 	pthread_rwlock_unlock(&u->sqs_lock);
@@ -3318,14 +3392,16 @@ static void unvmed_discard_sq(struct unvme *u, uint32_t qid)
 static void unvmed_discard_cq(struct unvme *u, uint32_t qid)
 {
 	struct unvme_cq *ucq;
+	struct nvme_cq *cq;
 
 	pthread_rwlock_rdlock(&u->cqs_lock);
 	ucq = u->cqs[qid];
 	if (ucq && ucq->q) {
 		unvmed_cq_enter(ucq);  /* prevent use-after-free for ucq->q */
-		nvme_discard_cq(&u->ctrl, ucq->q);
+		cq = ucq->q;
 		if (u->cqs[qid])
-			ucq->q = NULL;
+			unvmed_cq_disable(ucq);
+		nvme_discard_cq(&u->ctrl, cq);
 		unvmed_cq_exit(ucq);
 	}
 	pthread_rwlock_unlock(&u->cqs_lock);
@@ -3432,7 +3508,7 @@ int __unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	cc = unvmed_read32(u, NVME_REG_CC);
 	if (cc == 0xffffffff) {
 		unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
-		errno = ENODEV;
+		errno = EADDRNOTAVAIL;
 		return -1;
 	}
 
@@ -3453,6 +3529,24 @@ int __unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	while (1) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
 		if (csts == 0xffffffff) {
+			/*
+			 * BAR0 all-ones can mean either the device is dead or
+			 * another thread is driving a link-dropping reset
+			 * (SBR / hot reset) that has torn the config space
+			 * down.  If an in-progress reset state is already
+			 * committed by that other thread, treat this as a
+			 * nested reset and yield rather than escalating to
+			 * FATAL.
+			 */
+			if (__unvmed_ctrl_get_state(u) == UNVME_RESETTING) {
+				unvmed_log_err("%s: Controller state (@u->state) \
+						goes UNVME_RESETTING while \
+						waiting for CSTS.RDY",
+						unvmed_bdf(u));
+				errno = EADDRNOTAVAIL;
+				return -1;
+			}
+
 			unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
 			errno = ENODEV;
 
@@ -3470,6 +3564,21 @@ int __unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 			return -1;
 		} else if (NVME_CSTS_RDY(csts))
 			break;
+
+		/*
+		 * We asserted CC.EN=1 above.  If a nested reset cleared it,
+		 * CSTS.RDY will never assert and this loop would spin forever.
+		 * Re-read CC.EN to detect that case and bail out so the caller
+		 * can yield to the nested reset thread.
+		 */
+		cc = unvmed_read32(u, NVME_REG_CC);
+		if (cc == 0xffffffff || !NVME_CC_EN(cc)) {
+			unvmed_log_info("%s: CC.EN=0 (or BAR0 inaccessible) "
+					"while waiting for CSTS.RDY",
+					unvmed_bdf(u));
+			errno = EADDRNOTAVAIL;
+			return -1;
+		}
 	}
 
 	__unvmed_init_mps(u, mps);
