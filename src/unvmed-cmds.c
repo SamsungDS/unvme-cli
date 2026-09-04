@@ -737,7 +737,7 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 
 	vector = arg_boolv(noint) ? -1 : 0;
 
-	if (vector >= 0 && unvmed_init_irq(u, vector)) {
+	if (vector >= 0 && unvmed_init_irq(u, vector, UNVMED_IRQ_F_REAPER)) {
 		unvme_pr_err("failed to initialize irq for vector=%d\n", vector);
 		ret = errno;
 		goto out;
@@ -1023,7 +1023,7 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 		goto usq;
 	}
 
-	if (arg_intv(vector) >= 0 && unvmed_init_irq(u, arg_intv(vector))) {
+	if (arg_intv(vector) >= 0 && unvmed_init_irq(u, arg_intv(vector), UNVMED_IRQ_F_REAPER)) {
 		unvme_pr_err("failed to initialize irq for vector=%d\n", arg_intv(vector));
 		ret = errno;
 		goto usq;

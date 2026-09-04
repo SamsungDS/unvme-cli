@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
 	 * in polling mode (vector -1) two threads busy-polling the shared CQ
 	 * contend on the CQ spinlock and stall.
 	 */
-	if (unvmed_init_irq(u, QID)) {
+	if (unvmed_init_irq(u, QID, UNVMED_IRQ_F_REAPER)) {
 		fprintf(stderr, "unvmed_init_irq failed: %m\n");
 		unvmed_ns_put(u, ns);
 		unvmed_put(u);

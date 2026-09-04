@@ -186,6 +186,7 @@ struct unvme_ctx {
 			int timeout;
 			uint8_t css;
 			bool admin_irq;
+			unsigned int admin_irq_flags;
 		} ctrl;
 
 		struct {
@@ -202,6 +203,7 @@ struct unvme_ctx {
 			uint32_t qsize;
 			int vector;
 			uint32_t pc;
+			unsigned int irq_flags;
 		} cq;
 
 		struct {
@@ -222,6 +224,7 @@ struct unvme_cq_reaper {
 	 *   n >= 2 : reaper initialized, (n - 1) CQs attached
 	 */
 	int refcnt;
+	unsigned int flags;	/* UNVMED_IRQ_F_* the vector was initialized with */
 
 	int vector;
 	int epoll_fd;

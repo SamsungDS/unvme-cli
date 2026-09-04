@@ -652,7 +652,14 @@ int unvmed_cq_wait_irq(struct unvme *u, int vector)
 		return -1;
 	}
 
-	return eventfd_read(u->efds[vector], &irq);
+	/*
+	 * The eventfd is non-blocking, so a spurious wakeup shows up as EAGAIN
+	 * rather than as a failure.
+	 */
+	if (eventfd_read(u->efds[vector], &irq) < 0 && errno != EAGAIN)
+		return -1;
+
+	return 0;
 }
 
 static struct unvme_sq *__unvmed_find_and_get_sq(struct unvme *u,
@@ -849,11 +856,28 @@ static int unvmed_reaper_init_efd(struct unvme *u, struct unvme_cq_reaper *r)
 {
 	struct epoll_event e;
 
-	r->efd = eventfd(0, EFD_CLOEXEC | EFD_SEMAPHORE);
+	/*
+	 * Without EFD_SEMAPHORE a single read drains the whole counter, so it
+	 * answers "how many interrupts have been delivered since the last
+	 * read" rather than handing them out one at a time.  EFD_NONBLOCK
+	 * keeps that read from blocking when none has arrived yet.  Both
+	 * matter for vectors without %UNVMED_IRQ_F_REAPER, where the
+	 * application polls the eventfd itself; the reaper thread is fine
+	 * either way as it only reads after epoll_wait() reported the fd
+	 * readable.
+	 */
+	r->efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
 	if (r->efd < 0) {
 		unvmed_log_err("%s: failed to create a eventfd (vector=%d, errno=%d \"%s\")",
 				unvmed_bdf(u), r->vector, errno, strerror(errno));
 		return -1;
+	}
+
+	/* Nothing waits on the eventfd without a reaper thread. */
+	if (!(r->flags & UNVMED_IRQ_F_REAPER)) {
+		r->epoll_fd = -1;
+		u->efds[r->vector] = r->efd;
+		return 0;
 	}
 
 	r->epoll_fd = epoll_create1(0);
@@ -877,24 +901,28 @@ static int unvmed_reaper_init_efd(struct unvme *u, struct unvme_cq_reaper *r)
 
 static void unvmed_reaper_free_efd(struct unvme_cq_reaper *r)
 {
-	struct epoll_event e = {
-		.events = EPOLLIN,
-		.data.fd = r->efd,
-	};
+	if (r->epoll_fd >= 0) {
+		struct epoll_event e = {
+			.events = EPOLLIN,
+			.data.fd = r->efd,
+		};
 
-	epoll_ctl(r->epoll_fd, EPOLL_CTL_DEL, r->efd, &e);
-	close(r->epoll_fd);
+		epoll_ctl(r->epoll_fd, EPOLL_CTL_DEL, r->efd, &e);
+		close(r->epoll_fd);
+	}
+
 	close(r->efd);
 
 	r->u->efds[r->vector] = -1;
 }
 
-static int unvmed_init_irq_reaper(struct unvme *u, int vector)
+static int unvmed_init_irq_reaper(struct unvme *u, int vector, unsigned int flags)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
 
 	r->u = u;
 	r->vector = vector;
+	r->flags = flags;
 
 	r->running = false;
 	r->stop = 0;
@@ -971,6 +999,13 @@ static int unvmed_reaper_add_cq(struct unvme *u, struct unvme_cq_reaper *r,
 {
 	struct unvme_reaper_cq_entry *entry;
 
+	/*
+	 * The CQ list only tells the reaper thread which CQs to reap, so there
+	 * is nothing to track when the application does the reaping.
+	 */
+	if (!(r->flags & UNVMED_IRQ_F_REAPER))
+		return 0;
+
 	entry = calloc(1, sizeof(*entry));
 	if (!entry)
 		return -1;
@@ -992,6 +1027,11 @@ static void unvmed_reaper_del_cq(struct unvme *u, struct unvme_cq_reaper *r,
 {
 	struct unvme_reaper_cq_entry *entry, *next;
 	bool found = false;
+
+	/* Nothing was ever added; see unvmed_reaper_add_cq(). */
+	if (!(r->flags & UNVMED_IRQ_F_REAPER))
+		return;
+
 	pthread_mutex_lock(&r->cq_list_lock);
 	list_for_each_safe(&r->cq_list, entry, next, list) {
 		if (entry->ucq == ucq) {
@@ -1027,7 +1067,7 @@ static int __unvmed_free_irq(struct unvme *u, int vector)
 	return 0;
 }
 
-static int __unvmed_init_irq(struct unvme *u, int vector)
+static int __unvmed_init_irq(struct unvme *u, int vector, unsigned int flags)
 {
 	struct unvme_cq_reaper *r = &u->reapers[vector];
 	int nr_irqs = u->nr_irqs;
@@ -1041,11 +1081,25 @@ static int __unvmed_init_irq(struct unvme *u, int vector)
 
 	struct unvme_cq_reaper *alive = unvmed_get_reaper(u, vector);
 	if (alive) {
+		/*
+		 * Already initialized.  Re-initializing with a different
+		 * mode would either strand an application that is polling
+		 * the eventfd or start a second consumer of it, so refuse
+		 * instead.
+		 */
+		if (alive->flags != flags) {
+			unvmed_log_err("%s: vector=%d already initialized "
+					"with different flags",
+					unvmed_bdf(u), vector);
+			unvmed_put_reaper(alive);
+			errno = EINVAL;
+			return -1;
+		}
 		unvmed_put_reaper(alive);
 		return 0;
 	}
 
-	if (unvmed_init_irq_reaper(u, vector)) {
+	if (unvmed_init_irq_reaper(u, vector, flags)) {
 		unvmed_log_err("%s: failed to initialize IRQ reaper (vector=%d)", unvmed_bdf(u), vector);
 		return -1;
 	}
@@ -1067,6 +1121,12 @@ static int __unvmed_init_irq(struct unvme *u, int vector)
 
 		unvmed_free_irq_reaper(r);
 		return -1;
+	}
+
+	if (!(flags & UNVMED_IRQ_F_REAPER)) {
+		unvmed_log_info("%s: vector=%d is driven by the application",
+				unvmed_bdf(u), vector);
+		return 0;
 	}
 
 	pthread_mutex_lock(&r->th_lock);
@@ -2903,10 +2963,15 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 	uint32_t head;
 	uint8_t phase;
 
+	/*
+	 * Without a reaper thread there is nobody to hand the drain over to,
+	 * and writing to the eventfd would look like a spurious interrupt to
+	 * the application, so drain the CQ inline instead.
+	 */
 	if (unvmed_cq_irq_enabled(ucq)) {
 		struct unvme_cq_reaper *r = unvmed_get_reaper(u, unvmed_cq_iv(ucq));
 
-		if (r) {
+		if (r && (r->flags & UNVMED_IRQ_F_REAPER)) {
 			eventfd_write(r->efd, 1);  /* Wake up reaper thread */
 
 			/* Wait for reaper thread to reap the pending cq entries */
@@ -2920,6 +2985,9 @@ static void unvmed_cq_drain(struct unvme *u, struct unvme_cq *ucq)
 			unvmed_put_reaper(r);
 			return;
 		}
+
+		if (r)
+			unvmed_put_reaper(r);
 	}
 
 	{
@@ -4160,7 +4228,8 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 }
 
 /*
- * Called only if @ucq interrupt is disabled (@ucq->vector == -1)
+ * Called if @ucq interrupt is disabled (@ucq->vector == -1), or enabled with
+ * no reaper thread pushing to @vcq on its behalf (without %UNVMED_IRQ_F_REAPER).
  */
 static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 						struct unvme_sq *usq,
@@ -4213,10 +4282,15 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 	int ret;
 
 	while (nr < nr_cqes) {
+		/*
+		 * Without %UNVMED_IRQ_F_REAPER there is no reaper thread pushing
+		 * completions to @vcq, so fall through to the same raw-CQ path
+		 * used when interrupt is disabled; see unvmed_cq_drain().
+		 */
 		if (unvmed_cq_irq_enabled(ucq)) {
 			struct unvme_cq_reaper *r = unvmed_get_reaper(u, unvmed_cq_iv(ucq));
 
-			if (r) {
+		if (r && (r->flags & UNVMED_IRQ_F_REAPER)) {
 				do {
 					ret = unvmed_vcq_pop(vcq, &__vcqe);
 				} while (ret == -ENOENT && !nowait);
@@ -4239,6 +4313,9 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 
 				unvmed_put_reaper(r);
 			} else {
+				if (r)
+					unvmed_put_reaper(r);
+
 				cqe = __unvmed_get_completion(u, usq, vcq, ucq);
 				if (!cqe) {
 					if (nowait)
@@ -4932,7 +5009,13 @@ int unvmed_ctx_init(struct unvme *u)
 	ctx->ctrl.cq_size = NVME_AQA_ACQS(aqa) + 1;
 	ctx->ctrl.css = NVME_CC_CSS(cc);
 	ctx->ctrl.timeout = u->timeout;
+	/*
+	 * The mode a vector was initialized with has to survive a reset: coming
+	 * back with a reaper thread would silently take the eventfd away from
+	 * an application that is polling it.
+	 */
 	ctx->ctrl.admin_irq = u->asq && unvmed_cq_iv(u->acq) == 0;
+	ctx->ctrl.admin_irq_flags = ctx->ctrl.admin_irq ? u->reapers[0].flags : 0;
 
 	list_add_tail(&u->ctx_list, &ctx->list);
 
@@ -4957,6 +5040,9 @@ int unvmed_ctx_init(struct unvme *u)
 		ctx->cq.qsize = unvmed_cq_size(ucq);
 		ctx->cq.vector = unvmed_cq_iv(ucq);
 		ctx->cq.pc = ucq->pc;
+		ctx->cq.irq_flags = ctx->cq.vector >= 0 ?
+			u->reapers[ctx->cq.vector].flags : 0;
+
 		list_add_tail(&u->ctx_list, &ctx->list);
 		unvmed_cq_put(u, ucq);
 	}
@@ -4987,7 +5073,8 @@ static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 {
 	switch (ctx->type) {
 		case UNVME_CTX_T_CTRL:
-			if (ctx->ctrl.admin_irq && unvmed_init_irq(u, 0))
+			if (ctx->ctrl.admin_irq &&
+					unvmed_init_irq(u, 0, ctx->ctrl.admin_irq_flags))
 				return -1;
 			if (unvmed_create_adminq(u, ctx->ctrl.sq_size,
 						ctx->ctrl.cq_size,
@@ -5003,7 +5090,8 @@ static int __unvmed_ctx_restore(struct unvme *u, struct unvme_ctx *ctx)
 				return ret;
 			return unvmed_init_meta_ns(u, ctx->ns.nsid, NULL);
 		case UNVME_CTX_T_CQ:
-			if (ctx->cq.vector >= 0 && unvmed_init_irq(u, ctx->cq.vector))
+			if (ctx->cq.vector >= 0 &&
+					unvmed_init_irq(u, ctx->cq.vector, ctx->cq.irq_flags))
 				return -1;
 			return unvmed_create_cq(u, ctx->cq.qid, ctx->cq.qsize,
 					ctx->cq.vector, ctx->cq.pc);
@@ -5763,7 +5851,7 @@ struct json_object *unvmed_to_json(struct unvme *u)
 	return status;
 }
 
-int unvmed_init_irq(struct unvme *u, int vector)
+int unvmed_init_irq(struct unvme *u, int vector, unsigned int flags)
 {
 	int ret;
 
@@ -5773,8 +5861,14 @@ int unvmed_init_irq(struct unvme *u, int vector)
 		return -1;
 	}
 
+	if (flags & ~UNVMED_IRQ_F_REAPER) {
+		unvmed_log_err("%s: invalid irq flags %#x", unvmed_bdf(u), flags);
+		errno = EINVAL;
+		return -1;
+	}
+
 	pthread_mutex_lock(&u->irq_lock);
-	ret = __unvmed_init_irq(u, vector);
+	ret = __unvmed_init_irq(u, vector, flags);
 	pthread_mutex_unlock(&u->irq_lock);
 	return ret;
 }
@@ -5813,4 +5907,29 @@ int unvmed_free_irq(struct unvme *u, int vector)
 
 	pthread_mutex_unlock(&u->irq_lock);
 	return 0;
+}
+
+int unvmed_irq_efd(struct unvme *u, int vector)
+{
+	struct unvme_cq_reaper *r;
+	int efd;
+
+	r = unvmed_get_reaper(u, vector);
+	if (!r) {
+		unvmed_log_err("%s: vector=%d not initialized", unvmed_bdf(u), vector);
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (r->flags & UNVMED_IRQ_F_REAPER) {
+		unvmed_log_err("%s: vector=%d is owned by the reaper thread",
+				unvmed_bdf(u), vector);
+		unvmed_put_reaper(r);
+		errno = EBUSY;
+		return -1;
+	}
+
+	efd = u->efds[vector];
+	unvmed_put_reaper(r);
+	return efd;
 }
