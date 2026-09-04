@@ -4235,16 +4235,16 @@ static struct nvme_cqe *unvmed_get_completion(struct unvme *u,
 static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 						struct unvme_sq *usq,
 						struct unvme_vcq *vcq,
-						struct unvme_cq *ucq)
+						struct unvme_cq *ucq,
+						struct unvme_vcqe *vcqe)
 {
 	int ret;
 	struct unvme_cmd *cmd;
-	struct unvme_vcqe __vcqe;
 	struct nvme_cqe *cqe;
 
-	ret = unvmed_vcq_pop(vcq, &__vcqe);
+	ret = unvmed_vcq_pop(vcq, vcqe);
 	if (ret != -ENOENT) {
-		cqe = &__vcqe.cqe;
+		cqe = &vcqe->cqe;
 		cmd = unvmed_get_cmd(usq, cqe->cid);
 		if (cmd) {
 			__unvmed_cmd_cmpl(cmd, cqe);
@@ -4317,7 +4317,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 				if (r)
 					unvmed_put_irq_vector(r);
 
-				cqe = __unvmed_get_completion(u, usq, vcq, ucq);
+				cqe = __unvmed_get_completion(u, usq, vcq, ucq, &__vcqe);
 				if (!cqe) {
 					if (nowait)
 						break;
@@ -4325,7 +4325,7 @@ int __unvmed_cq_run_n(struct unvme *u, struct unvme_sq *usq, struct unvme_cq *uc
 				}
 			}
 		} else {
-			cqe = __unvmed_get_completion(u, usq, vcq, ucq);
+			cqe = __unvmed_get_completion(u, usq, vcq, ucq, &__vcqe);
 
 			if (!cqe) {
 				if (nowait)
