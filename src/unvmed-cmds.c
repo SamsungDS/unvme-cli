@@ -737,6 +737,12 @@ int unvme_create_adminq(int argc, char *argv[], struct unvme_msg *msg)
 
 	vector = arg_boolv(noint) ? -1 : 0;
 
+	if (vector >= 0 && unvmed_init_irq(u, vector)) {
+		unvme_pr_err("failed to initialize irq for vector=%d\n", vector);
+		ret = errno;
+		goto out;
+	}
+
 	if (!arg_boolv(cqaddr)) {
 		if (__unvmed_mem_alloc(u, CQE_SIZE * arg_intv(cqsize), &acq,
 					arg_intv(pagesize))) {
@@ -1014,6 +1020,12 @@ int unvme_create_iocq(int argc, char *argv[], struct unvme_msg *msg)
 	if (unvmed_cq_enabled(u, arg_intv(qid))) {
 		unvme_pr_err("failed to create cq (qid=%u) (exists)\n", arg_intv(qid));
 		ret = EEXIST;
+		goto usq;
+	}
+
+	if (arg_intv(vector) >= 0 && unvmed_init_irq(u, arg_intv(vector))) {
+		unvme_pr_err("failed to initialize irq for vector=%d\n", arg_intv(vector));
+		ret = errno;
 		goto usq;
 	}
 

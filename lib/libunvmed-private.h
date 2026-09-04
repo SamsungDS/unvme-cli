@@ -95,6 +95,7 @@ struct unvme {
 	int *efds;
 	int nr_efds;
 	struct unvme_cq_reaper *reapers;
+	pthread_mutex_t irq_lock;
 
 	struct list_head ctx_list;
 
@@ -213,6 +214,13 @@ struct unvme_ctx {
 
 struct unvme_cq_reaper {
 	struct unvme *u;
+
+	/*
+	 * refcnt semantics:
+	 *   0      : reaper not initialized, or already torn down
+	 *   1      : reaper initialized, no CQ attached
+	 *   n >= 2 : reaper initialized, (n - 1) CQs attached
+	 */
 	int refcnt;
 
 	int vector;

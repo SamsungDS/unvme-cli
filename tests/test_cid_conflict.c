@@ -276,7 +276,7 @@ int main(int argc, char *argv[])
 	}
 
 	/*
-	 * init_ctrl leaves the controller disabled (CC.EN=0).  Create the admin
+	 * init_ctrl leaves the controller disabled (CC.En=0).  Create the admin
 	 * queue and enable the controller so admin commands (e.g. the Identify
 	 * Namespace inside unvmed_init_ns) can run.  Mirrors `unvme start` +
 	 * `unvme enable` defaults: iosqes=6, iocqes=4, mps=log2(pagesize)-12.
@@ -319,6 +319,12 @@ int main(int argc, char *argv[])
 	 * in polling mode (vector -1) two threads busy-polling the shared CQ
 	 * contend on the CQ spinlock and stall.
 	 */
+	if (unvmed_init_irq(u, QID)) {
+		fprintf(stderr, "unvmed_init_irq failed: %m\n");
+		unvmed_ns_put(u, ns);
+		unvmed_put(u);
+		return 1;
+	}
 	if (unvmed_create_cq(u, QID, QSIZE, QID, 1)) {
 		fprintf(stderr, "unvmed_create_cq failed: %m\n");
 		unvmed_ns_put(u, ns);

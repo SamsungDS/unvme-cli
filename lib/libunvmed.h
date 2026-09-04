@@ -3168,4 +3168,34 @@ void unvmed_del_thread(struct unvme *u);
  */
 struct json_object *unvmed_to_json(struct unvme *u);
 
+/**
+ * unvmed_init_irq - Initialize interrupt routing for a vector
+ * @u: &struct unvme
+ * @vector: interrupt vector (0 <= vector < nr_irqs)
+ *
+ * Wire @vector up in VFIO and start a reaper thread to reap the CQs attached
+ * to the vector.  Calling it again for a vector that is already initialized
+ * is a no-op.
+ *
+ * Must be called before unvmed_create_cq() / unvmed_init_cq() for the same
+ * vector.
+ *
+ * Return: 0 on success, ``-1`` with ``errno`` set on failure.
+ */
+int unvmed_init_irq(struct unvme *u, int vector);
+
+/**
+ * unvmed_free_irq - Tear down interrupt routing for a vector
+ * @u: &struct unvme
+ * @vector: interrupt vector previously initialized with unvmed_init_irq()
+ *
+ * Disable the VFIO IRQ, stop the reaper thread if one was started, and free
+ * the vector's eventfd and epoll resources.  The vector must have no CQ
+ * attached (refcnt == 1); otherwise ``-1`` is returned with ``errno`` set to
+ * ``EINVAL`` — delete the CQs first.
+ *
+ * Return: 0 on success, ``-1`` with ``errno`` set on failure.
+ */
+int unvmed_free_irq(struct unvme *u, int vector);
+
 #endif
