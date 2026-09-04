@@ -265,6 +265,7 @@ struct name {			\
 /*
  * struct unvme_sq - Submission queue instance
  * @id: submission queue identifier
+ * @cqid: completion queue identifier associated with this SQ
  * @qsize: submission queue size
  * @q: submission queue instance provided by libvfn
  * @ucq: unvme completion queue instance
@@ -279,6 +280,7 @@ struct name {			\
 #define unvme_declare_sq(name)	\
 struct name {			\
 	int id;			\
+	int cqid;		\
 	int qsize;		\
 	int qprio;		\
 	int pc;			\
@@ -329,7 +331,7 @@ struct name {			\
 #define unvmed_cq_iv(ucq)	((ucq)->vector)
 #define unvmed_sq_id(usq)	((usq)->id)
 #define unvmed_sq_size(usq)	((usq)->qsize)
-#define unvmed_sq_cqid(usq)	(unvmed_cq_id((usq)->ucq))
+#define unvmed_sq_cqid(usq)	((usq)->cqid)
 
 unvme_declare_ns(unvme_ns);
 unvme_declare_cq(unvme_cq);

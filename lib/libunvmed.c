@@ -2313,6 +2313,7 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 	usq->qprio = qprio;
 	usq->pc = pc;
 	usq->nvmsetid = nvmsetid;
+	usq->cqid = unvmed_cq_id(ucq);
 	usq->ucq = ucq;
 	ucq->usq = usq;
 	usq->flags = 0;
@@ -5822,7 +5823,7 @@ struct json_object *unvmed_to_json(struct unvme *u)
 		json_object_object_add(sq_obj, "iova",
 				       json_object_new_int64(usq->q->mem.iova));
 		json_object_object_add(sq_obj, "cqid",
-				       json_object_new_int(usq->ucq->id));
+				       json_object_new_int(usq->cqid));
 		json_object_object_add(sq_obj, "qprio",
 				       json_object_new_int(usq->qprio));
 		json_object_object_add(sq_obj, "pc",

@@ -758,7 +758,7 @@ void unvme_pr_status(const char *format, struct unvme *u, bool stats)
 
 		unvme_pr("%4d %18p %#18lx %4d %5d %2d %8d %4d %5d %5d %7d %6d\n",
 			 usq->id, usq->q->mem.vaddr, usq->q->mem.iova,
-			 usq->ucq->id, usq->qprio, usq->pc, usq->nvmsetid,
+			 usq->cqid, usq->qprio, usq->pc, usq->nvmsetid,
 			 usq->q->tail, usq->q->ptail, usq->qsize, usq->nr_cmds, usq->refcnt);
 	}
 	unvme_pr("\n");
