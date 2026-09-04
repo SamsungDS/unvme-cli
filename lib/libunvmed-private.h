@@ -6,7 +6,7 @@
 #include <ccan/list/list.h>
 
 struct unvme_ctx;
-struct unvme_cq_reaper;
+struct unvme_irq_vector;
 struct iommu_dmabuf;
 
 struct unvme {
@@ -94,7 +94,7 @@ struct unvme {
 
 	int *efds;
 	int nr_efds;
-	struct unvme_cq_reaper *reapers;
+	struct unvme_irq_vector *irq_vectors;
 	pthread_mutex_t irq_lock;
 
 	struct list_head ctx_list;
@@ -214,14 +214,14 @@ struct unvme_ctx {
 	struct list_node list;
 };
 
-struct unvme_cq_reaper {
+struct unvme_irq_vector {
 	struct unvme *u;
 
 	/*
 	 * refcnt semantics:
-	 *   0      : reaper not initialized, or already torn down
-	 *   1      : reaper initialized, no CQ attached
-	 *   n >= 2 : reaper initialized, (n - 1) CQs attached
+	 *   0      : vector not initialized, or already torn down
+	 *   1      : vector initialized, no CQ attached
+	 *   n >= 2 : vector initialized, (n - 1) CQs attached
 	 */
 	int refcnt;
 	unsigned int flags;	/* UNVMED_IRQ_F_* the vector was initialized with */
@@ -256,7 +256,7 @@ struct unvme_cq_reaper {
 	pthread_mutex_t cq_list_lock;
 };
 
-struct unvme_reaper_cq_entry {
+struct unvme_irq_vector_cq_entry {
 	struct unvme_cq *ucq;
 	struct list_node list;
 };

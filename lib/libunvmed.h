@@ -1183,7 +1183,7 @@ int unvmed_nr_irqs(struct unvme *u);
  * @u: &struct unvme
  *
  * Wake every IRQ reaper thread out of its blocking wait and join it, without
- * disturbing the controller state, IRQ refcounts or the reaper array.  Safe to
+ * disturbing the controller state, IRQ refcounts or the vector array.  Safe to
  * call concurrently with (and before) the normal teardown path
  * (unvmed_free_ctrl / unvmed_reset_ctrl); the later teardown re-joins
  * idempotently, so this only makes it a no-op.
