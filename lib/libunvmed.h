@@ -63,8 +63,12 @@ struct unvme_cmd;
 
 struct unvme_timer {
 	timer_t t;
-	struct timespec expire;  /* absolute time of the next expiration */
+	int64_t expire_ns;  /* absolute CLOCK_MONOTONIC time (ns) of next expiration */
 	bool active;
+
+	/* Cached at init so unvmed_timer_handler() (usq-only callback) can
+	 * reach @u without an unsafe usq->ucq dereference. */
+	struct unvme *u;
 };
 
 enum unvme_state {
@@ -1966,6 +1970,27 @@ int unvmed_unmap_vaddr(struct unvme *u, void *buf);
  */
 uint16_t unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 			 unsigned long flags);
+
+/**
+ * unvmed_cmd_post_timeout - Post a command with a per-command timeout
+ * @cmd: command instance (&struct unvme_cmd)
+ * @sqe: submission queue entry (&union nvme_cmd)
+ * @flags: control flags (enum unvmed_cmd_flags)
+ * @timeout_ms: per-command timeout in milliseconds.  ``-1`` falls back to
+ *           the controller-wide timeout (&struct unvme.timeout, in seconds);
+ *           ``0`` disables the timeout for this command; any positive value
+ *           overrides the controller-wide timeout for this command only.
+ *
+ * Same as unvmed_cmd_post(), but lets the caller override the timeout for
+ * this specific command instead of always using the controller-wide value.
+ *
+ * This API is not thread-safe.  Caller should acquire a lock by calling
+ * unvmed_sq_enter() for void the corresponding submission queue.
+ *
+ * Return: queue entry index written
+ */
+uint16_t unvmed_cmd_post_timeout(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+				 unsigned long flags, int timeout_ms);
 
 /**
  * unvmed_get_conflict_cmd - Get the conflict command instance of @usq

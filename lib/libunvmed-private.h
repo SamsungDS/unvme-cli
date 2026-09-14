@@ -295,18 +295,16 @@ static inline int __unvmed_cmd_wait(struct unvme_cmd *cmd)
 bool unvmed_cmd_expired(struct unvme_cmd *cmd, struct timespec *start,
 			struct timespec *next);
 
-static inline bool unvmed_timer_before(struct timespec *a, struct timespec *b)
-{
-	if (a->tv_sec != b->tv_sec)
-		return a->tv_sec < b->tv_sec;
-	return a->tv_nsec < b->tv_nsec;
-}
-
 static inline bool unvmed_timer_after(struct timespec *a, struct timespec *b)
 {
 	if (a->tv_sec != b->tv_sec)
 		return a->tv_sec > b->tv_sec;
 	return a->tv_nsec > b->tv_nsec;
+}
+
+static inline int64_t unvmed_timespec_to_ns(struct timespec *ts)
+{
+	return (int64_t)ts->tv_sec * 1000000000LL + ts->tv_nsec;
 }
 
 struct unvme_cmd *unvmed_get_cmd_from_cqe(struct unvme *u,

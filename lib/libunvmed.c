@@ -2038,20 +2038,20 @@ static void unvmed_cid_free(struct unvme_sq *usq)
 	free(bitmap->bits);
 }
 
-static int unvmed_timer_update(struct unvme_sq *usq, int sec)
+static int unvmed_timer_settime(struct unvme *u, struct unvme_sq *usq, int64_t expire_ns)
 {
 	struct unvme_timer *timer = &usq->timer;
-	struct itimerspec delta = {
-		.it_value.tv_sec = sec,
-		.it_value.tv_nsec = 0,
-		.it_interval.tv_sec = 0,
-		.it_interval.tv_nsec = 0,
-	};
+	struct itimerspec delta = { .it_interval = {0, 0} };
 	struct timespec now;
-	struct unvme *u = usq->ucq->u;
+	int64_t delta_ns;
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	timer->expire.tv_sec = now.tv_sec + delta.it_value.tv_sec;
+	delta_ns = expire_ns - unvmed_timespec_to_ns(&now);
+	if (delta_ns <= 0)
+		delta_ns = 1000000; /* 1ms floor: never arm in the past */
+
+	delta.it_value.tv_sec = delta_ns / 1000000000LL;
+	delta.it_value.tv_nsec = delta_ns % 1000000000LL;
 
 	if (timer_settime(timer->t, 0, &delta, NULL) < 0) {
 		unvmed_log_err("%s: failed to update timer expiration time", unvmed_bdf(u));
@@ -2059,6 +2059,40 @@ static int unvmed_timer_update(struct unvme_sq *usq, int sec)
 	}
 
 	return 0;
+}
+
+/*
+ * Re-arm @usq->timer for @expire_ns, unless it's already armed for
+ * something at least as urgent.
+ *
+ * The cached @timer->expire_ns is only trustworthy while still in the
+ * future -- once it reaches "now" the one-shot timer has already fired, so
+ * skip the "already covered" check and re-arm unconditionally.  This is
+ * why unvmed_timer_handler()'s own reschedule (always sees a past,
+ * just-fired @expire_ns) always re-arms, while unvmed_cmd_add_timer()'s
+ * opportunistic call can skip a redundant timer_settime() when a sooner
+ * deadline is genuinely still armed.
+ *
+ * The CAS on @timer->expire_ns lets both callers race here without
+ * @usq->lock: only the winning side calls timer_settime(), so a later,
+ * less urgent deadline can never clobber an earlier, more urgent one.
+ */
+static void unvmed_timer_rearm(struct unvme *u, struct unvme_sq *usq, int64_t expire_ns)
+{
+	struct unvme_timer *timer = &usq->timer;
+	struct timespec now;
+	int64_t now_ns, curr;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	now_ns = unvmed_timespec_to_ns(&now);
+
+	do {
+		curr = atomic_load_acquire(&timer->expire_ns);
+		if (curr > now_ns && curr <= expire_ns)
+			return;
+	} while (!atomic_cmpxchg(&timer->expire_ns, curr, expire_ns));
+
+	unvmed_timer_settime(u, usq, expire_ns);
 }
 
 static void unvmed_cmd_cmpl(struct unvme_cmd *cmd, struct nvme_cqe *cqe)
@@ -2108,6 +2142,7 @@ static void unvmed_cmd_timeout(struct unvme_cmd *cmd)
 static void unvmed_timer_handler(union sigval sv)
 {
 	struct unvme_sq *usq = (struct unvme_sq *)sv.sival_ptr;
+	struct unvme *u = usq->timer.u;
 	struct unvme_cmd *cmd;
 	struct timespec now;
 	struct timespec next = {0, };
@@ -2145,7 +2180,10 @@ static void unvmed_timer_handler(union sigval sv)
 
 	/*
 	 * If any is expired, quiesce the corresponding @usq to handle timeout
-	 * just like the reset handler.
+	 * just like the reset handler.  This @usq->lock is unrelated to the
+	 * reschedule below -- it only serializes the actual cancellation
+	 * (fake CQE + FROZEN flag) against a concurrent post; see
+	 * unvmed_timer_rearm() for how the reschedule itself is synchronized.
 	 */
 	if (timedout) {
 		timedout = false;
@@ -2167,9 +2205,18 @@ static void unvmed_timer_handler(union sigval sv)
 
 		/*
 		 * If any timedout, we don't unquiesce SQs for debuggability.
+		 *
+		 * Also disable @usq: unvmed_cmd_post_timeout()/alloc() never
+		 * check FROZEN, so without this a fresh command would still
+		 * post normally to a timed-out SQ.  usq->enabled is checked
+		 * by callers upstream of that (see SubmissionQueueDriver.
+		 * lock() in ctests), so this is what actually stops further
+		 * commands from being queued here.
 		 */
-		if (timedout)
+		if (timedout) {
 			STORE(usq->flags, usq->flags | UNVMED_SQ_F_FROZEN);
+			unvmed_disable_sq(usq);
+		}
 
 		unvmed_sq_exit(usq);
 
@@ -2178,15 +2225,13 @@ static void unvmed_timer_handler(union sigval sv)
 		 * keep the timer running to check them later.
 		 */
 		if (next.tv_sec) {
-			int delta = next.tv_sec - now.tv_sec;
-
-			unvmed_timer_update(usq, delta > 0 ? delta : 1);
+			unvmed_timer_rearm(u, usq, unvmed_timespec_to_ns(&next));
 			return;
 		}
 
 		atomic_store_release(&usq->timer.active, false);
 		unvmed_log_debug("%s: sq%d: command timedout detected, terminated.",
-				unvmed_bdf(usq->ucq->u), unvmed_sq_id(usq));
+				unvmed_bdf(u), unvmed_sq_id(usq));
 		return;
 	}
 
@@ -2196,12 +2241,13 @@ static void unvmed_timer_handler(union sigval sv)
 	 * seconds.
 	 */
 	if (!next.tv_sec)
-		unvmed_timer_update(usq, usq->ucq->u->timeout);
+		unvmed_timer_rearm(u, usq, unvmed_timespec_to_ns(&now) +
+				   (int64_t)u->timeout * 1000000000LL);
 	else
-		unvmed_timer_update(usq, next.tv_sec - now.tv_sec);
+		unvmed_timer_rearm(u, usq, unvmed_timespec_to_ns(&next));
 }
 
-static int unvmed_timer_init(struct unvme_timer *timer, void *opaque)
+static int unvmed_timer_init(struct unvme *u, struct unvme_timer *timer, void *opaque)
 {
 	struct sigevent sev = {
 		.sigev_notify = SIGEV_THREAD,
@@ -2209,13 +2255,13 @@ static int unvmed_timer_init(struct unvme_timer *timer, void *opaque)
 		.sigev_notify_attributes = NULL,
 		.sigev_value.sival_ptr = opaque,
 	};
-	struct unvme_sq *usq = (struct unvme_sq *)opaque;
 
 	if (timer_create(CLOCK_MONOTONIC, &sev, &timer->t) < 0) {
-		unvmed_log_err("%s: failed to create timer", unvmed_bdf(usq->ucq->u));
+		unvmed_log_err("%s: failed to create timer", unvmed_bdf(u));
 		return -1;
 	}
 
+	timer->u = u;
 	atomic_store_release(&timer->active, true);
 	return 0;
 }
@@ -2228,17 +2274,6 @@ static int unvmed_timer_free(struct unvme_timer *timer)
 	 */
 	atomic_store_release(&timer->active, false);
 	return timer_delete(timer->t);
-}
-
-bool unvmed_timer_running(struct unvme_timer *timer)
-{
-	struct itimerspec curr;
-
-	timer_gettime(timer->t, &curr);
-
-	if (curr.it_value.tv_sec > 0 || curr.it_value.tv_nsec > 0)
-		return true;
-	return false;
 }
 
 static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
@@ -2286,7 +2321,7 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		 * the future since @usq instance will never be freed without
 		 * terminating the pending timer.
 		 */
-		if (unvmed_timer_init(&usq->timer, usq)) {
+		if (unvmed_timer_init(u, &usq->timer, usq)) {
 			unvmed_cid_free(usq);
 			free(usq->cmds);
 			free(usq->conflict_cmds);
@@ -4212,23 +4247,28 @@ int unvmed_unmap_vaddr(struct unvme *u, void *buf)
 	return ret;
 }
 
-static void unvmed_cmd_add_timer(struct unvme_cmd *cmd)
+static void unvmed_cmd_add_timer(struct unvme_cmd *cmd, int timeout_ms)
 {
-	int timeout = cmd->u->timeout;
+	struct unvme_timer *timer = &cmd->usq->timer;
+	int64_t expire_ns;
 
 	clock_gettime(CLOCK_MONOTONIC, &cmd->timeout);
-	cmd->timeout.tv_sec += timeout;
+	expire_ns = unvmed_timespec_to_ns(&cmd->timeout) + (int64_t)timeout_ms * 1000000LL;
+	cmd->timeout.tv_sec = expire_ns / 1000000000LL;
+	cmd->timeout.tv_nsec = expire_ns % 1000000000LL;
 
-	if (atomic_load_acquire(&cmd->usq->timer.active) &&
-			!unvmed_timer_running(&cmd->usq->timer))
-		unvmed_timer_update(cmd->usq, cmd->u->timeout);
+	if (!atomic_load_acquire(&timer->active))
+		return;
+
+	unvmed_timer_rearm(cmd->u, cmd->usq, expire_ns);
 }
 
-uint16_t unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
-			 unsigned long flags)
+uint16_t unvmed_cmd_post_timeout(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+				 unsigned long flags, int timeout_ms)
 {
 	uint16_t idx = cmd->rq->sq->tail;
 	int nr_cmds;
+	int effective_timeout_ms;
 
 	sqe->cid = cmd->cid;
 	nvme_sq_post(cmd->rq->sq, (union nvme_cmd *)sqe);
@@ -4240,13 +4280,27 @@ uint16_t unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
 		nr_cmds = cmd->u->nr_cmds;
 	} while (!atomic_cmpxchg(&cmd->u->nr_cmds, nr_cmds, nr_cmds + 1));
 
-	if (cmd->u->timeout)
-		unvmed_cmd_add_timer(cmd);
+	/*
+	 * @timeout_ms == -1 is the sentinel for "no per-cmd override given",
+	 * meaning fall back to the controller-wide default (cmd->u->timeout),
+	 * matching the pre-existing unvmed_cmd_post() behavior exactly.
+	 * cmd->u->timeout is in *seconds*, so convert to ms here.
+	 */
+	effective_timeout_ms = (timeout_ms == -1) ?
+		cmd->u->timeout * 1000 : timeout_ms;
+	if (effective_timeout_ms)
+		unvmed_cmd_add_timer(cmd, effective_timeout_ms);
 
 	if (!(flags & UNVMED_CMD_F_NODB))
 		nvme_sq_update_tail(cmd->rq->sq);
 
 	return idx;
+}
+
+uint16_t unvmed_cmd_post(struct unvme_cmd *cmd, union nvme_cmd *sqe,
+			 unsigned long flags)
+{
+	return unvmed_cmd_post_timeout(cmd, sqe, flags, -1);
 }
 
 static struct unvme_cmd *unvmed_get_cmd_on_reaper(struct unvme *u,
