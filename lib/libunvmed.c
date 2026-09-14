@@ -2299,6 +2299,23 @@ static struct unvme_sq *unvmed_init_usq(struct unvme *u, uint32_t qid,
 		return NULL;
 	}
 
+	/*
+	 * On SQ recreation (alloc == false) the @cmds array, cid pool, and @vcq
+	 * were allocated for the original @usq->qsize and are never reallocated
+	 * in this function.  Allowing a different @qsize here would let later
+	 * cancel/reap loops index @usq->cmds with the new (larger) @qsize,
+	 * reading past the original allocation and crashing (SIGSEGV).  Reject it
+	 * until recreation with a changed qsize is properly supported.
+	 */
+	if (!alloc && usq->qsize != qsize) {
+		unvmed_log_err("%s: cannot recreate sq (qid=%u) with changed qsize "
+			       "(cur=%u, new=%u)", unvmed_bdf(u), qid,
+			       usq->qsize, qsize);
+		unvmed_sq_put(u, usq);
+		errno = EINVAL;
+		return NULL;
+	}
+
 	if (alloc) {
 		usq->id = qid;
 		pthread_spin_init(&usq->lock, 0);
