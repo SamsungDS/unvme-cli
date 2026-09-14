@@ -6,6 +6,7 @@ tests_inc = include_directories('.')
 test_apps = {
   'test_cid_conflict': 'test_cid_conflict.c',
   'test_irq_no_reaper': 'test_irq_no_reaper.c',
+  'test_cmd_timeout': 'test_cmd_timeout.c',
 }
 
 foreach name, src : test_apps
