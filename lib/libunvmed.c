@@ -3433,6 +3433,20 @@ static void unvmed_discard_sq(struct unvme *u, uint32_t qid)
 	usq = u->sqs[qid];
 	if (usq && usq->q) {
 		unvmed_sq_enter(usq);
+		/*
+		 * When @usq->nr_cmds is greater than 0, inflight commands must
+		 * be processed.  However, cmd completion is performed by other
+		 * threads which also need to acquire @usq->lock.
+		 *
+		 * To prevent starvation and allow other threads to complete
+		 * commands, release @usq->lock and re-acquire it. This gives
+		 * other threads a window to acquire the lock and process their
+		 * pending completions.
+		 */
+		while (atomic_load_acquire(&usq->nr_cmds) != 0) {
+			unvmed_sq_exit(usq);
+			unvmed_sq_enter(usq);
+		}
 		sq = usq->q;
 		if (u->sqs[qid])
 			unvmed_sq_disable(usq);
