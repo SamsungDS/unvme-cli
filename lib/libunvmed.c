@@ -3596,26 +3596,8 @@ int __unvmed_enable_ctrl(struct unvme *u, uint8_t iosqes, uint8_t iocqes,
 	while (1) {
 		csts = unvmed_read32(u, NVME_REG_CSTS);
 		if (csts == 0xffffffff) {
-			/*
-			 * BAR0 all-ones can mean either the device is dead or
-			 * another thread is driving a link-dropping reset
-			 * (SBR / hot reset) that has torn the config space
-			 * down.  If an in-progress reset state is already
-			 * committed by that other thread, treat this as a
-			 * nested reset and yield rather than escalating to
-			 * FATAL.
-			 */
-			if (__unvmed_ctrl_get_state(u) == UNVME_RESETTING) {
-				unvmed_log_err("%s: Controller state (@u->state) \
-						goes UNVME_RESETTING while \
-						waiting for CSTS.RDY",
-						unvmed_bdf(u));
-				errno = EADDRNOTAVAIL;
-				return -1;
-			}
-
+			errno = EADDRNOTAVAIL;
 			unvmed_log_err("%s: BAR0 inaccessible", unvmed_bdf(u));
-			errno = ENODEV;
 
 			if (state)
 				__unvmed_ctrl_set_state(u, UNVME_FATAL);
