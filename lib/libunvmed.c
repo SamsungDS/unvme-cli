@@ -4438,6 +4438,16 @@ static struct nvme_cqe *__unvmed_get_completion(struct unvme *u,
 	}
 
 	unvmed_cq_enter(ucq);
+	/*
+	 * If other threads discard the given @ucq, SEGFAULT can be occured
+	 * here because the @ucq->q is set to NULL. To prevent this, we have to
+	 * check the given @ucq->q is not NULL. If NULL, just release lock and
+	 * go out.
+	 */
+	if (!ucq->q) {
+		unvmed_cq_exit(ucq);
+		return NULL;
+	}
 	cqe = unvmed_get_completion(u, ucq);
 	if (cqe) {
 		cmd = unvmed_get_cmd(usq, cqe->cid);
