@@ -2878,6 +2878,22 @@ static void fio_libunvmed_terminate(struct thread_data *td)
 		STORE(ld->terminate, true);
 }
 
+/*
+ * fio_libunvmed_stop - flag every job to stop, draining inflight I/O
+ *
+ * Unlike fio_libunvmed_terminate(), this does NOT set ld->terminate, so
+ * fio_libunvmed_getevents() keeps draining until @min completions arrive
+ * and fio's cleanup reaps the rest — the same path as a natural end.
+ * Inflight commands are drained, not dropped.
+ */
+void fio_libunvmed_stop(void)
+{
+	for_each_td(td) {
+		if (!td->terminate)
+			fio_mark_td_terminate(td);
+	} end_for_each();
+}
+
 static int fio_libunvmed_getevents(struct thread_data *td, unsigned int min,
 				unsigned int max, const struct timespec *t)
 {
