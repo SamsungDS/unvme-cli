@@ -3432,6 +3432,10 @@ static void unvmed_discard_sq(struct unvme *u, uint32_t qid)
 	pthread_rwlock_rdlock(&u->sqs_lock);
 	usq = u->sqs[qid];
 	if (usq && usq->q) {
+retry:
+		while (atomic_load_acquire(&usq->nr_cmds) > 0)
+			;
+
 		unvmed_sq_enter(usq);
 		/*
 		 * When @usq->nr_cmds is greater than 0, inflight commands must
@@ -3443,10 +3447,11 @@ static void unvmed_discard_sq(struct unvme *u, uint32_t qid)
 		 * other threads a window to acquire the lock and process their
 		 * pending completions.
 		 */
-		while (atomic_load_acquire(&usq->nr_cmds) != 0) {
+		if (atomic_load_acquire(&usq->nr_cmds) > 0) {
 			unvmed_sq_exit(usq);
-			unvmed_sq_enter(usq);
+			goto retry;
 		}
+
 		sq = usq->q;
 		if (u->sqs[qid])
 			unvmed_sq_disable(usq);
